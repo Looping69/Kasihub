@@ -7,3 +7,4 @@
 - Recommended runtime: mount persistent /data and set DATABASE_URL=file:/data/custom.db; expose 3000 behind Caddy or host port mapping.
 
 - 2026-07-10: Confirmed this workspace is already a Git repository (git rev-parse --is-inside-work-tree returned true). There are existing modified files plus new Docker artifacts; no re-init performed.
+- 2026-07-10: Created initial Git commit on main (`git commit -m "Initial commit"`, hash 6f8a0bb). Working tree may remain dirty if breadcrumb updates are kept uncommitted.
