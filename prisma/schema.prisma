@@ -1,0 +1,209 @@
+// KaSiHUB - Hybrid Ecosystem Database Schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// MEMBERS - Central entity of the KasiHub ecosystem
+// ============================================================
+model Member {
+  id              String   @id @default(cuid())
+  profileNumber   String   @unique
+  membershipType  String   // "INDIVIDUAL_ADULT" | "INDIVIDUAL_KIDS" | "COMPANY"
+  firstName       String?
+  lastName        String?
+  companyName     String?
+  companyRegNo    String?
+  idPassport      String?  @unique
+  sarsNumber      String?
+  email           String   @unique
+  country         String
+  mobile          String
+  addressLine     String?
+  city            String?
+  postalCode      String?
+  profilePicture  String?
+  beneficiaryName String?
+  beneficiaryId   String?
+  guardianName    String?  // for kids
+  kycStatus       String   @default("PENDING") // PENDING | VERIFIED | REJECTED
+  kycVerifiedAt   DateTime?
+  subscriptionStatus String @default("PENDING") // PENDING | ACTIVE | LAPSED
+  subscriptionAmount Float @default(140)
+  subscriptionCurrency String @default("ZAR")
+  paymentMethod   String?  // BANK | CARD | EFT
+  taxThreshold    Boolean  @default(false) // true when earning > R7000/month
+  monthlyEarnings Float    @default(0)
+  nfcTagId        String?
+  visaCardLast4   String?
+  rootsBankAccount String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  matrixNode      MatrixNode?
+  shares          Share[]
+  subscriptions   Subscription[]
+  transactions    Transaction[]
+  marketplaceOrders MarketplaceOrder[]
+  rootsBankShares RootsBankShare[]
+  poolDistributions KasiPoolDistribution[]
+}
+
+// ============================================================
+// MATRIX - 5 x 6 Forced Ecosystem structure
+// ============================================================
+model MatrixNode {
+  id          String   @id @default(cuid())
+  memberId    String   @unique
+  member      Member   @relation(fields: [memberId], references: [id])
+  parentId    String?  // upline / sponsor
+  level       Int      // 0-5 (6 levels)
+  position    Int      // 0-4 (5 positions per level) -- flattened index
+  nodeIndex   Int      // global position in fill order (top-left to bottom-right)
+  sponsorId   String?  // direct recruiter
+  createdAt   DateTime @default(now())
+}
+
+// ============================================================
+// SUBSCRIPTIONS - Monthly R140 membership payments
+// ============================================================
+model Subscription {
+  id          String   @id @default(cuid())
+  memberId    String
+  member      Member   @relation(fields: [memberId], references: [id])
+  amount      Float
+  currency    String   // ZAR | USD
+  method      String   // BANK | CARD | EFT
+  status      String   @default("PAID") // PAID | PENDING | FAILED
+  period      String   // e.g. "2025-01"
+  createdAt   DateTime @default(now())
+}
+
+// ============================================================
+// KASI SHARES - Class B shares sold in phases
+// ============================================================
+model Share {
+  id              String   @id @default(cuid())
+  memberId        String
+  member          Member   @relation(fields: [memberId], references: [id])
+  phase           Int      // 1, 2, 3...
+  pricePerShare   Float    // USD
+  quantity        Int
+  totalAmount     Float
+  certificateNo   String   @unique
+  prevCertificateNo String? // revoked certificate if upgraded
+  status          String   @default("ACTIVE") // ACTIVE | REVOKED
+  createdAt       DateTime @default(now())
+}
+
+// ============================================================
+// ROOTS BANK SHARES - Pioneer 200 members program
+// ============================================================
+model RootsBankShare {
+  id            String   @id @default(cuid())
+  memberId      String
+  member        Member   @relation(fields: [memberId], references: [id])
+  category      String   // KIDS_STUDENT | ADULT | PENSIONER
+  sharePrice    Float    @default(500)
+  membershipFee Float    // 50 or 200
+  totalAmount   Float    // 550 or 700
+  paymentRef    String?
+  pioneerPool   Boolean  @default(true) // eligible for 1% PioneerPool
+  status        String   @default("REGISTERED")
+  createdAt     DateTime @default(now())
+}
+
+// ============================================================
+// KASIPOOL - Equal-share profit distributions paid nightly
+// ============================================================
+model KasiPoolDistribution {
+  id          String   @id @default(cuid())
+  memberId    String
+  member      Member   @relation(fields: [memberId], references: [id])
+  amount      Float
+  source      String   // MARKETPLACE | MALL | SUBSCRIPTION_DIFF
+  payoutDate  DateTime @default(now())
+  status      String   @default("PAID")
+}
+
+// ============================================================
+// MARKETPLACE - Third-party products and services
+// ============================================================
+model MarketplaceProduct {
+  id            String   @id @default(cuid())
+  name          String
+  description   String
+  category      String   // GROCERIES | AIRTIME | UTILITIES | INSURANCE | TRANSPORT | HEALTH
+  provider      String
+  price         Float
+  currency      String   @default("ZAR")
+  commissionPct Float    // commission/cashback % paid to KasiPool
+  imageColor    String   // tailwind gradient seed
+  rating        Float    @default(4.5)
+  popular       Boolean  @default(false)
+  createdAt     DateTime @default(now())
+}
+
+model MarketplaceOrder {
+  id          String   @id @default(cuid())
+  memberId    String
+  member      Member   @relation(fields: [memberId], references: [id])
+  productId   String
+  productName String
+  amount      Float
+  commission  Float    // amount sent to KasiPool
+  status      String   @default("COMPLETED")
+  createdAt   DateTime @default(now())
+}
+
+// ============================================================
+// KASIMALL - Physical cashless mall transactions
+// ============================================================
+model MallTransaction {
+  id          String   @id @default(cuid())
+  nfcTagId    String
+  storeName   String
+  amount      Float
+  // Smart contract silo splits
+  costOfSale  Float    // supplier
+  vat         Float
+  sharePool   Float    // KasiShare pool
+  kasiPool    Float    // KasiHub pool
+  status      String   @default("COMPLETED")
+  createdAt   DateTime @default(now())
+}
+
+// ============================================================
+// TRANSACTIONS - General ledger for member wallets
+// ============================================================
+model Transaction {
+  id          String   @id @default(cuid())
+  memberId    String
+  member      Member   @relation(fields: [memberId], references: [id])
+  type        String   // SUBSCRIPTION | MATRIX_PAYOUT | POOL_PAYOUT | DIVIDEND | DAILY_SHARE | SHARE_PURCHASE | MARKETPLACE | MALL | PIONEER | KYC
+  amount      Float    // positive = credit, negative = debit
+  description String
+  status      String   @default("COMPLETED")
+  createdAt   DateTime @default(now())
+}
+
+// ============================================================
+// SHARE PHASES - Phase configuration (editable by Exco)
+// ============================================================
+model SharePhase {
+  id              String   @id @default(cuid())
+  phase           Int      @unique
+  pricePerShare   Float    // USD
+  totalShares     Int
+  soldShares      Int      @default(0)
+  status          String   @default("OPEN") // OPEN | SOLD_OUT | UPCOMING
+  bonusBuyOneGet  Boolean  @default(false) // Phase 1 BOGO
+  createdAt       DateTime @default(now())
+}
