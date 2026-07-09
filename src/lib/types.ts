@@ -43,6 +43,7 @@ export interface Member {
   nfcTagId: string | null;
   visaCardLast4: string | null;
   rootsBankAccount: string | null;
+  isAdmin: boolean;
   createdAt: string;
 }
 

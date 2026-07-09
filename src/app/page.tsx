@@ -4,11 +4,12 @@ import { useEffect, useState } from "react";
 import { useKasiStore } from "@/lib/store";
 import { Landing } from "@/components/landing";
 import { AppShell } from "@/components/app-shell";
+import { AdminShell } from "@/components/admin-shell";
 import { RegistrationWizard } from "@/components/registration-wizard";
 import { Toaster } from "@/components/ui/sonner";
 
 export default function Home() {
-  const { isAuthenticated, registrationOpen } = useKasiStore();
+  const { isAuthenticated, registrationOpen, adminMode } = useKasiStore();
   const [booted, setBooted] = useState(false);
 
   // Auto-login the demo member on first load so the dashboard is explorable.
@@ -59,7 +60,7 @@ export default function Home() {
 
   return (
     <>
-      {isAuthenticated ? <AppShell /> : <Landing />}
+      {isAuthenticated ? (adminMode ? <AdminShell /> : <AppShell />) : <Landing />}
       {registrationOpen && <RegistrationWizard />}
       <Toaster richColors position="top-right" />
     </>

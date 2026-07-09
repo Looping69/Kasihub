@@ -35,7 +35,7 @@ const NAV: { key: ViewKey; label: string; icon: typeof LayoutDashboard; desc: st
 ];
 
 export function AppShell() {
-  const { currentMember, activeView, setView, logout, sidebarOpen, setSidebarOpen } = useKasiStore();
+  const { currentMember, activeView, setView, logout, sidebarOpen, setSidebarOpen, setAdminMode } = useKasiStore();
   const [walletBalance, setWalletBalance] = useState<number | null>(null);
 
   useEffect(() => {
@@ -103,6 +103,13 @@ export function AppShell() {
                   </p>
                 </div>
               </div>
+
+              {/* Admin toggle (only for admin members) */}
+              {currentMember?.isAdmin && (
+                <Button variant="outline" size="sm" onClick={() => setAdminMode(true)} className="border-amber-300 text-amber-700 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-950/30">
+                  <ShieldCheck className="h-3.5 w-3.5 mr-1.5" /> Admin
+                </Button>
+              )}
 
               <Button variant="ghost" size="icon" className="relative">
                 <Bell className="h-5 w-5" />
