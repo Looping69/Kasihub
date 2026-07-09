@@ -43,6 +43,7 @@ model Member {
   nfcTagId        String?
   visaCardLast4   String?
   rootsBankAccount String?
+  isAdmin         Boolean  @default(false)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -206,4 +207,42 @@ model SharePhase {
   status          String   @default("OPEN") // OPEN | SOLD_OUT | UPCOMING
   bonusBuyOneGet  Boolean  @default(false) // Phase 1 BOGO
   createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+// ============================================================
+// SILO CONFIG - Exco-editable mall payment split percentages
+// ============================================================
+model SiloConfig {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  percentage  Float
+  description String?
+  color       String
+  sortOrder   Int      @default(0)
+  updatedAt   DateTime @updatedAt
+}
+
+// ============================================================
+// SETTINGS - Key-value config (commission rates, thresholds, etc.)
+// ============================================================
+model Setting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String   // JSON-encoded value
+  category  String   @default("general")
+  updatedAt DateTime @updatedAt
+}
+
+// ============================================================
+// DIVIDEND DECLARATIONS - KasiMall dividend declarations
+// ============================================================
+model DividendDeclaration {
+  id             String   @id @default(cuid())
+  amount         Float    // total amount distributed
+  totalShares    Int      // total eligible shares at declaration time
+  perShareAmount Float    // amount / totalShares
+  status         String   @default("DECLARED") // DECLARED | PAID
+  declaredAt     DateTime @default(now())
+  paidAt         DateTime?
 }

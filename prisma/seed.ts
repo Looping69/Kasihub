@@ -70,6 +70,34 @@ async function main() {
   await db.matrixNode.deleteMany();
   await db.subscription.deleteMany();
   await db.member.deleteMany();
+  await db.siloConfig.deleteMany();
+  await db.setting.deleteMany();
+  await db.dividendDeclaration.deleteMany();
+
+  // 0a. Silo Config (Exco-editable mall payment splits)
+  const SILOS = [
+    { name: "Cost of Sale (Suppliers)", percentage: 65, description: "Paid to suppliers for goods sold at KasiMall stores", color: "oklch(0.55 0.08 50)", sortOrder: 1 },
+    { name: "VAT", percentage: 15, description: "Value Added Tax remitted to SARS", color: "oklch(0.65 0.18 145)", sortOrder: 2 },
+    { name: "KasiShare Pool", percentage: 10, description: "Distributed daily to KasiShare holders", color: "oklch(0.75 0.15 80)", sortOrder: 3 },
+    { name: "KasiPool", percentage: 10, description: "Shared equally among eligible Hub members, paid nightly", color: "oklch(0.52 0.13 158)", sortOrder: 4 },
+  ];
+  for (const s of SILOS) {
+    await db.siloConfig.create({ data: s });
+  }
+
+  // 0b. Settings (commission rates, thresholds, etc.)
+  await db.setting.create({ data: { key: "commission_per_level", value: JSON.stringify([20, 10, 8, 5, 3, 1]), category: "matrix" } });
+  await db.setting.create({ data: { key: "subscription_amount_individual", value: "140", category: "subscription" } });
+  await db.setting.create({ data: { key: "subscription_amount_company", value: "300", category: "subscription" } });
+  await db.setting.create({ data: { key: "subscription_amount_intl_individual", value: "20", category: "subscription" } });
+  await db.setting.create({ data: { key: "subscription_amount_intl_company", value: "50", category: "subscription" } });
+  await db.setting.create({ data: { key: "tax_threshold_monthly", value: "7000", category: "tax" } });
+  await db.setting.create({ data: { key: "tax_rate", value: "25", category: "tax" } });
+  await db.setting.create({ data: { key: "pioneer_pool_pct", value: "1", category: "rootsbank" } });
+  await db.setting.create({ data: { key: "pioneer_pool_target", value: "200", category: "rootsbank" } });
+  await db.setting.create({ data: { key: "mall_member_threshold", value: "5000", category: "mall" } });
+  await db.setting.create({ data: { key: "daily_profit_pool_usd", value: "2000", category: "shares" } });
+  await db.setting.create({ data: { key: "payout_time_sast", value: "12:00", category: "pool" } });
 
   // 1. Share Phases
   for (const sp of SHARE_PHASES) {
@@ -360,8 +388,66 @@ async function main() {
     });
   }
 
+  // 12. Admin member (JP - Exco / platform administrator)
+  const adminMember = await db.member.create({
+    data: {
+      profileNumber: "KSH-ADMIN-001",
+      membershipType: "INDIVIDUAL_ADULT",
+      firstName: "JP",
+      lastName: "Administrator",
+      idPassport: "7001015000091",
+      sarsNumber: "1234567890",
+      email: "admin@kasihub.co.za",
+      country: "South Africa",
+      mobile: "+27 83 000 0000",
+      addressLine: "1 Solidus Way",
+      city: "Johannesburg",
+      postalCode: "2000",
+      beneficiaryName: "Admin Beneficiary",
+      beneficiaryId: "8001010000001",
+      kycStatus: "VERIFIED",
+      kycVerifiedAt: new Date(),
+      subscriptionStatus: "ACTIVE",
+      subscriptionAmount: 140,
+      subscriptionCurrency: "ZAR",
+      paymentMethod: "BANK",
+      monthlyEarnings: 0,
+      isAdmin: true,
+    },
+  });
+  // Place admin in matrix too (nodeIndex after all demo members)
+  await db.matrixNode.create({
+    data: {
+      memberId: adminMember.id,
+      parentId: null,
+      level: 0,
+      position: 1,
+      nodeIndex: 999,
+      sponsorId: null,
+    },
+  });
+
+  // 13. Dividend declarations (past 3 months)
+  for (let i = 0; i < 3; i++) {
+    const totalShares = 18420 + i * 200;
+    const amount = 50000 + i * 12000;
+    await db.dividendDeclaration.create({
+      data: {
+        amount,
+        totalShares,
+        perShareAmount: parseFloat((amount / totalShares).toFixed(4)),
+        status: "PAID",
+        declaredAt: new Date(Date.now() - (3 - i) * 30 * 24 * 60 * 60 * 1000),
+        paidAt: new Date(Date.now() - (3 - i) * 30 * 24 * 60 * 60 * 1000 + 24 * 60 * 60 * 1000),
+      },
+    });
+  }
+
+  console.log(`  ✓ Created admin member (JP), silo config, settings, dividend declarations`);
   console.log(`  ✓ Created shares, subscriptions, transactions, mall transactions, marketplace orders`);
-  console.log(`\n✅ Seed complete! Demo member: ${demoMember.email} (Profile: ${demoMember.profileNumber})`);
+  console.log(`\n✅ Seed complete!`);
+  console.log(`   Demo member: ${demoMember.email} (Profile: ${demoMember.profileNumber})`);
+  console.log(`   Admin member: ${adminMember.email} (Profile: ${adminMember.profileNumber})`);
 }
 
 main()

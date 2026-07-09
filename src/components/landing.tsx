@@ -4,8 +4,9 @@ import { useState } from "react";
 import { motion } from "framer-motion";
 import {
   ArrowRight, Users, Network, ShoppingBag, Building2, Landmark,
-  Sparkles, ShieldCheck, Wallet, TrendingUp, Coins, QrCode,
+  Sparkles, Wallet, TrendingUp, Coins, QrCode,
   CheckCircle2, Phone, Mail, MapPin, Menu, X, ChevronRight,
+  ShieldCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -81,6 +82,18 @@ export function Landing() {
     }
   }
 
+  async function handleAdminLogin() {
+    try {
+      const res = await fetch("/api/auth/login?role=admin", { cache: "no-store" });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.member) login(data.member.id, data.member);
+      }
+    } catch {
+      // ignore
+    }
+  }
+
   return (
     <div className="min-h-screen flex flex-col bg-background">
       {/* Header */}
@@ -103,6 +116,9 @@ export function Landing() {
             </nav>
 
             <div className="flex items-center gap-2">
+              <Button variant="ghost" size="sm" onClick={handleAdminLogin} className="hidden sm:inline-flex text-amber-700 hover:text-amber-800 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-950/30">
+                <ShieldCheck className="h-4 w-4 mr-1" /> Admin
+              </Button>
               <Button variant="ghost" size="sm" onClick={handleEnter} className="hidden sm:inline-flex">
                 Enter demo
               </Button>

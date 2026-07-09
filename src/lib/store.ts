@@ -4,6 +4,17 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { ViewKey, Member } from "@/lib/types";
 
+export type AdminViewKey =
+  | "overview"
+  | "members"
+  | "matrix"
+  | "shares"
+  | "marketplace"
+  | "mall"
+  | "pool"
+  | "rootsbank"
+  | "settings";
+
 interface KasiState {
   // Auth / current member
   currentMemberId: string | null;
@@ -12,7 +23,11 @@ interface KasiState {
 
   // Navigation
   activeView: ViewKey;
+  adminView: AdminViewKey;
   sidebarOpen: boolean;
+
+  // Admin mode
+  adminMode: boolean;
 
   // Registration wizard
   registrationOpen: boolean;
@@ -22,7 +37,9 @@ interface KasiState {
   login: (memberId: string, member: Member) => void;
   logout: () => void;
   setView: (view: ViewKey) => void;
+  setAdminView: (view: AdminViewKey) => void;
   setSidebarOpen: (open: boolean) => void;
+  setAdminMode: (on: boolean) => void;
   openRegistration: () => void;
   closeRegistration: () => void;
 }
@@ -34,7 +51,9 @@ export const useKasiStore = create<KasiState>()(
       currentMember: null,
       isAuthenticated: false,
       activeView: "dashboard",
+      adminView: "overview",
       sidebarOpen: false,
+      adminMode: false,
       registrationOpen: false,
 
       setMember: (member) =>
@@ -42,6 +61,7 @@ export const useKasiStore = create<KasiState>()(
           currentMember: member,
           currentMemberId: member?.id ?? null,
           isAuthenticated: !!member,
+          adminMode: member?.isAdmin ?? false,
         }),
 
       login: (memberId, member) =>
@@ -50,6 +70,8 @@ export const useKasiStore = create<KasiState>()(
           currentMember: member,
           isAuthenticated: true,
           activeView: "dashboard",
+          adminView: "overview",
+          adminMode: member.isAdmin,
         }),
 
       logout: () =>
@@ -58,12 +80,19 @@ export const useKasiStore = create<KasiState>()(
           currentMember: null,
           isAuthenticated: false,
           activeView: "dashboard",
+          adminView: "overview",
+          adminMode: false,
         }),
 
       setView: (view) =>
         set({ activeView: view, sidebarOpen: false }),
 
+      setAdminView: (view) =>
+        set({ adminView: view, sidebarOpen: false }),
+
       setSidebarOpen: (open) => set({ sidebarOpen: open }),
+
+      setAdminMode: (on) => set({ adminMode: on, sidebarOpen: false }),
 
       openRegistration: () => set({ registrationOpen: true }),
       closeRegistration: () => set({ registrationOpen: false }),
@@ -75,6 +104,8 @@ export const useKasiStore = create<KasiState>()(
         currentMember: state.currentMember,
         isAuthenticated: state.isAuthenticated,
         activeView: state.activeView,
+        adminView: state.adminView,
+        adminMode: state.adminMode,
       }),
     }
   )
