@@ -23,15 +23,18 @@ import { SharesView } from "@/components/views/shares-view";
 import { MarketplaceView } from "@/components/views/marketplace-view";
 import { MallView } from "@/components/views/mall-view";
 import { RootsBankView } from "@/components/views/rootsbank-view";
+import { LegalView } from "@/components/views/legal-view";
+import { Scale } from "lucide-react";
 
 const NAV: { key: ViewKey; label: string; icon: typeof LayoutDashboard; desc: string }[] = [
   { key: "dashboard", label: "Dashboard", icon: LayoutDashboard, desc: "Stats & overview" },
-  { key: "ecosystem", label: "Ecosystem", icon: Network, desc: "5×6 forced matrix" },
+  { key: "ecosystem", label: "Eco-System", icon: Network, desc: "5×6 structure" },
   { key: "profile", label: "Profile", icon: User, desc: "KYC & details" },
   { key: "shares", label: "KasiShares", icon: Coins, desc: "Buy & dividends" },
   { key: "marketplace", label: "Marketplace", icon: ShoppingBag, desc: "Products & services" },
   { key: "mall", label: "KasiMall", icon: Building2, desc: "Cashless mall" },
   { key: "rootsbank", label: "Roots Bank", icon: Landmark, desc: "Pioneer shares" },
+  { key: "legal", label: "Legal", icon: Scale, desc: "Terms & compliance" },
 ];
 
 export function AppShell() {
@@ -152,6 +155,7 @@ export function AppShell() {
               {activeView === "marketplace" && <MarketplaceView />}
               {activeView === "mall" && <MallView />}
               {activeView === "rootsbank" && <RootsBankView />}
+              {activeView === "legal" && <LegalView />}
             </motion.div>
           </AnimatePresence>
         </main>

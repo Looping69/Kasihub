@@ -1,0 +1,631 @@
+     1→     1→"use client";
+     2→     2→
+     3→     3→import { useState } from "react";
+     4→     4→import { motion, AnimatePresence } from "framer-motion";
+     5→     5→import {
+     6→     6→  ArrowLeft, ArrowRight, Check, X, Building2, User, UserCheck,
+     7→     7→  CreditCard, ShieldCheck, Sparkles, PartyPopper, Loader2, Upload,
+     8→     8→} from "lucide-react";
+     9→     9→import { Button } from "@/components/ui/button";
+    10→    10→import { Input } from "@/components/ui/input";
+    11→    11→import { Label } from "@/components/ui/label";
+    12→    12→import { Textarea } from "@/components/ui/textarea";
+    13→    13→import { Card } from "@/components/ui/card";
+    14→    14→import { Badge } from "@/components/ui/badge";
+    15→    15→import {
+    16→    16→  Dialog, DialogContent, DialogHeader, DialogTitle,
+    17→    17→} from "@/components/ui/dialog";
+    18→    18→import { toast } from "sonner";
+    19→    19→import { useKasiStore } from "@/lib/store";
+    20→    20→import type { MembershipType } from "@/lib/types";
+    21→    21→
+    22→    22→type Step = "type" | "details" | "subscription" | "kyc" | "profile" | "done";
+    23→    23→
+    24→    24→const STEPS: { key: Step; label: string }[] = [
+    25→    25→  { key: "type", label: "Membership" },
+    26→    26→  { key: "details", label: "Details" },
+    27→    27→  { key: "subscription", label: "Subscription" },
+    28→    28→  { key: "kyc", label: "KYC" },
+    29→    29→  { key: "profile", label: "Profile" },
+    30→    30→];
+    31→    31→
+    32→    32→interface FormData {
+    33→    33→  membershipType: MembershipType;
+    34→    34→  // Individual
+    35→    35→  firstName: string;
+    36→    36→  lastName: string;
+    37→    37→  idPassport: string;
+    38→    38→  sarsNumber: string;
+    39→    39→  guardianName: string;
+    40→    40→  // Company
+    41→    41→  companyName: string;
+    42→    42→  companyRegNo: string;
+    43→    43→  // Common
+    44→    44→  email: string;
+    45→    45→  country: string;
+    46→    46→  mobile: string;
+    47→    47→  addressLine: string;
+    48→    48→  city: string;
+    49→    49→  postalCode: string;
+    50→    50→  beneficiaryName: string;
+    51→    51→  beneficiaryId: string;
+    52→    52→  paymentMethod: string;
+    53→    53→  profilePicture: string;
+    54→    54→  kycStatus: "PENDING" | "VERIFIED";
+    55→    55→  sponsorProfileNumber: string;
+    56→    56→}
+    57→    57→
+    58→    58→const INITIAL: FormData = {
+    59→    59→  membershipType: "INDIVIDUAL_ADULT",
+    60→    60→  firstName: "",
+    61→    61→  lastName: "",
+    62→    62→  idPassport: "",
+    63→    63→  sarsNumber: "",
+    64→    64→  guardianName: "",
+    65→    65→  companyName: "",
+    66→    66→  companyRegNo: "",
+    67→    67→  email: "",
+    68→    68→  country: "South Africa",
+    69→    69→  mobile: "",
+    70→    70→  addressLine: "",
+    71→    71→  city: "",
+    72→    72→  postalCode: "",
+    73→    73→  beneficiaryName: "",
+    74→    74→  beneficiaryId: "",
+    75→    75→  paymentMethod: "BANK",
+    76→    76→  profilePicture: "",
+    77→    77→  kycStatus: "PENDING",
+    78→    78→  sponsorProfileNumber: "",
+    79→    79→};
+    80→    80→
+    81→    81→export function RegistrationWizard() {
+    82→    82→  const { closeRegistration, login } = useKasiStore();
+    83→    83→  const [step, setStep] = useState<Step>("type");
+    84→    84→  const [data, setData] = useState<FormData>(INITIAL);
+    85→    85→  const [submitting, setSubmitting] = useState(false);
+    86→    86→  const [newProfileNumber, setNewProfileNumber] = useState<string | null>(null);
+    87→    87→
+    88→    88→  const stepIndex = STEPS.findIndex((s) => s.key === step);
+    89→    89→
+    90→    90→  function update<K extends keyof FormData>(key: K, value: FormData[K]) {
+    91→    91→    setData((d) => ({ ...d, [key]: value }));
+    92→    92→  }
+    93→    93→
+    94→    94→  function next() {
+    95→    95→    const order: Step[] = ["type", "details", "subscription", "kyc", "profile", "done"];
+    96→    96→    const idx = order.indexOf(step);
+    97→    97→    if (idx < order.length - 1) setStep(order[idx + 1]);
+    98→    98→  }
+    99→    99→  function prev() {
+   100→   100→    const order: Step[] = ["type", "details", "subscription", "kyc", "profile"];
+   101→   101→    const idx = order.indexOf(step);
+   102→   102→    if (idx > 0) setStep(order[idx - 1]);
+   103→   103→  }
+   104→   104→
+   105→   105→  const [newMember, setNewMember] = useState<{ id: string; profileNumber: string; firstName: string | null; lastName: string | null; companyName: string | null; email: string; membershipType: string } | null>(null);
+   106→   106→
+   107→   107→  async function submit() {
+   108→   108→    setSubmitting(true);
+   109→   109→    try {
+   110→   110→      const res = await fetch("/api/members", {
+   111→   111→        method: "POST",
+   112→   112→        headers: { "Content-Type": "application/json" },
+   113→   113→        body: JSON.stringify(data),
+   114→   114→      });
+   115→   115→      const result = await res.json();
+   116→   116→      if (!res.ok) {
+   117→   117→        toast.error(result.error || "Registration failed");
+   118→   118→        setSubmitting(false);
+   119→   119→        return;
+   120→   120→      }
+   121→   121→      setNewProfileNumber(result.profileNumber);
+   122→   122→      setNewMember(result.member);
+   123→   123→      setStep("done");
+   124→   124→      toast.success("Welcome to KaSiHUB!");
+   125→   125→    } catch {
+   126→   126→      toast.error("Network error. Please try again.");
+   127→   127→      setSubmitting(false);
+   128→   128→    }
+   129→   129→  }
+   130→   130→
+   131→   131→  function finish() {
+   132→   132→    if (newMember) {
+   133→   133→      // Log in as the newly registered member (re-fetch full record for all fields)
+   134→   134→      fetch(`/api/members?memberId=${newMember.id}`, { cache: "no-store" })
+   135→   135→        .then((r) => r.json())
+   136→   136→        .then((d) => {
+   137→   137→          if (d.member) {
+   138→   138→            login(d.member.id, d.member);
+   139→   139→          }
+   140→   140→        })
+   141→   141→        .catch(() => {})
+   142→   142→        .finally(() => {
+   143→   143→          closeRegistration();
+   144→   144→        });
+   145→   145→    } else {
+   146→   146→      closeRegistration();
+   147→   147→    }
+   148→   148→  }
+   149→   149→
+   150→   150→  return (
+   151→   151→    <Dialog open onOpenChange={(o) => !o && !submitting && closeRegistration()}>
+   152→   152→      <DialogContent className="max-w-3xl max-h-[92vh] overflow-y-auto p-0 gap-0 scrollbar-kasi">
+   153→   153→        <DialogHeader className="px-6 pt-6 pb-0">
+   154→   154→          <div className="flex items-center justify-between">
+   155→   155→            <div className="flex items-center gap-3">
+   156→   156→              <div className="relative w-10 h-10">
+   157→   157→                <div className="absolute inset-0 rounded-xl bg-gradient-to-br from-emerald-500 to-amber-500" />
+   158→   158→                <div className="absolute inset-0.5 rounded-[10px] bg-background flex items-center justify-center">
+   159→   159→                  <span className="text-lg font-black bg-gradient-to-br from-emerald-600 to-amber-500 bg-clip-text text-transparent">K</span>
+   160→   160→                </div>
+   161→   161→              </div>
+   162→   162→              <div>
+   163→   163→                <DialogTitle className="text-xl">Join KaSiHUB</DialogTitle>
+   164→   164→                <p className="text-xs text-muted-foreground">Become a member of the hybrid ecosystem</p>
+   165→   165→              </div>
+   166→   166→            </div>
+   167→   167→            <Button variant="ghost" size="icon" onClick={closeRegistration} disabled={submitting}>
+   168→   168→              <X className="h-4 w-4" />
+   169→   169→            </Button>
+   170→   170→          </div>
+   171→   171→
+   172→   172→          {/* Stepper */}
+   173→   173→          {step !== "done" && (
+   174→   174→            <div className="mt-6 flex items-center gap-2">
+   175→   175→              {STEPS.map((s, i) => {
+   176→   176→                const done = i < stepIndex;
+   177→   177→                const active = i === stepIndex;
+   178→   178→                return (
+   179→   179→                  <div key={s.key} className="flex-1 flex items-center gap-2">
+   180→   180→                    <div className={`flex items-center gap-2 ${active ? "text-emerald-600" : done ? "text-emerald-600" : "text-muted-foreground"}`}>
+   181→   181→                      <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold border-2 transition-all ${
+   182→   182→                        active ? "border-emerald-600 bg-emerald-600 text-white" :
+   183→   183→                        done ? "border-emerald-600 bg-emerald-50 dark:bg-emerald-950 text-emerald-600" :
+   184→   184→                        "border-border bg-background"
+   185→   185→                      }`}>
+   186→   186→                        {done ? <Check className="h-3.5 w-3.5" /> : i + 1}
+   187→   187→                      </div>
+   188→   188→                      <span className={`text-xs font-medium hidden sm:block ${active ? "" : "text-muted-foreground"}`}>{s.label}</span>
+   189→   189→                    </div>
+   190→   190→                    {i < STEPS.length - 1 && (
+   191→   191→                      <div className={`flex-1 h-px ${done ? "bg-emerald-600" : "bg-border"}`} />
+   192→   192→                    )}
+   193→   193→                  </div>
+   194→   194→                );
+   195→   195→              })}
+   196→   196→            </div>
+   197→   197→          )}
+   198→   198→        </DialogHeader>
+   199→   199→
+   200→   200→        <div className="p-6">
+   201→   201→          <AnimatePresence mode="wait">
+   202→   202→            <motion.div
+   203→   203→              key={step}
+   204→   204→              initial={{ opacity: 0, x: 20 }}
+   205→   205→              animate={{ opacity: 1, x: 0 }}
+   206→   206→              exit={{ opacity: 0, x: -20 }}
+   207→   207→              transition={{ duration: 0.2 }}
+   208→   208→            >
+   209→   209→              {step === "type" && <TypeStep data={data} update={update} />}
+   210→   210→              {step === "details" && <DetailsStep data={data} update={update} />}
+   211→   211→              {step === "subscription" && <SubscriptionStep data={data} update={update} />}
+   212→   212→              {step === "kyc" && <KycStep data={data} update={update} />}
+   213→   213→              {step === "profile" && <ProfileStep data={data} update={update} />}
+   214→   214→              {step === "done" && (
+   215→   215→                <DoneStep profileNumber={newProfileNumber} membershipType={data.membershipType} onFinish={finish} />
+   216→   216→              )}
+   217→   217→            </motion.div>
+   218→   218→          </AnimatePresence>
+   219→   219→
+   220→   220→          {step !== "done" && (
+   221→   221→            <div className="mt-8 flex items-center justify-between">
+   222→   222→              <Button variant="ghost" onClick={prev} disabled={stepIndex === 0 || submitting}>
+   223→   223→                <ArrowLeft className="h-4 w-4 mr-2" /> Back
+   224→   224→              </Button>
+   225→   225→              {step === "profile" ? (
+   226→   226→                <Button onClick={submit} disabled={submitting} className="bg-gradient-to-r from-emerald-600 to-emerald-500">
+   227→   227→                  {submitting ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Creating profile...</> : <>Complete registration <Sparkles className="h-4 w-4 ml-2" /></>}
+   228→   228→                </Button>
+   229→   229→              ) : (
+   230→   230→                <Button onClick={next} className="bg-gradient-to-r from-emerald-600 to-emerald-500">
+   231→   231→                  Continue <ArrowRight className="h-4 w-4 ml-2" />
+   232→   232→                </Button>
+   233→   233→              )}
+   234→   234→            </div>
+   235→   235→          )}
+   236→   236→        </div>
+   237→   237→      </DialogContent>
+   238→   238→    </Dialog>
+   239→   239→  );
+   240→   240→}
+   241→   241→
+   242→   242→// ============ STEP COMPONENTS ============
+   243→   243→
+   244→   244→function TypeStep({ data, update }: { data: FormData; update: <K extends keyof FormData>(k: K, v: FormData[K]) => void }) {
+   245→   245→  const types: { key: MembershipType; label: string; icon: typeof User; desc: string; price: string; features: string[] }[] = [
+   246→   246→    {
+   247→   247→      key: "INDIVIDUAL_ADULT",
+   248→   248→      label: "Individual — Adult",
+   249→   249→      icon: User,
+   250→   250→      desc: "Ages 18-65. Full access to the ecosystem, matrix, shares and mall.",
+   251→   251→      price: "R140 / month",
+   252→   252→      features: ["5×6 matrix placement", "KasiPool nightly share", "NFC tag + VISA card", "Buy KasiShares"],
+   253→   253→    },
+   254→   254→    {
+   255→   255→      key: "INDIVIDUAL_KIDS",
+   256→   256→      label: "Individual — Kids",
+   257→   257→      icon: UserCheck,
+   258→   258→      desc: "Under 18, with adult supervision. A guardian must be appointed.",
+   259→   259→      price: "R140 / month",
+   260→   260→      features: ["Guardian required", "5×6 matrix placement", "KasiPool nightly share", "Restricted withdrawals"],
+   261→   261→    },
+   262→   262→    {
+   263→   263→      key: "COMPANY",
+   264→   264→      label: "Company",
+   265→   265→      icon: Building2,
+   266→   266→      desc: "For registered businesses. Higher subscription, broader entitlements.",
+   267→   267→      price: "R300 / month",
+   268→   268→      features: ["Company registration no.", "5×6 matrix placement", "Beneficiary details", "Bulk eligibility"],
+   269→   269→    },
+   270→   270→  ];
+   271→   271→  return (
+   272→   272→    <div>
+   273→   273→      <h3 className="text-lg font-bold mb-1">Choose your membership type</h3>
+   274→   274→      <p className="text-sm text-muted-foreground mb-6">You can change details later, but membership type is fixed per profile.</p>
+   275→   275→      <div className="grid gap-4 sm:grid-cols-3">
+   276→   276→        {types.map((t) => {
+   277→   277→          const active = data.membershipType === t.key;
+   278→   278→          return (
+   279→   279→            <button key={t.key} onClick={() => update("membershipType", t.key)} className={`text-left`}>
+   280→   280→              <Card className={`h-full p-5 cursor-pointer transition-all hover:-translate-y-1 ${
+   281→   281→                active ? "border-emerald-500 ring-2 ring-emerald-500/30 bg-emerald-50/50 dark:bg-emerald-950/20" : "hover:border-border"
+   282→   282→              }`}>
+   283→   283→                <div className={`w-10 h-10 rounded-lg flex items-center justify-center mb-3 ${active ? "bg-emerald-600 text-white" : "bg-muted"}`}>
+   284→   284→                  <t.icon className="h-5 w-5" />
+   285→   285→                </div>
+   286→   286→                <p className="font-bold mb-1">{t.label}</p>
+   287→   287→                <p className="text-xs text-muted-foreground mb-3">{t.desc}</p>
+   288→   288→                <p className="text-sm font-bold text-emerald-600 mb-3">{t.price}</p>
+   289→   289→                <ul className="space-y-1">
+   290→   290→                  {t.features.map((f) => (
+   291→   291→                    <li key={f} className="flex items-start gap-1.5 text-xs">
+   292→   292→                      <Check className="h-3 w-3 text-emerald-600 mt-0.5 flex-shrink-0" /> {f}
+   293→   293→                    </li>
+   294→   294→                  ))}
+   295→   295→                </ul>
+   296→   296→              </Card>
+   297→   297→            </button>
+   298→   298→          );
+   299→   299→        })}
+   300→   300→      </div>
+   301→   301→
+   302→   302→      <div className="mt-6">
+   303→   303→        <Label htmlFor="sponsor">Sponsor / Upline profile number (optional)</Label>
+   304→   304→        <Input
+   305→   305→          id="sponsor"
+   306→   306→          placeholder="e.g. KSH-000001"
+   307→   307→          value={data.sponsorProfileNumber}
+   308→   308→          onChange={(e) => update("sponsorProfileNumber", e.target.value)}
+   309→   309→          className="mt-1.5"
+   310→   310→        />
+   311→   311→        <p className="text-xs text-muted-foreground mt-1.5">Leave blank if you joined via bulk registration. You&apos;ll be placed in the next open spot regardless.</p>
+   312→   312→      </div>
+   313→   313→    </div>
+   314→   314→  );
+   315→   315→}
+   316→   316→
+   317→   317→function DetailsStep({ data, update }: { data: FormData; update: <K extends keyof FormData>(k: K, v: FormData[K]) => void }) {
+   318→   318→  const isCompany = data.membershipType === "COMPANY";
+   319→   319→  const isKids = data.membershipType === "INDIVIDUAL_KIDS";
+   320→   320→  return (
+   321→   321→    <div>
+   322→   322→      <h3 className="text-lg font-bold mb-1">{isCompany ? "Company details" : "Personal details"}</h3>
+   323→   323→      <p className="text-sm text-muted-foreground mb-6">This information is used for KYC verification and your unique profile number.</p>
+   324→   324→
+   325→   325→      {isCompany ? (
+   326→   326→        <div className="grid gap-4 sm:grid-cols-2">
+   327→   327→          <Field label="Company name" required value={data.companyName} onChange={(v) => update("companyName", v)} placeholder="Acme Trading (Pty) Ltd" />
+   328→   328→          <Field label="Company registration no." required value={data.companyRegNo} onChange={(v) => update("companyRegNo", v)} placeholder="2018/123456/07" />
+   329→   329→        </div>
+   330→   330→      ) : (
+   331→   331→        <div className="grid gap-4 sm:grid-cols-2">
+   332→   332→          <Field label="First name" required value={data.firstName} onChange={(v) => update("firstName", v)} placeholder="Thabo" />
+   333→   333→          <Field label="Last name" required value={data.lastName} onChange={(v) => update("lastName", v)} placeholder="Mokoena" />
+   334→   334→          <Field label="ID / Passport number" required value={data.idPassport} onChange={(v) => update("idPassport", v)} placeholder="8501015800087" />
+   335→   335→          <Field label="Personal SARS number" value={data.sarsNumber} onChange={(v) => update("sarsNumber", v)} placeholder="9123456789" />
+   336→   336→          {isKids && (
+   337→   337→            <div className="sm:col-span-2">
+   338→   338→              <Field label="Guardian name (required for kids)" required value={data.guardianName} onChange={(v) => update("guardianName", v)} placeholder="Nomsa Mokoena" />
+   339→   339→            </div>
+   340→   340→          )}
+   341→   341→        </div>
+   342→   342→      )}
+   343→   343→
+   344→   344→      <div className="grid gap-4 sm:grid-cols-2 mt-4">
+   345→   345→        <Field label="Email address" required type="email" value={data.email} onChange={(v) => update("email", v)} placeholder="you@example.com" />
+   346→   346→        <Field label="Mobile number" required value={data.mobile} onChange={(v) => update("mobile", v)} placeholder="+27 82 123 4567" />
+   347→   347→        <div>
+   348→   348→          <Label>Country</Label>
+   349→   349→          <select
+   350→   350→            value={data.country}
+   351→   351→            onChange={(e) => update("country", e.target.value)}
+   352→   352→            className="mt-1.5 w-full h-10 px-3 rounded-md border border-input bg-background text-sm"
+   353→   353→          >
+   354→   354→            <option>South Africa</option>
+   355→   355→            <option>Lesotho</option>
+   356→   356→            <option>Eswatini</option>
+   357→   357→            <option>Botswana</option>
+   358→   358→            <option>Zimbabwe</option>
+   359→   359→            <option>Namibia</option>
+   360→   360→            <option>Mozambique</option>
+   361→   361→            <option>Other</option>
+   362→   362→          </select>
+   363→   363→        </div>
+   364→   364→        <Field label="Postal code" value={data.postalCode} onChange={(v) => update("postalCode", v)} placeholder="1804" />
+   365→   365→      </div>
+   366→   366→
+   367→   367→      <div className="mt-4">
+   368→   368→        <Label htmlFor="address">Residential / Business address</Label>
+   369→   369→        <Textarea
+   370→   370→          id="address"
+   371→   371→          value={data.addressLine}
+   372→   372→          onChange={(e) => update("addressLine", e.target.value)}
+   373→   373→          placeholder="1234 Pela Street, Soweto"
+   374→   374→          className="mt-1.5"
+   375→   375→          rows={2}
+   376→   376→        />
+   377→   377→      </div>
+   378→   378→
+   379→   379→      <div className="mt-4 grid gap-4 sm:grid-cols-2">
+   380→   380→        <Field label="Beneficiary name" value={data.beneficiaryName} onChange={(v) => update("beneficiaryName", v)} placeholder="Nomsa Mokoena" />
+   381→   381→        <Field label="Beneficiary ID number" value={data.beneficiaryId} onChange={(v) => update("beneficiaryId", v)} placeholder="8902150120089" />
+   382→   382→      </div>
+   383→   383→    </div>
+   384→   384→  );
+   385→   385→}
+   386→   386→
+   387→   387→function SubscriptionStep({ data, update }: { data: FormData; update: <K extends keyof FormData>(k: K, v: FormData[K]) => void }) {
+   388→   388→  const isCompany = data.membershipType === "COMPANY";
+   389→   389→  const isInternational = data.country !== "South Africa";
+   390→   390→  const localAmount = isCompany ? 300 : 140;
+   391→   391→  const intlAmount = isCompany ? 50 : 20;
+   392→   392→  const currency = isInternational ? "USD" : "ZAR";
+   393→   393→  const amount = isInternational ? intlAmount : localAmount;
+   394→   394→
+   395→   395→  return (
+   396→   396→    <div>
+   397→   397→      <h3 className="text-lg font-bold mb-1">Subscription & payment</h3>
+   398→   398→      <p className="text-sm text-muted-foreground mb-6">
+   399→   399→        Your subscription is paid monthly. R47 of each payment goes up 6 levels in the matrix; the remainder supports the KasiPool.
+   400→   400→      </p>
+   401→   401→
+   402→   402→      <Card className="p-5 mb-6 bg-muted/30 border-dashed">
+   403→   403→        <div className="flex items-center justify-between">
+   404→   404→          <div>
+   405→   405→            <p className="text-sm text-muted-foreground">Your plan</p>
+   406→   406→            <p className="text-2xl font-black mt-1">{currency} {amount}<span className="text-base font-normal text-muted-foreground">/month</span></p>
+   407→   407→            <p className="text-xs text-muted-foreground mt-1">
+   408→   408→              {isCompany ? "Company membership" : "Individual membership"} · {isInternational ? "International" : "Local (SADC)"}
+   409→   409→            </p>
+   410→   410→          </div>
+   411→   411→          <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200">
+   412→   412→            {isInternational ? `$${intlAmount}` : `R${localAmount}`}
+   413→   413→          </Badge>
+   414→   414→        </div>
+   415→   415→      </Card>
+   416→   416→
+   417→   417→      <Label>Choose payment method</Label>
+   418→   418→      <div className="grid sm:grid-cols-3 gap-3 mt-2">
+   419→   419→        {[
+   420→   420→          { key: "BANK", label: "Bank Transfer (EFT)", desc: "FNB · Solidus Holdings" },
+   421→   421→          { key: "CARD", label: "Card Payment", desc: "Visa / Mastercard" },
+   422→   422→          { key: "CASH", label: "Cash Deposit", desc: "At any FNB branch" },
+   423→   423→        ].map((m) => {
+   424→   424→          const active = data.paymentMethod === m.key;
+   425→   425→          return (
+   426→   426→            <button key={m.key} onClick={() => update("paymentMethod", m.key)} className="text-left">
+   427→   427→              <Card className={`p-4 cursor-pointer transition-all ${active ? "border-emerald-500 ring-2 ring-emerald-500/30" : "hover:border-border"}`}>
+   428→   428→                <CreditCard className={`h-5 w-5 mb-2 ${active ? "text-emerald-600" : "text-muted-foreground"}`} />
+   429→   429→                <p className="font-semibold text-sm">{m.label}</p>
+   430→   430→                <p className="text-xs text-muted-foreground">{m.desc}</p>
+   431→   431→              </Card>
+   432→   432→            </button>
+   433→   433→          );
+   434→   434→        })}
+   435→   435→      </div>
+   436→   436→
+   437→   437→      <Card className="mt-6 p-5 bg-amber-50/50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-900">
+   438→   438→        <div className="flex items-start gap-3">
+   439→   439→          <div className="w-10 h-10 rounded-lg bg-amber-500 text-white flex items-center justify-center flex-shrink-0">
+   440→   440→            <CreditCard className="h-5 w-5" />
+   441→   441→          </div>
+   442→   442→          <div className="text-sm">
+   443→   443→            <p className="font-semibold mb-1">Banking details</p>
+   444→   444→            <p className="text-xs text-muted-foreground leading-relaxed">
+   445→   445→              Solidus Holdings (Pty) Ltd · FNB Gold Business Account<br />
+   446→   446→              Account: <span className="font-mono font-semibold">63212306319</span> · Branch: <span className="font-mono font-semibold">210835</span><br />
+   447→   447→              <span className="text-xs">External payment is a temporary solution until Roots CO-OP Bank is operational.</span>
+   448→   448→            </p>
+   449→   449→          </div>
+   450→   450→        </div>
+   451→   451→      </Card>
+   452→   452→    </div>
+   453→   453→  );
+   454→   454→}
+   455→   455→
+   456→   456→function KycStep({ data, update }: { data: FormData; update: <K extends keyof FormData>(k: K, v: FormData[K]) => void }) {
+   457→   457→  return (
+   458→   458→    <div>
+   459→   459→      <h3 className="text-lg font-bold mb-1">KYC verification</h3>
+   460→   460→      <p className="text-sm text-muted-foreground mb-6">
+   461→   461→        Complete external KYC verification. You&apos;ll receive a confirmation email once approved. Only one profile per ID/Passport is allowed.
+   462→   462→      </p>
+   463→   463→
+   464→   464→      <div className="space-y-4">
+   465→   465→        <Card className="p-5 border-dashed">
+   466→   466→          <div className="flex items-center gap-4">
+   467→   467→            <div className="w-12 h-12 rounded-xl bg-muted flex items-center justify-center">
+   468→   468→              <Upload className="h-5 w-5 text-muted-foreground" />
+   469→   469→            </div>
+   470→   470→            <div className="flex-1">
+   471→   471→              <p className="font-semibold text-sm">Upload profile picture</p>
+   472→   472→              <p className="text-xs text-muted-foreground">A real, clear photo of yourself. Required for KYC.</p>
+   473→   473→            </div>
+   474→   474→            <Button variant="outline" size="sm" onClick={() => update("profilePicture", "uploaded")}>
+   475→   475→              {data.profilePicture ? <><Check className="h-4 w-4 mr-1" /> Uploaded</> : "Upload"}
+   476→   476→            </Button>
+   477→   477→          </div>
+   478→   478→        </Card>
+   479→   479→
+   480→   480→        <Card className="p-5 border-dashed">
+   481→   481→          <div className="flex items-center gap-4">
+   482→   482→            <div className="w-12 h-12 rounded-xl bg-muted flex items-center justify-center">
+   483→   483→              <ShieldCheck className="h-5 w-5 text-muted-foreground" />
+   484→   484→            </div>
+   485→   485→            <div className="flex-1">
+   486→   486→              <p className="font-semibold text-sm">ID / Passport verification</p>
+   487→   487→              <p className="text-xs text-muted-foreground">External KYC partner will verify your identity document.</p>
+   488→   488→            </div>
+   489→   489→            <Button variant="outline" size="sm" onClick={() => update("kycStatus", "VERIFIED")}>
+   490→   490→              {data.kycStatus === "VERIFIED" ? <><Check className="h-4 w-4 mr-1" /> Verified</> : "Start verification"}
+   491→   491→            </Button>
+   492→   492→          </div>
+   493→   493→        </Card>
+   494→   494→
+   495→   495→        <div className="rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900 p-4">
+   496→   496→          <div className="flex items-start gap-3">
+   497→   497→            <Check className="h-5 w-5 text-emerald-600 mt-0.5 flex-shrink-0" />
+   498→   498→            <div className="text-sm">
+   499→   499→              <p className="font-semibold">Duplicate prevention</p>
+   500→   500→              <p className="text-xs text-muted-foreground mt-1">
+   501→   501→                Your ID/Passport number is unique to your profile. The only exception is profile inheritance,
+   502→   502→                which requires special handling by the KaSiHUB Exco.
+   503→   503→              </p>
+   504→   504→            </div>
+   505→   505→          </div>
+   506→   506→        </div>
+   507→   507→      </div>
+   508→   508→    </div>
+   509→   509→  );
+   510→   510→}
+   511→   511→
+   512→   512→function ProfileStep({ data, update }: { data: FormData; update: <K extends keyof FormData>(k: K, v: FormData[K]) => void }) {
+   513→   513→  const isCompany = data.membershipType === "COMPANY";
+   514→   514→  return (
+   515→   515→    <div>
+   516→   516→      <h3 className="text-lg font-bold mb-1">Review & confirm</h3>
+   517→   517→      <p className="text-sm text-muted-foreground mb-6">Please review your details before we generate your unique profile number.</p>
+   518→   518→
+   519→   519→      <Card className="p-5 bg-muted/30">
+   520→   520→        <dl className="grid gap-3 sm:grid-cols-2 text-sm">
+   521→   521→          <Row label="Membership type" value={isCompany ? "Company" : data.membershipType === "INDIVIDUAL_KIDS" ? "Individual - Kids" : "Individual - Adult"} />
+   522→   522→          {isCompany ? (
+   523→   523→            <>
+   524→   524→              <Row label="Company" value={data.companyName || "—"} />
+   525→   525→              <Row label="Reg. no." value={data.companyRegNo || "—"} />
+   526→   526→            </>
+   527→   527→          ) : (
+   528→   528→            <>
+   529→   529→              <Row label="Name" value={`${data.firstName} ${data.lastName}`} />
+   530→   530→              <Row label="ID/Passport" value={data.idPassport || "—"} />
+   531→   531→            </>
+   532→   532→          )}
+   533→   533→          <Row label="Email" value={data.email} />
+   534→   534→          <Row label="Mobile" value={data.mobile} />
+   535→   535→          <Row label="Country" value={data.country} />
+   536→   536→          <Row label="Payment method" value={data.paymentMethod} />
+   537→   537→          <Row label="KYC status" value={data.kycStatus} />
+   538→   538→          <Row label="Beneficiary" value={data.beneficiaryName || "—"} />
+   539→   539→        </dl>
+   540→   540→      </Card>
+   541→   541→
+   542→   542→      <div className="mt-4 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 p-4 text-xs text-amber-800 dark:text-amber-300">
+   543→   543→        <p className="font-semibold mb-1">Once you complete registration:</p>
+   544→   544→        <ul className="space-y-1 list-disc list-inside">
+   545→   545→          <li>You&apos;ll receive a unique profile number (e.g. KSH-000123)</li>
+   546→   546→          <li>An NFC Tag and VISA card will be issued by Roots Bank</li>
+   547→   547→          <li>You&apos;ll be placed in the next open spot in the 5×6 matrix</li>
+   548→   548→          <li>You&apos;ll get full access to the KaSiHUB UI</li>
+   549→   549→        </ul>
+   550→   550→      </div>
+   551→   551→    </div>
+   552→   552→  );
+   553→   553→}
+   554→   554→
+   555→   555→function DoneStep({ profileNumber, membershipType, onFinish }: { profileNumber: string | null; membershipType: MembershipType; onFinish: () => void }) {
+   556→   556→  return (
+   557→   557→    <div className="text-center py-6">
+   558→   558→      <motion.div
+   559→   559→        initial={{ scale: 0, rotate: -180 }}
+   560→   560→        animate={{ scale: 1, rotate: 0 }}
+   561→   561→        transition={{ type: "spring", stiffness: 200, damping: 15 }}
+   562→   562→        className="relative inline-flex"
+   563→   563→      >
+   564→   564→        <div className="w-20 h-20 rounded-full bg-gradient-to-br from-emerald-500 to-amber-500 flex items-center justify-center shadow-xl shadow-emerald-500/30">
+   565→   565→          <PartyPopper className="h-10 w-10 text-white" />
+   566→   566→        </div>
+   567→   567→        <div className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-amber-500 flex items-center justify-center">
+   568→   568→          <Sparkles className="h-3.5 w-3.5 text-white" />
+   569→   569→        </div>
+   570→   570→      </motion.div>
+   571→   571→
+   572→   572→      <h3 className="text-2xl font-black mt-6">Welcome to KaSiHUB!</h3>
+   573→   573→      <p className="text-sm text-muted-foreground mt-2 max-w-sm mx-auto">
+   574→   574→        Your membership has been created. You&apos;re now part of the hybrid ecosystem.
+   575→   575→      </p>
+   576→   576→
+   577→   577→      <Card className="mt-6 p-5 max-w-sm mx-auto bg-gradient-to-br from-emerald-50 to-amber-50 dark:from-emerald-950/30 dark:to-amber-950/30 border-emerald-200 dark:border-emerald-900">
+   578→   578→        <p className="text-xs text-muted-foreground mb-1">Your unique profile number</p>
+   579→   579→        <p className="text-2xl font-black font-mono bg-gradient-to-r from-emerald-600 to-amber-500 bg-clip-text text-transparent">
+   580→   580→          {profileNumber || "KSH-000000"}
+   581→   581→        </p>
+   582→   582→        <div className="mt-3 pt-3 border-t border-emerald-200 dark:border-emerald-900 grid grid-cols-2 gap-2 text-left">
+   583→   583→          <div>
+   584→   584→            <p className="text-[10px] text-muted-foreground">Membership</p>
+   585→   585→            <p className="text-xs font-semibold">{membershipType === "COMPANY" ? "Company" : "Individual"}</p>
+   586→   586→          </div>
+   587→   587→          <div>
+   588→   588→            <p className="text-[10px] text-muted-foreground">Status</p>
+   589→   589→            <p className="text-xs font-semibold text-emerald-600">Active</p>
+   590→   590→          </div>
+   591→   591→        </div>
+   592→   592→      </Card>
+   593→   593→
+   594→   594→      <Button onClick={onFinish} className="mt-6 bg-gradient-to-r from-emerald-600 to-emerald-500">
+   595→   595→        Enter the ecosystem <ArrowRight className="h-4 w-4 ml-2" />
+   596→   596→      </Button>
+   597→   597→    </div>
+   598→   598→  );
+   599→   599→}
+   600→   600→
+   601→   601→function Field({ label, value, onChange, placeholder, type = "text", required }: {
+   602→   602→  label: string;
+   603→   603→  value: string;
+   604→   604→  onChange: (v: string) => void;
+   605→   605→  placeholder?: string;
+   606→   606→  type?: string;
+   607→   607→  required?: boolean;
+   608→   608→}) {
+   609→   609→  return (
+   610→   610→    <div>
+   611→   611→      <Label>{label}{required && <span className="text-destructive ml-0.5">*</span>}</Label>
+   612→   612→      <Input
+   613→   613→        type={type}
+   614→   614→        value={value}
+   615→   615→        onChange={(e) => onChange(e.target.value)}
+   616→   616→        placeholder={placeholder}
+   617→   617→        className="mt-1.5"
+   618→   618→      />
+   619→   619→    </div>
+   620→   620→  );
+   621→   621→}
+   622→   622→
+   623→   623→function Row({ label, value }: { label: string; value: string }) {
+   624→   624→  return (
+   625→   625→    <div className="flex flex-col">
+   626→   626→      <dt className="text-xs text-muted-foreground">{label}</dt>
+   627→   627→      <dd className="font-semibold">{value}</dd>
+   628→   628→    </div>
+   629→   629→  );
+   630→   630→}
+   631→   631→

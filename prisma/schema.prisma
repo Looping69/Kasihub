@@ -15,7 +15,9 @@ datasource db {
 model Member {
   id              String   @id @default(cuid())
   profileNumber   String   @unique
-  membershipType  String   // "INDIVIDUAL_ADULT" | "INDIVIDUAL_KIDS" | "COMPANY"
+  membershipType  String   // "INDIVIDUAL_ADULT" | "INDIVIDUAL_KIDS" | "COMPANY" | "NPO_NGO" | "SOLE_PROPRIETOR" | "FREE"
+  // Citizenship / entity type — determines registration flow
+  citizenshipType String?  // SA_CITIZEN_SA | FOREIGN_CITIZEN_SA | SA_CIPC_COMPANY | SA_SOLE_PROPRIETOR | SA_NPO_NGO | SA_CITIZEN_ABROAD | FOREIGN_CITIZEN_ABROAD | INTL_COMPANY
   firstName       String?
   lastName        String?
   companyName     String?
@@ -37,12 +39,19 @@ model Member {
   subscriptionStatus String @default("PENDING") // PENDING | ACTIVE | LAPSED
   subscriptionAmount Float @default(140)
   subscriptionCurrency String @default("ZAR")
-  paymentMethod   String?  // BANK | CARD | EFT
+  paymentMethod   String?  // INSTAPAY | BANKUS | BANK | CARD
   taxThreshold    Boolean  @default(false) // true when earning > R7000/month
   monthlyEarnings Float    @default(0)
   nfcTagId        String?
   visaCardLast4   String?
   rootsBankAccount String?
+  // InstaPay Gini integration
+  instapayStatus      String   @default("NONE") // NONE | PENDING | VERIFIED
+  instapayVerifiedAt  DateTime?
+  instapayAccountRef  String?  // InstaPay account reference / merchant ID
+  // Upline confirmation
+  uplineProfileNumber String?
+  uplineConfirmed     Boolean  @default(false)
   isAdmin         Boolean  @default(false)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -50,15 +59,17 @@ model Member {
   // Relations
   matrixNode      MatrixNode?
   shares          Share[]
+  aureusShares    AureusShare[]
   subscriptions   Subscription[]
   transactions    Transaction[]
   marketplaceOrders MarketplaceOrder[]
   rootsBankShares RootsBankShare[]
   poolDistributions KasiPoolDistribution[]
+  auditorNotifications AuditorNotification[]
 }
 
 // ============================================================
-// MATRIX - 5 x 6 Forced Ecosystem structure
+// ECOSYSTEM - 5 x 6 structure (was "Forced Matrix", renamed to Eco-System)
 // ============================================================
 model MatrixNode {
   id          String   @id @default(cuid())
@@ -129,7 +140,8 @@ model KasiPoolDistribution {
   memberId    String
   member      Member   @relation(fields: [memberId], references: [id])
   amount      Float
-  source      String   // MARKETPLACE | MALL | SUBSCRIPTION_DIFF
+  source      String   // MARKETPLACE | MALL | SUBSCRIPTION_DIFF | MANUAL
+  poolType    String   @default("SHAREHOLDERS") // PIONEER | MARKETPLACE | SHAREHOLDERS
   payoutDate  DateTime @default(now())
   status      String   @default("PAID")
 }
@@ -245,4 +257,34 @@ model DividendDeclaration {
   status         String   @default("DECLARED") // DECLARED | PAID
   declaredAt     DateTime @default(now())
   paidAt         DateTime?
+}
+
+// ============================================================
+// AUREUS SHARES - Separate share class (Aureus Alliance)
+// ============================================================
+model AureusShare {
+  id              String   @id @default(cuid())
+  memberId        String
+  member          Member   @relation(fields: [memberId], references: [id])
+  phase           Int
+  pricePerShare   Float    // USD
+  quantity        Int
+  totalAmount     Float
+  certificateNo   String   @unique
+  prevCertificateNo String?
+  status          String   @default("ACTIVE") // ACTIVE | REVOKED | RETRACTED
+  createdAt       DateTime @default(now())
+}
+
+// ============================================================
+// AUDITOR NOTIFICATIONS - Triggered when member exceeds R7000/month
+// ============================================================
+model AuditorNotification {
+  id          String   @id @default(cuid())
+  memberId    String
+  member      Member   @relation(fields: [memberId], references: [id])
+  monthEarnings Float  // the earnings that triggered the notification
+  month       String   // e.g. "2025-07"
+  sentAt      DateTime @default(now())
+  status      String   @default("SENT") // SENT | ACKNOWLEDGED
 }

@@ -10,18 +10,30 @@ export async function POST(req: NextRequest) {
     const count = await db.member.count();
     const profileNumber = `KSH-${String(count + 1).padStart(6, "0")}`;
 
-    // Determine subscription amount based on membership type
-    const isCompany = body.membershipType === "COMPANY";
-    const isInternational = body.country !== "South Africa";
+    // Determine subscription amount based on citizenship type + membership type
+    const citizenshipType = body.citizenshipType || "SA_CITIZEN_SA";
+    const isInternational = ["SA_CITIZEN_ABROAD", "FOREIGN_CITIZEN_ABROAD", "INTL_COMPANY"].includes(citizenshipType);
     let subscriptionAmount = 140;
     let subscriptionCurrency = "ZAR";
-    if (isCompany) {
-      subscriptionAmount = isInternational ? 50 : 300;
+
+    if (body.membershipType === "FREE") {
+      subscriptionAmount = 0;
       subscriptionCurrency = isInternational ? "USD" : "ZAR";
+    } else if (isInternational) {
+      // International pricing: Individual Adult $30, Kids $30, Company $50
+      subscriptionCurrency = "USD";
+      if (body.membershipType === "COMPANY") subscriptionAmount = 50;
+      else subscriptionAmount = 30; // INDIVIDUAL_ADULT or INDIVIDUAL_KIDS
     } else {
-      subscriptionAmount = isInternational ? 20 : 140;
-      subscriptionCurrency = isInternational ? "USD" : "ZAR";
+      // SA pricing: Individual R140, Company/Sole Proprietor R300, NPO/NGO R250
+      subscriptionCurrency = "ZAR";
+      if (body.membershipType === "COMPANY" || body.membershipType === "SOLE_PROPRIETOR") subscriptionAmount = 300;
+      else if (body.membershipType === "NPO_NGO") subscriptionAmount = 250;
+      else subscriptionAmount = 140; // INDIVIDUAL_ADULT, INDIVIDUAL_KIDS
     }
+
+    // Payment method: SA members use InstaPay; International uses Bankus
+    const paymentMethod = isInternational ? "BANKUS" : "INSTAPAY";
 
     // Check for duplicate ID/Passport
     if (body.idPassport) {
@@ -56,6 +68,7 @@ export async function POST(req: NextRequest) {
       data: {
         profileNumber,
         membershipType: body.membershipType,
+        citizenshipType: body.citizenshipType || null,
         firstName: body.firstName || null,
         lastName: body.lastName || null,
         companyName: body.companyName || null,
@@ -73,13 +86,18 @@ export async function POST(req: NextRequest) {
         beneficiaryId: body.beneficiaryId || null,
         guardianName: body.guardianName || null,
         kycStatus: body.kycStatus || "PENDING",
-        subscriptionStatus: "ACTIVE",
+        subscriptionStatus: body.membershipType === "FREE" ? "ACTIVE" : "ACTIVE",
         subscriptionAmount,
         subscriptionCurrency,
-        paymentMethod: body.paymentMethod || "BANK",
+        paymentMethod,
         nfcTagId,
         visaCardLast4,
         rootsBankAccount,
+        instapayStatus: body.instapayStatus || (isInternational ? "NONE" : "PENDING"),
+        instapayVerifiedAt: body.instapayVerifiedAt ? new Date(body.instapayVerifiedAt) : null,
+        instapayAccountRef: body.instapayAccountRef || null,
+        uplineProfileNumber: body.uplineProfileNumber || body.sponsorProfileNumber || null,
+        uplineConfirmed: body.uplineConfirmed || false,
       },
     });
 

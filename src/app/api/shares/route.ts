@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 
-// GET /api/shares?memberId=xxx - get member's shares + all phases
+// GET /api/shares?memberId=xxx - get member's shares (active + retracted) + all phases + Aureus shares
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
@@ -9,20 +9,46 @@ export async function GET(req: NextRequest) {
 
     const phases = await db.sharePhase.findMany({ orderBy: { phase: "asc" } });
 
+    // Fetch share value from settings
+    const shareValueSetting = await db.setting.findUnique({ where: { key: "kasi_share_current_value_usd" } });
+    const aureusValueSetting = await db.setting.findUnique({ where: { key: "aureus_share_current_value_usd" } });
+    const shareValuePerShare = shareValueSetting ? parseFloat(shareValueSetting.value) : 39.95;
+    const aureusValuePerShare = aureusValueSetting ? parseFloat(aureusValueSetting.value) : 15.00;
+
     if (!memberId) {
-      return NextResponse.json({ phases, shares: [], totalShares: 0, totalValue: 0 });
+      return NextResponse.json({
+        phases, activeShares: [], retractedShares: [], aureusShares: [], retractedAureusShares: [],
+        totalShares: 0, totalValue: 0, shareValuePerShare, aureusValuePerShare,
+      });
     }
 
-    const shares = await db.share.findMany({
+    // Active KasiShares
+    const activeShares = await db.share.findMany({
       where: { memberId, status: "ACTIVE" },
       orderBy: { createdAt: "desc" },
     });
+    // Retracted/Revoked KasiShares
+    const retractedShares = await db.share.findMany({
+      where: { memberId, status: "REVOKED" },
+      orderBy: { createdAt: "desc" },
+    });
 
-    const totalShares = shares.reduce((s, x) => s + x.quantity, 0);
-    const totalValue = shares.reduce((s, x) => s + x.totalAmount, 0);
+    // Active Aureus shares
+    const aureusShares = await db.aureusShare.findMany({
+      where: { memberId, status: "ACTIVE" },
+      orderBy: { createdAt: "desc" },
+    });
+    // Retracted Aureus shares
+    const retractedAureusShares = await db.aureusShare.findMany({
+      where: { memberId, status: "RETRACTED" },
+      orderBy: { createdAt: "desc" },
+    });
+
+    const totalShares = activeShares.reduce((s, x) => s + x.quantity, 0);
+    // Value = current share value × total shares (NOT purchase price)
+    const totalValue = totalShares * shareValuePerShare;
 
     // Calculate dividends (simulated): daily share of KasiMall profits
-    // Assume daily profit pool of $2000 distributed among all sold shares
     const allSharesCount = await db.share.aggregate({
       where: { status: "ACTIVE" },
       _sum: { quantity: true },
@@ -34,9 +60,16 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       phases,
-      shares: shares.map((s) => ({ ...s, createdAt: s.createdAt.toISOString() })),
+      activeShares: activeShares.map((s) => ({ ...s, createdAt: s.createdAt.toISOString() })),
+      retractedShares: retractedShares.map((s) => ({ ...s, createdAt: s.createdAt.toISOString() })),
+      aureusShares: aureusShares.map((s) => ({ ...s, createdAt: s.createdAt.toISOString() })),
+      retractedAureusShares: retractedAureusShares.map((s) => ({ ...s, createdAt: s.createdAt.toISOString() })),
       totalShares,
       totalValue: parseFloat(totalValue.toFixed(2)),
+      shareValuePerShare,
+      aureusValuePerShare,
+      aureusTotalShares: aureusShares.reduce((s, x) => s + x.quantity, 0),
+      aureusTotalValue: parseFloat((aureusShares.reduce((s, x) => s + x.quantity, 0) * aureusValuePerShare).toFixed(2)),
       dailyDividendPerShare: parseFloat(dailyDividendPerShare.toFixed(4)),
       myDailyDividend: parseFloat(myDailyDividend.toFixed(2)),
       totalSharesOutstanding,

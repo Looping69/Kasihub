@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import {
   User, ShieldCheck, CreditCard, Phone, Mail, MapPin, Calendar,
   FileText, Wallet, QrCode, Building2, Loader2, Download, ChevronRight,
-  Banknote, Hash,
+  Banknote, Hash, Smartphone,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -170,6 +170,82 @@ export function ProfileView() {
             </div>
           </Card>
 
+          {/* InstaPay Gini account card */}
+          <Card className="p-5">
+            <h3 className="font-bold mb-4 flex items-center gap-2">
+              <Smartphone className="h-4 w-4 text-emerald-600" /> InstaPay Gini Account
+            </h3>
+
+            {m.instapayStatus === "VERIFIED" && (
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-900">
+                    <ShieldCheck className="h-3 w-3 mr-1" /> VERIFIED
+                  </Badge>
+                  <span className="text-xs text-muted-foreground">InstaPay Gini account linked</span>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <InfoRow label="Account reference" value={m.instapayAccountRef} mono />
+                  <InfoRow label="Verified on" value={m.instapayVerifiedAt ? formatInstapayDate(m.instapayVerifiedAt) : "—"} />
+                </div>
+              </div>
+            )}
+
+            {m.instapayStatus === "PENDING" && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-900">
+                      <Loader2 className="h-3 w-3 mr-1 animate-spin" /> PENDING
+                    </Badge>
+                    <span className="text-xs text-muted-foreground">Verification in progress</span>
+                  </div>
+                  <Button
+                    size="sm"
+                    className="bg-amber-500 hover:bg-amber-600 text-white"
+                    onClick={() => toast.info("InstaPay verification wizard will open here")}
+                  >
+                    <ShieldCheck className="h-3.5 w-3.5 mr-1.5" /> Verify now
+                  </Button>
+                </div>
+                {m.instapayAccountRef && (
+                  <InfoRow label="Account reference" value={m.instapayAccountRef} mono />
+                )}
+              </div>
+            )}
+
+            {(!m.instapayStatus || m.instapayStatus === "NONE") && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Badge variant="outline" className="bg-muted text-muted-foreground border-border">
+                      Not connected
+                    </Badge>
+                    <span className="text-xs text-muted-foreground">No InstaPay Gini account linked yet</span>
+                  </div>
+                  <Button
+                    size="sm"
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                    onClick={() => toast.info("InstaPay Gini connection flow will open here")}
+                  >
+                    <Smartphone className="h-3.5 w-3.5 mr-1.5" /> Connect InstaPay
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            <Separator className="my-4" />
+            <div className="rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900 p-3 text-xs text-emerald-800 dark:text-emerald-300">
+              <p className="font-semibold mb-1 flex items-center gap-1.5">
+                <Smartphone className="h-3.5 w-3.5" /> About InstaPay Gini
+              </p>
+              <p className="leading-relaxed">
+                InstaPay Gini is used for subscription payments and KasiPool distributions. Download the app from
+                Google Play or App Store.
+              </p>
+            </div>
+          </Card>
+
           <Card className="p-5">
             <h3 className="font-bold mb-4 flex items-center gap-2">
               <Banknote className="h-4 w-4 text-emerald-600" /> Subscription
@@ -268,6 +344,15 @@ export function ProfileView() {
       </Tabs>
     </div>
   );
+}
+
+function formatInstapayDate(iso: string): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  const day = String(d.getDate()).padStart(2, "0");
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return `${day} ${months[d.getMonth()]} ${d.getFullYear()}`;
 }
 
 function InfoRow({ label, value, mono }: { label: string; value: string | null; mono?: boolean }) {
