@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  ArrowLeft, ArrowRight, Check, X, Building2, User, UserCheck,
-  CreditCard, ShieldCheck, Sparkles, PartyPopper, Loader2, Upload,
+  ArrowLeft, ArrowRight, Check, X, Building2, User, Briefcase,
+  Heart, Plane, Globe, Landmark, Smartphone, Sparkles, PartyPopper,
+  Loader2, ShieldCheck, ExternalLink, Info, Download, Wallet,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,34 +13,52 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Separator } from "@/components/ui/separator";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { useKasiStore } from "@/lib/store";
-import type { MembershipType } from "@/lib/types";
+import type { CitizenshipType, MembershipType } from "@/lib/types";
 
-type Step = "type" | "details" | "subscription" | "kyc" | "profile" | "done";
+type Step = "type" | "instapay" | "subscription" | "details" | "review" | "done";
 
-const STEPS: { key: Step; label: string }[] = [
-  { key: "type", label: "Membership" },
-  { key: "details", label: "Details" },
-  { key: "subscription", label: "Subscription" },
-  { key: "kyc", label: "KYC" },
-  { key: "profile", label: "Profile" },
+type InstapayStatus = "NONE" | "PENDING" | "VERIFIED";
+
+const INSTAPAY_CITIZENSHIPS: CitizenshipType[] = ["SA_CITIZEN_SA", "SA_NPO_NGO"];
+const INTL_CITIZENSHIPS: CitizenshipType[] = [
+  "SA_CITIZEN_ABROAD",
+  "FOREIGN_CITIZEN_ABROAD",
+  "INTL_COMPANY",
 ];
 
 interface FormData {
-  membershipType: MembershipType;
-  // Individual
+  citizenshipType: CitizenshipType | null;
+  membershipType: MembershipType | null;
+  uplineProfileNumber: string;
+  uplineConfirmed: boolean;
+  uplineName: string | null;
+  instapayStatus: InstapayStatus;
+  instapayAccountRef: string | null;
+  instapayVerifiedAt: string | null;
+  instapayOption: "download" | "have" | null;
+  // InstaPay verify form
+  idNumber: string;
+  passportNumber: string;
+  asylumNumber: string;
+  companyRegNo: string;
+  npoNgoNumber: string;
+  // Individual details
   firstName: string;
   lastName: string;
   idPassport: string;
   sarsNumber: string;
   guardianName: string;
-  // Company
+  // Company / Org details
   companyName: string;
-  companyRegNo: string;
+  organizationName: string;
   // Common
   email: string;
   country: string;
@@ -49,21 +68,30 @@ interface FormData {
   postalCode: string;
   beneficiaryName: string;
   beneficiaryId: string;
-  paymentMethod: string;
-  profilePicture: string;
-  kycStatus: "PENDING" | "VERIFIED";
-  sponsorProfileNumber: string;
 }
 
 const INITIAL: FormData = {
-  membershipType: "INDIVIDUAL_ADULT",
+  citizenshipType: null,
+  membershipType: null,
+  uplineProfileNumber: "",
+  uplineConfirmed: false,
+  uplineName: null,
+  instapayStatus: "NONE",
+  instapayAccountRef: null,
+  instapayVerifiedAt: null,
+  instapayOption: null,
+  idNumber: "",
+  passportNumber: "",
+  asylumNumber: "",
+  companyRegNo: "",
+  npoNgoNumber: "",
   firstName: "",
   lastName: "",
   idPassport: "",
   sarsNumber: "",
   guardianName: "",
   companyName: "",
-  companyRegNo: "",
+  organizationName: "",
   email: "",
   country: "South Africa",
   mobile: "",
@@ -72,11 +100,76 @@ const INITIAL: FormData = {
   postalCode: "",
   beneficiaryName: "",
   beneficiaryId: "",
-  paymentMethod: "BANK",
-  profilePicture: "",
-  kycStatus: "PENDING",
-  sponsorProfileNumber: "",
 };
+
+const CITIZENSHIP_OPTIONS: {
+  value: CitizenshipType;
+  label: string;
+  desc: string;
+  icon: typeof User;
+}[] = [
+  { value: "SA_CITIZEN_SA", label: "SA Citizen in SA", desc: "South African citizen residing in South Africa.", icon: User },
+  { value: "FOREIGN_CITIZEN_SA", label: "Foreign Citizen in SA", desc: "Non-SA citizen currently living in South Africa.", icon: Globe },
+  { value: "SA_CIPC_COMPANY", label: "SA CIPC Company", desc: "South African company registered with CIPC.", icon: Building2 },
+  { value: "SA_SOLE_PROPRIETOR", label: "SA Sole Proprietor", desc: "South African sole proprietorship business.", icon: Briefcase },
+  { value: "SA_NPO_NGO", label: "SA NPO / NGO", desc: "South African non-profit or non-governmental organisation.", icon: Heart },
+  { value: "SA_CITIZEN_ABROAD", label: "SA Citizen Abroad", desc: "South African citizen living outside South Africa.", icon: Plane },
+  { value: "FOREIGN_CITIZEN_ABROAD", label: "Foreign Citizen Abroad", desc: "Non-SA citizen living outside South Africa.", icon: Plane },
+  { value: "INTL_COMPANY", label: "International Company", desc: "Company registered outside South Africa.", icon: Landmark },
+];
+
+function isInternational(c: CitizenshipType | null): boolean {
+  return !!c && INTL_CITIZENSHIPS.includes(c);
+}
+function isCompanyType(c: CitizenshipType | null): boolean {
+  return c === "SA_CIPC_COMPANY" || c === "INTL_COMPANY";
+}
+function isSoleProprietorType(c: CitizenshipType | null): boolean {
+  return c === "SA_SOLE_PROPRIETOR";
+}
+function isNpoNgoType(c: CitizenshipType | null): boolean {
+  return c === "SA_NPO_NGO";
+}
+function isIndividualType(c: CitizenshipType | null): boolean {
+  return (
+    c === "SA_CITIZEN_SA" ||
+    c === "FOREIGN_CITIZEN_SA" ||
+    c === "SA_CITIZEN_ABROAD" ||
+    c === "FOREIGN_CITIZEN_ABROAD"
+  );
+}
+
+function membershipLabel(c: CitizenshipType | null, m: MembershipType | null): string {
+  if (!c || !m) return "—";
+  if (isInternational(c)) {
+    if (m === "COMPANY") return "International Company";
+    if (m === "INDIVIDUAL_KIDS") return "International Individual Kid";
+    if (m === "FREE") return "Free Member";
+    return "International Individual Adult";
+  }
+  if (m === "COMPANY") return "SA Company / Sole Proprietor";
+  if (m === "SOLE_PROPRIETOR") return "SA Company / Sole Proprietor";
+  if (m === "NPO_NGO") return "SA NPO / NGO";
+  if (m === "FREE") return "Free Member";
+  return "SA Individual";
+}
+
+function citizenshipLabel(c: CitizenshipType | null): string {
+  return CITIZENSHIP_OPTIONS.find((o) => o.value === c)?.label || "—";
+}
+
+function getSteps(c: CitizenshipType | null): { key: Step; label: string }[] {
+  const steps: { key: Step; label: string }[] = [
+    { key: "type", label: "Citizenship" },
+  ];
+  if (c && INSTAPAY_CITIZENSHIPS.includes(c)) {
+    steps.push({ key: "instapay", label: "InstaPay" });
+  }
+  steps.push({ key: "subscription", label: "Membership" });
+  steps.push({ key: "details", label: "Details" });
+  steps.push({ key: "review", label: "Review" });
+  return steps;
+}
 
 export function RegistrationWizard() {
   const { closeRegistration, login } = useKasiStore();
@@ -84,33 +177,96 @@ export function RegistrationWizard() {
   const [data, setData] = useState<FormData>(INITIAL);
   const [submitting, setSubmitting] = useState(false);
   const [newProfileNumber, setNewProfileNumber] = useState<string | null>(null);
+  const [newMember, setNewMember] = useState<{
+    id: string;
+    profileNumber: string;
+    firstName: string | null;
+    lastName: string | null;
+    companyName: string | null;
+    email: string;
+    membershipType: string;
+  } | null>(null);
 
-  const stepIndex = STEPS.findIndex((s) => s.key === step);
+  const steps = getSteps(data.citizenshipType);
+  const stepIndex = steps.findIndex((s) => s.key === step);
 
   function update<K extends keyof FormData>(key: K, value: FormData[K]) {
     setData((d) => ({ ...d, [key]: value }));
   }
 
+  function setCitizenship(c: CitizenshipType) {
+    setData((d) => ({
+      ...d,
+      citizenshipType: c,
+      membershipType: null,
+      // Reset InstaPay state when changing citizenship
+      instapayStatus: INSTAPAY_CITIZENSHIPS.includes(c) ? "PENDING" : "NONE",
+      instapayAccountRef: null,
+      instapayVerifiedAt: null,
+      instapayOption: null,
+      // Adjust default country for international types
+      country: isInternational(c) && d.country === "South Africa" ? "" : d.country,
+    }));
+  }
+
   function next() {
-    const order: Step[] = ["type", "details", "subscription", "kyc", "profile", "done"];
-    const idx = order.indexOf(step);
-    if (idx < order.length - 1) setStep(order[idx + 1]);
+    const idx = steps.findIndex((s) => s.key === step);
+    if (idx < steps.length - 1) setStep(steps[idx + 1].key);
   }
   function prev() {
-    const order: Step[] = ["type", "details", "subscription", "kyc", "profile"];
-    const idx = order.indexOf(step);
-    if (idx > 0) setStep(order[idx - 1]);
+    const idx = steps.findIndex((s) => s.key === step);
+    if (idx > 0) setStep(steps[idx - 1].key);
   }
 
-  const [newMember, setNewMember] = useState<{ id: string; profileNumber: string; firstName: string | null; lastName: string | null; companyName: string | null; email: string; membershipType: string } | null>(null);
-
   async function submit() {
+    if (!data.citizenshipType || !data.membershipType) {
+      toast.error("Please complete all required fields.");
+      return;
+    }
+    if (!data.email || !data.mobile) {
+      toast.error("Email and mobile are required.");
+      return;
+    }
     setSubmitting(true);
     try {
+      const payload: Record<string, unknown> = {
+        citizenshipType: data.citizenshipType,
+        membershipType: data.membershipType,
+        uplineProfileNumber: data.uplineProfileNumber || null,
+        uplineConfirmed: data.uplineConfirmed,
+        instapayStatus: data.instapayStatus,
+        instapayAccountRef: data.instapayAccountRef,
+        instapayVerifiedAt: data.instapayVerifiedAt,
+        email: data.email,
+        country: data.country,
+        mobile: data.mobile,
+        addressLine: data.addressLine || null,
+        city: data.city || null,
+        postalCode: data.postalCode || null,
+        beneficiaryName: data.beneficiaryName || null,
+        beneficiaryId: data.beneficiaryId || null,
+      };
+      if (isCompanyType(data.citizenshipType)) {
+        payload.companyName = data.companyName;
+        payload.companyRegNo = data.companyRegNo;
+      } else if (isNpoNgoType(data.citizenshipType)) {
+        payload.companyName = data.organizationName;
+        payload.companyRegNo = data.npoNgoNumber || data.companyRegNo;
+      } else if (isSoleProprietorType(data.citizenshipType)) {
+        payload.companyName = data.companyName;
+        payload.idPassport = data.idPassport;
+      } else {
+        payload.firstName = data.firstName;
+        payload.lastName = data.lastName;
+        payload.idPassport = data.idPassport;
+        payload.sarsNumber = data.sarsNumber || null;
+        payload.guardianName = data.guardianName || null;
+      }
+
       const res = await fetch("/api/members", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
+        body: JSON.stringify(payload),
       });
       const result = await res.json();
       if (!res.ok) {
@@ -130,26 +286,24 @@ export function RegistrationWizard() {
 
   function finish() {
     if (newMember) {
-      // Log in as the newly registered member (re-fetch full record for all fields)
       fetch(`/api/members?memberId=${newMember.id}`, { cache: "no-store" })
         .then((r) => r.json())
         .then((d) => {
-          if (d.member) {
-            login(d.member.id, d.member);
-          }
+          if (d.member) login(d.member.id, d.member);
         })
         .catch(() => {})
-        .finally(() => {
-          closeRegistration();
-        });
+        .finally(() => closeRegistration());
     } else {
       closeRegistration();
     }
   }
 
+  // Stepper rendering only for non-done steps
+  const showStepper = step !== "done";
+
   return (
     <Dialog open onOpenChange={(o) => !o && !submitting && closeRegistration()}>
-      <DialogContent className="max-w-3xl max-h-[92vh] overflow-y-auto p-0 gap-0 scrollbar-kasi">
+      <DialogContent className="w-[90vw] max-w-[1100px] max-h-[92vh] overflow-y-auto p-0 gap-0 scrollbar-kasi">
         <DialogHeader className="px-6 pt-6 pb-0">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -161,7 +315,7 @@ export function RegistrationWizard() {
               </div>
               <div>
                 <DialogTitle className="text-xl">Join KaSiHUB</DialogTitle>
-                <p className="text-xs text-muted-foreground">Become a member of the hybrid ecosystem</p>
+                <p className="text-xs text-muted-foreground">Become a member of the Eco-System</p>
               </div>
             </div>
             <Button variant="ghost" size="icon" onClick={closeRegistration} disabled={submitting}>
@@ -169,15 +323,14 @@ export function RegistrationWizard() {
             </Button>
           </div>
 
-          {/* Stepper */}
-          {step !== "done" && (
+          {showStepper && (
             <div className="mt-6 flex items-center gap-2">
-              {STEPS.map((s, i) => {
+              {steps.map((s, i) => {
                 const done = i < stepIndex;
                 const active = i === stepIndex;
                 return (
                   <div key={s.key} className="flex-1 flex items-center gap-2">
-                    <div className={`flex items-center gap-2 ${active ? "text-emerald-600" : done ? "text-emerald-600" : "text-muted-foreground"}`}>
+                    <div className={`flex items-center gap-2 ${active || done ? "text-emerald-600" : "text-muted-foreground"}`}>
                       <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold border-2 transition-all ${
                         active ? "border-emerald-600 bg-emerald-600 text-white" :
                         done ? "border-emerald-600 bg-emerald-50 dark:bg-emerald-950 text-emerald-600" :
@@ -187,7 +340,7 @@ export function RegistrationWizard() {
                       </div>
                       <span className={`text-xs font-medium hidden sm:block ${active ? "" : "text-muted-foreground"}`}>{s.label}</span>
                     </div>
-                    {i < STEPS.length - 1 && (
+                    {i < steps.length - 1 && (
                       <div className={`flex-1 h-px ${done ? "bg-emerald-600" : "bg-border"}`} />
                     )}
                   </div>
@@ -206,13 +359,31 @@ export function RegistrationWizard() {
               exit={{ opacity: 0, x: -20 }}
               transition={{ duration: 0.2 }}
             >
-              {step === "type" && <TypeStep data={data} update={update} />}
-              {step === "details" && <DetailsStep data={data} update={update} />}
-              {step === "subscription" && <SubscriptionStep data={data} update={update} />}
-              {step === "kyc" && <KycStep data={data} update={update} />}
-              {step === "profile" && <ProfileStep data={data} update={update} />}
+              {step === "type" && (
+                <TypeStep
+                  data={data}
+                  setCitizenship={setCitizenship}
+                  update={update}
+                />
+              )}
+              {step === "instapay" && (
+                <InstaPayStep data={data} update={update} />
+              )}
+              {step === "subscription" && (
+                <SubscriptionStep data={data} update={update} />
+              )}
+              {step === "details" && (
+                <DetailsStep data={data} update={update} />
+              )}
+              {step === "review" && (
+                <ReviewStep data={data} />
+              )}
               {step === "done" && (
-                <DoneStep profileNumber={newProfileNumber} membershipType={data.membershipType} onFinish={finish} />
+                <DoneStep
+                  profileNumber={newProfileNumber}
+                  membershipLabel={membershipLabel(data.citizenshipType, data.membershipType)}
+                  onFinish={finish}
+                />
               )}
             </motion.div>
           </AnimatePresence>
@@ -222,12 +393,24 @@ export function RegistrationWizard() {
               <Button variant="ghost" onClick={prev} disabled={stepIndex === 0 || submitting}>
                 <ArrowLeft className="h-4 w-4 mr-2" /> Back
               </Button>
-              {step === "profile" ? (
+              {step === "review" ? (
                 <Button onClick={submit} disabled={submitting} className="bg-gradient-to-r from-emerald-600 to-emerald-500">
-                  {submitting ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Creating profile...</> : <>Complete registration <Sparkles className="h-4 w-4 ml-2" /></>}
+                  {submitting ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Creating profile...
+                    </>
+                  ) : (
+                    <>
+                      Complete registration <Sparkles className="h-4 w-4 ml-2" />
+                    </>
+                  )}
                 </Button>
               ) : (
-                <Button onClick={next} className="bg-gradient-to-r from-emerald-600 to-emerald-500">
+                <Button
+                  onClick={next}
+                  disabled={!canProceed(step, data)}
+                  className="bg-gradient-to-r from-emerald-600 to-emerald-500"
+                >
                   Continue <ArrowRight className="h-4 w-4 ml-2" />
                 </Button>
               )}
@@ -239,104 +422,625 @@ export function RegistrationWizard() {
   );
 }
 
-// ============ STEP COMPONENTS ============
+function canProceed(step: Step, data: FormData): boolean {
+  if (step === "type") {
+    if (!data.citizenshipType) return false;
+    if (!data.uplineConfirmed) return false;
+    return true;
+  }
+  if (step === "instapay") {
+    // Must have verified InstaPay or have chosen the download option
+    return data.instapayStatus === "VERIFIED" || data.instapayOption === "download";
+  }
+  if (step === "subscription") {
+    return !!data.membershipType;
+  }
+  if (step === "details") {
+    if (!data.email || !data.mobile) return false;
+    if (isCompanyType(data.citizenshipType)) {
+      return !!data.companyName && !!data.companyRegNo;
+    }
+    if (isNpoNgoType(data.citizenshipType)) {
+      return !!data.organizationName;
+    }
+    if (isSoleProprietorType(data.citizenshipType)) {
+      return !!data.companyName && !!data.idPassport;
+    }
+    return !!data.firstName && !!data.lastName;
+  }
+  return true;
+}
 
-function TypeStep({ data, update }: { data: FormData; update: <K extends keyof FormData>(k: K, v: FormData[K]) => void }) {
-  const types: { key: MembershipType; label: string; icon: typeof User; desc: string; price: string; features: string[] }[] = [
-    {
-      key: "INDIVIDUAL_ADULT",
-      label: "Individual — Adult",
-      icon: User,
-      desc: "Ages 18-65. Full access to the ecosystem, matrix, shares and mall.",
-      price: "R140 / month",
-      features: ["5×6 matrix placement", "KasiPool nightly share", "NFC tag + VISA card", "Buy KasiShares"],
-    },
-    {
-      key: "INDIVIDUAL_KIDS",
-      label: "Individual — Kids",
-      icon: UserCheck,
-      desc: "Under 18, with adult supervision. A guardian must be appointed.",
-      price: "R140 / month",
-      features: ["Guardian required", "5×6 matrix placement", "KasiPool nightly share", "Restricted withdrawals"],
-    },
-    {
-      key: "COMPANY",
-      label: "Company",
-      icon: Building2,
-      desc: "For registered businesses. Higher subscription, broader entitlements.",
-      price: "R300 / month",
-      features: ["Company registration no.", "5×6 matrix placement", "Beneficiary details", "Bulk eligibility"],
-    },
-  ];
+// ============ STEP 1: CITIZENSHIP TYPE ============
+
+function TypeStep({
+  data,
+  setCitizenship,
+  update,
+}: {
+  data: FormData;
+  setCitizenship: (c: CitizenshipType) => void;
+  update: <K extends keyof FormData>(k: K, v: FormData[K]) => void;
+}) {
+  const [uplineInput, setUplineInput] = useState(data.uplineProfileNumber);
+  const [looking, setLooking] = useState(false);
+
+  // Lookup upline profile when input changes (debounced)
+  useEffect(() => {
+    const trimmed = uplineInput.trim();
+    if (!trimmed) {
+      update("uplineProfileNumber", "");
+      update("uplineName", null);
+      update("uplineConfirmed", false);
+      return;
+    }
+    update("uplineProfileNumber", trimmed);
+    setLooking(true);
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetch(
+          `/api/admin/members?search=${encodeURIComponent(trimmed)}&limit=1`
+        );
+        if (res.ok) {
+          const json = await res.json();
+          const m = json.members?.[0];
+          if (m && m.profileNumber === trimmed) {
+            const name =
+              m.companyName ||
+              `${m.firstName || ""} ${m.lastName || ""}`.trim() ||
+              m.profileNumber;
+            update("uplineName", name);
+          } else {
+            update("uplineName", trimmed);
+          }
+        } else {
+          update("uplineName", trimmed);
+        }
+      } catch {
+        update("uplineName", trimmed);
+      } finally {
+        setLooking(false);
+      }
+    }, 400);
+    return () => clearTimeout(t);
+  }, [uplineInput]);
+
+  const confirmText = data.uplineProfileNumber.trim()
+    ? `I confirm that ${data.uplineName || data.uplineProfileNumber} is my upline`
+    : "I confirm that I am joining via bulk registration";
+
   return (
     <div>
-      <h3 className="text-lg font-bold mb-1">Choose your membership type</h3>
-      <p className="text-sm text-muted-foreground mb-6">You can change details later, but membership type is fixed per profile.</p>
-      <div className="grid gap-4 sm:grid-cols-3">
-        {types.map((t) => {
-          const active = data.membershipType === t.key;
+      <h3 className="text-lg font-bold mb-1">Citizenship / Entity type</h3>
+      <p className="text-sm text-muted-foreground mb-6">
+        Tell us who you are. This determines your pricing and which payment platform you&apos;ll use.
+      </p>
+
+      <RadioGroup
+        value={data.citizenshipType || ""}
+        onValueChange={(v) => setCitizenship(v as CitizenshipType)}
+        className="grid sm:grid-cols-2 gap-3"
+      >
+        {CITIZENSHIP_OPTIONS.map((opt) => {
+          const Icon = opt.icon;
+          const active = data.citizenshipType === opt.value;
           return (
-            <button key={t.key} onClick={() => update("membershipType", t.key)} className={`text-left`}>
-              <Card className={`h-full p-5 cursor-pointer transition-all hover:-translate-y-1 ${
-                active ? "border-emerald-500 ring-2 ring-emerald-500/30 bg-emerald-50/50 dark:bg-emerald-950/20" : "hover:border-border"
-              }`}>
-                <div className={`w-10 h-10 rounded-lg flex items-center justify-center mb-3 ${active ? "bg-emerald-600 text-white" : "bg-muted"}`}>
-                  <t.icon className="h-5 w-5" />
-                </div>
-                <p className="font-bold mb-1">{t.label}</p>
-                <p className="text-xs text-muted-foreground mb-3">{t.desc}</p>
-                <p className="text-sm font-bold text-emerald-600 mb-3">{t.price}</p>
-                <ul className="space-y-1">
-                  {t.features.map((f) => (
-                    <li key={f} className="flex items-start gap-1.5 text-xs">
-                      <Check className="h-3 w-3 text-emerald-600 mt-0.5 flex-shrink-0" /> {f}
-                    </li>
-                  ))}
-                </ul>
-              </Card>
-            </button>
+            <div key={opt.value} className="relative">
+              <RadioGroupItem
+                value={opt.value}
+                id={`cit-${opt.value}`}
+                className="absolute top-4 right-4 z-10 data-[state=checked]:border-emerald-600 data-[state=checked]:text-emerald-600"
+              />
+              <label htmlFor={`cit-${opt.value}`} className="block cursor-pointer">
+                <Card
+                  className={`p-5 h-full transition-all ${
+                    active
+                      ? "border-emerald-500 ring-2 ring-emerald-500/30 bg-emerald-50/50 dark:bg-emerald-950/20"
+                      : "hover:border-border hover:-translate-y-0.5"
+                  }`}
+                >
+                  <div className="flex items-start gap-3 pr-8">
+                    <div
+                      className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                        active ? "bg-emerald-600 text-white" : "bg-muted text-muted-foreground"
+                      }`}
+                    >
+                      <Icon className="h-5 w-5" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-bold">{opt.label}</p>
+                      <p className="text-xs text-muted-foreground mt-1">{opt.desc}</p>
+                    </div>
+                  </div>
+                </Card>
+              </label>
+            </div>
           );
         })}
+      </RadioGroup>
+
+      <Separator className="my-6" />
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div>
+          <Label htmlFor="upline">Sponsor / Upline profile number (optional)</Label>
+          <Input
+            id="upline"
+            placeholder="e.g. KSH-000001"
+            value={uplineInput}
+            onChange={(e) => setUplineInput(e.target.value)}
+            className="mt-1.5"
+          />
+          <p className="text-xs text-muted-foreground mt-1.5">
+            Leave blank if you joined via bulk registration.
+          </p>
+        </div>
+        <div className="flex items-end">
+          <div className="rounded-lg border border-border bg-muted/30 p-3 w-full">
+            {looking ? (
+              <p className="text-xs text-muted-foreground flex items-center gap-2">
+                <Loader2 className="h-3 w-3 animate-spin" /> Looking up upline...
+              </p>
+            ) : data.uplineProfileNumber.trim() ? (
+              <p className="text-xs">
+                <span className="text-muted-foreground">Upline: </span>
+                <span className="font-semibold">{data.uplineName || data.uplineProfileNumber}</span>
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                No upline provided — joining via bulk registration.
+              </p>
+            )}
+          </div>
+        </div>
       </div>
 
-      <div className="mt-6">
-        <Label htmlFor="sponsor">Sponsor / Upline profile number (optional)</Label>
-        <Input
-          id="sponsor"
-          placeholder="e.g. KSH-000001"
-          value={data.sponsorProfileNumber}
-          onChange={(e) => update("sponsorProfileNumber", e.target.value)}
-          className="mt-1.5"
+      <label
+        htmlFor="upline-confirm"
+        className="mt-4 flex items-start gap-3 p-4 rounded-lg border border-amber-200 dark:border-amber-900 bg-amber-50/50 dark:bg-amber-950/20 cursor-pointer"
+      >
+        <Checkbox
+          id="upline-confirm"
+          checked={data.uplineConfirmed}
+          onCheckedChange={(c) => update("uplineConfirmed", c === true)}
+          className="mt-0.5 data-[state=checked]:bg-amber-500 data-[state=checked]:border-amber-500"
         />
-        <p className="text-xs text-muted-foreground mt-1.5">Leave blank if you joined via bulk registration. You&apos;ll be placed in the next open spot regardless.</p>
+        <span className="text-sm font-medium">{confirmText}</span>
+      </label>
+    </div>
+  );
+}
+
+// ============ STEP 2: INSTAPAY ============
+
+function InstaPayStep({
+  data,
+  update,
+}: {
+  data: FormData;
+  update: <K extends keyof FormData>(k: K, v: FormData[K]) => void;
+}) {
+  const [androidUrl, setAndroidUrl] = useState<string | null>(null);
+  const [iosUrl, setIosUrl] = useState<string | null>(null);
+  const [verifying, setVerifying] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/instapay/status")
+      .then((r) => r.json())
+      .then((d) => {
+        setAndroidUrl(d.androidUrl || null);
+        setIosUrl(d.iosUrl || null);
+      })
+      .catch(() => {});
+  }, []);
+
+  const isNpo = isNpoNgoType(data.citizenshipType);
+
+  async function handleVerify() {
+    const identifier =
+      data.idNumber ||
+      data.passportNumber ||
+      data.asylumNumber ||
+      data.companyRegNo ||
+      data.npoNgoNumber;
+    if (!identifier || identifier.length < 6) {
+      toast.error("Please enter a valid identifier (at least 6 characters).");
+      return;
+    }
+    setVerifying(true);
+    try {
+      // Demo simulation: since there's no memberId yet, accept any value 6+ chars
+      await new Promise((r) => setTimeout(r, 800));
+      const accountRef = `IPG-${identifier.slice(-6).toUpperCase()}-${Math.floor(Math.random() * 1000)}`;
+      update("instapayStatus", "VERIFIED");
+      update("instapayAccountRef", accountRef);
+      update("instapayVerifiedAt", new Date().toISOString());
+      toast.success("InstaPay account verified!");
+    } catch {
+      toast.error("Verification failed. Please try again.");
+    } finally {
+      setVerifying(false);
+    }
+  }
+
+  const verified = data.instapayStatus === "VERIFIED";
+
+  return (
+    <div>
+      <h3 className="text-lg font-bold mb-1">InstaPay Gini setup</h3>
+      <p className="text-sm text-muted-foreground mb-6">
+        Your SA membership subscription is processed via InstaPay Gini. Choose an option below.
+      </p>
+
+      {verified ? (
+        <Card className="p-6 border-emerald-300 bg-emerald-50/60 dark:bg-emerald-950/20 dark:border-emerald-800">
+          <div className="flex items-start gap-4">
+            <div className="w-12 h-12 rounded-xl bg-emerald-600 text-white flex items-center justify-center flex-shrink-0">
+              <ShieldCheck className="h-6 w-6" />
+            </div>
+            <div className="flex-1">
+              <p className="font-bold text-emerald-700 dark:text-emerald-400">InstaPay account verified</p>
+              <p className="text-sm text-muted-foreground mt-1">
+                Account reference: <span className="font-mono font-semibold">{data.instapayAccountRef}</span>
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Verified at {data.instapayVerifiedAt ? new Date(data.instapayVerifiedAt).toLocaleString() : "—"}
+              </p>
+            </div>
+            <Badge className="bg-emerald-600 text-white">Verified</Badge>
+          </div>
+        </Card>
+      ) : (
+        <RadioGroup
+          value={data.instapayOption || ""}
+          onValueChange={(v) => update("instapayOption", v as "download" | "have")}
+          className="grid gap-4"
+        >
+          {/* Download option */}
+          <div className="relative">
+            <RadioGroupItem
+              value="download"
+              id="ip-download"
+              className="absolute top-5 right-5 z-10 data-[state=checked]:border-emerald-600 data-[state=checked]:text-emerald-600"
+            />
+            <label htmlFor="ip-download" className="block cursor-pointer">
+              <Card
+                className={`p-5 transition-all ${
+                  data.instapayOption === "download"
+                    ? "border-emerald-500 ring-2 ring-emerald-500/30"
+                    : "hover:border-border"
+                }`}
+              >
+                <div className="flex items-start gap-3 pr-8">
+                  <div className="w-10 h-10 rounded-lg bg-emerald-600 text-white flex items-center justify-center flex-shrink-0">
+                    <Download className="h-5 w-5" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="font-bold">Download InstaPay Gini app</p>
+                    <p className="text-xs text-muted-foreground mt-1 mb-4">
+                      Install the app on your phone, create an account, then return here to continue.
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      <a
+                        href={androidUrl || "#"}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => {
+                          if (!androidUrl) e.preventDefault();
+                        }}
+                        className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-black text-white text-xs font-semibold hover:opacity-90 transition-opacity"
+                      >
+                        <Smartphone className="h-4 w-4" />
+                        Google Play
+                        <ExternalLink className="h-3 w-3 opacity-60" />
+                      </a>
+                      <a
+                        href={iosUrl || "#"}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => {
+                          if (!iosUrl) e.preventDefault();
+                        }}
+                        className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-black text-white text-xs font-semibold hover:opacity-90 transition-opacity"
+                      >
+                        <Smartphone className="h-4 w-4" />
+                        App Store
+                        <ExternalLink className="h-3 w-3 opacity-60" />
+                      </a>
+                    </div>
+                  </div>
+                </div>
+              </Card>
+            </label>
+          </div>
+
+          {/* Have account option */}
+          <div className="relative">
+            <RadioGroupItem
+              value="have"
+              id="ip-have"
+              className="absolute top-5 right-5 z-10 data-[state=checked]:border-emerald-600 data-[state=checked]:text-emerald-600"
+            />
+            <label htmlFor="ip-have" className="block cursor-pointer">
+              <Card
+                className={`p-5 transition-all ${
+                  data.instapayOption === "have"
+                    ? "border-emerald-500 ring-2 ring-emerald-500/30"
+                    : "hover:border-border"
+                }`}
+              >
+                <div className="flex items-start gap-3 pr-8">
+                  <div className="w-10 h-10 rounded-lg bg-amber-500 text-white flex items-center justify-center flex-shrink-0">
+                    <Wallet className="h-5 w-5" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="font-bold">I already have an InstaPay Gini or Merchant Account</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Verify your existing account by providing one of the identifiers below.
+                    </p>
+                  </div>
+                </div>
+              </Card>
+            </label>
+          </div>
+        </RadioGroup>
+      )}
+
+      {data.instapayOption === "have" && !verified && (
+        <Card className="mt-4 p-5 border-dashed">
+          <p className="text-sm font-semibold mb-1">Verify your InstaPay account</p>
+          <p className="text-xs text-muted-foreground mb-4">
+            Provide <span className="font-semibold">one</span> of the following identifiers that matches your InstaPay account.
+          </p>
+          <div className="grid gap-4 sm:grid-cols-2">
+            {!isNpo && (
+              <>
+                <Field
+                  label="ID Number"
+                  value={data.idNumber}
+                  onChange={(v) => update("idNumber", v)}
+                  placeholder="8501015800087"
+                />
+                <Field
+                  label="Passport Number"
+                  value={data.passportNumber}
+                  onChange={(v) => update("passportNumber", v)}
+                  placeholder="A12345678"
+                />
+                <Field
+                  label="Asylum Number"
+                  value={data.asylumNumber}
+                  onChange={(v) => update("asylumNumber", v)}
+                  placeholder="AS-2024-001234"
+                />
+              </>
+            )}
+            {isNpo && (
+              <>
+                <Field
+                  label="Company Registration Number"
+                  value={data.companyRegNo}
+                  onChange={(v) => update("companyRegNo", v)}
+                  placeholder="2018/123456/07"
+                />
+                <Field
+                  label="NPO / NGO Number"
+                  value={data.npoNgoNumber}
+                  onChange={(v) => update("npoNgoNumber", v)}
+                  placeholder="123-456-NPO"
+                />
+              </>
+            )}
+          </div>
+          <Button
+            onClick={handleVerify}
+            disabled={verifying}
+            className="mt-4 bg-gradient-to-r from-emerald-600 to-emerald-500"
+          >
+            {verifying ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Verifying...
+              </>
+            ) : (
+              <>
+                <ShieldCheck className="h-4 w-4 mr-2" /> Verify Account
+              </>
+            )}
+          </Button>
+        </Card>
+      )}
+
+      <div className="mt-6 rounded-lg bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900 p-4">
+        <div className="flex items-start gap-3">
+          <Info className="h-5 w-5 text-amber-600 mt-0.5 flex-shrink-0" />
+          <p className="text-xs text-amber-800 dark:text-amber-300">
+            Subscription is processed via InstaPay Gini with Adamo subscription integration.
+            {data.instapayOption === "download" && " You can complete this step later — InstaPay setup is required before your first subscription payment."}
+          </p>
+        </div>
       </div>
     </div>
   );
 }
 
-function DetailsStep({ data, update }: { data: FormData; update: <K extends keyof FormData>(k: K, v: FormData[K]) => void }) {
-  const isCompany = data.membershipType === "COMPANY";
-  const isKids = data.membershipType === "INDIVIDUAL_KIDS";
+// ============ STEP 3: MEMBERSHIP & SUBSCRIPTION ============
+
+function SubscriptionStep({
+  data,
+  update,
+}: {
+  data: FormData;
+  update: <K extends keyof FormData>(k: K, v: FormData[K]) => void;
+}) {
+  const intl = isInternational(data.citizenshipType);
+  const currency = intl ? "USD" : "ZAR";
+  const symbol = intl ? "$" : "R";
+
+  const saOptions: { key: MembershipType; label: string; price: number; desc: string }[] = [
+    { key: "INDIVIDUAL_ADULT", label: "SA Individual", price: 140, desc: "Individual SA member, full Eco-System access." },
+    { key: "COMPANY", label: "SA Company / Sole Proprietor", price: 300, desc: "Registered SA business or sole proprietor." },
+    { key: "NPO_NGO", label: "SA NPO / NGO", price: 250, desc: "Non-profit organisation registered in SA." },
+    { key: "FREE", label: "Free Member", price: 0, desc: "Limited access — upgrade anytime later." },
+  ];
+
+  const intlOptions: { key: MembershipType; label: string; price: number; desc: string }[] = [
+    { key: "INDIVIDUAL_ADULT", label: "International Individual Adult", price: 30, desc: "Adult member outside South Africa." },
+    { key: "INDIVIDUAL_KIDS", label: "International Individual Kid", price: 30, desc: "Under 18, requires a guardian." },
+    { key: "COMPANY", label: "International Company", price: 50, desc: "Company registered outside South Africa." },
+    { key: "FREE", label: "Free Member", price: 0, desc: "Limited access — upgrade anytime later." },
+  ];
+
+  const options = intl ? intlOptions : saOptions;
+
+  // Pre-select a sensible default for the citizenship type
+  useEffect(() => {
+    if (!data.membershipType) {
+      let def: MembershipType = "INDIVIDUAL_ADULT";
+      if (isCompanyType(data.citizenshipType)) def = "COMPANY";
+      else if (isSoleProprietorType(data.citizenshipType)) def = "SOLE_PROPRIETOR";
+      else if (isNpoNgoType(data.citizenshipType)) def = "NPO_NGO";
+      // SOLE_PROPRIETOR isn't in the visible options list, fall back to COMPANY for SA sole prop
+      if (def === "SOLE_PROPRIETOR" && !intl) def = "COMPANY";
+      update("membershipType", def);
+    }
+  }, [data.citizenshipType]);
+
   return (
     <div>
-      <h3 className="text-lg font-bold mb-1">{isCompany ? "Company details" : "Personal details"}</h3>
-      <p className="text-sm text-muted-foreground mb-6">This information is used for KYC verification and your unique profile number.</p>
+      <h3 className="text-lg font-bold mb-1">Membership &amp; subscription</h3>
+      <p className="text-sm text-muted-foreground mb-6">
+        {intl
+          ? "International members pay via the Bankus platform in USD."
+          : "SA members pay via InstaPay Gini in ZAR."}
+      </p>
 
-      {isCompany ? (
+      <RadioGroup
+        value={data.membershipType || ""}
+        onValueChange={(v) => update("membershipType", v as MembershipType)}
+        className="grid sm:grid-cols-2 gap-3"
+      >
+        {options.map((opt) => {
+          const active = data.membershipType === opt.key;
+          return (
+            <div key={opt.key} className="relative">
+              <RadioGroupItem
+                value={opt.key}
+                id={`mem-${opt.key}`}
+                className="absolute top-4 right-4 z-10 data-[state=checked]:border-emerald-600 data-[state=checked]:text-emerald-600"
+              />
+              <label htmlFor={`mem-${opt.key}`} className="block cursor-pointer">
+                <Card
+                  className={`p-5 h-full transition-all ${
+                    active
+                      ? "border-emerald-500 ring-2 ring-emerald-500/30 bg-emerald-50/50 dark:bg-emerald-950/20"
+                      : "hover:border-border hover:-translate-y-0.5"
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-3 pr-8">
+                    <div className="flex-1">
+                      <p className="font-bold">{opt.label}</p>
+                      <p className="text-xs text-muted-foreground mt-1">{opt.desc}</p>
+                    </div>
+                  </div>
+                  <p className="mt-4 text-2xl font-black">
+                    {symbol}{opt.price}
+                    <span className="text-sm font-normal text-muted-foreground">/month</span>
+                  </p>
+                </Card>
+              </label>
+            </div>
+          );
+        })}
+      </RadioGroup>
+
+      <Card className="mt-6 p-5 bg-muted/30 border-dashed">
+        <div className="flex items-start gap-3">
+          <div
+            className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${
+              intl ? "bg-amber-500 text-white" : "bg-emerald-600 text-white"
+            }`}
+          >
+            <Wallet className="h-5 w-5" />
+          </div>
+          <div className="text-sm">
+            <p className="font-semibold">
+              Payment method: {intl ? "Bankus Platform" : "InstaPay Gini"}
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {intl
+                ? "You will be redirected to Bankus to complete your payment."
+                : "Subscription is processed via InstaPay Gini with Adamo subscription integration."}
+            </p>
+          </div>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+// ============ STEP 4: DETAILS ============
+
+function DetailsStep({
+  data,
+  update,
+}: {
+  data: FormData;
+  update: <K extends keyof FormData>(k: K, v: FormData[K]) => void;
+}) {
+  const c = data.citizenshipType;
+  const isCompany = isCompanyType(c);
+  const isSoleProp = isSoleProprietorType(c);
+  const isNpo = isNpoNgoType(c);
+  const isIndividual = isIndividualType(c);
+  const intl = isInternational(c);
+
+  return (
+    <div>
+      <h3 className="text-lg font-bold mb-1">
+        {isCompany || isSoleProp
+          ? "Business details"
+          : isNpo
+            ? "Organisation details"
+            : "Personal details"}
+      </h3>
+      <p className="text-sm text-muted-foreground mb-6">
+        This information is used to generate your unique profile number.
+      </p>
+
+      {isCompany && (
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Company name" required value={data.companyName} onChange={(v) => update("companyName", v)} placeholder="Acme Trading (Pty) Ltd" />
           <Field label="Company registration no." required value={data.companyRegNo} onChange={(v) => update("companyRegNo", v)} placeholder="2018/123456/07" />
         </div>
-      ) : (
+      )}
+
+      {isSoleProp && (
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Business name" required value={data.companyName} onChange={(v) => update("companyName", v)} placeholder="Thabo Plumbing" />
+          <Field label="Personal ID number" required value={data.idPassport} onChange={(v) => update("idPassport", v)} placeholder="8501015800087" />
+        </div>
+      )}
+
+      {isNpo && (
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Organisation name" required value={data.organizationName} onChange={(v) => update("organizationName", v)} placeholder="Helping Hands NPO" />
+          <Field label="NPO / NGO number" value={data.npoNgoNumber} onChange={(v) => update("npoNgoNumber", v)} placeholder="123-456-NPO" />
+        </div>
+      )}
+
+      {isIndividual && (
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="First name" required value={data.firstName} onChange={(v) => update("firstName", v)} placeholder="Thabo" />
           <Field label="Last name" required value={data.lastName} onChange={(v) => update("lastName", v)} placeholder="Mokoena" />
-          <Field label="ID / Passport number" required value={data.idPassport} onChange={(v) => update("idPassport", v)} placeholder="8501015800087" />
-          <Field label="Personal SARS number" value={data.sarsNumber} onChange={(v) => update("sarsNumber", v)} placeholder="9123456789" />
-          {isKids && (
-            <div className="sm:col-span-2">
-              <Field label="Guardian name (required for kids)" required value={data.guardianName} onChange={(v) => update("guardianName", v)} placeholder="Nomsa Mokoena" />
-            </div>
+          <Field
+            label={intl ? "Passport number" : "ID / Passport number"}
+            required
+            value={data.idPassport}
+            onChange={(v) => update("idPassport", v)}
+            placeholder={intl ? "A12345678" : "8501015800087"}
+          />
+          {!intl && (
+            <Field label="Personal SARS number" value={data.sarsNumber} onChange={(v) => update("sarsNumber", v)} placeholder="9123456789" />
           )}
         </div>
       )}
@@ -351,6 +1055,7 @@ function DetailsStep({ data, update }: { data: FormData; update: <K extends keyo
             onChange={(e) => update("country", e.target.value)}
             className="mt-1.5 w-full h-10 px-3 rounded-md border border-input bg-background text-sm"
           >
+            <option value="">Select country...</option>
             <option>South Africa</option>
             <option>Lesotho</option>
             <option>Eswatini</option>
@@ -358,9 +1063,13 @@ function DetailsStep({ data, update }: { data: FormData; update: <K extends keyo
             <option>Zimbabwe</option>
             <option>Namibia</option>
             <option>Mozambique</option>
+            <option>United Kingdom</option>
+            <option>United States</option>
+            <option>United Arab Emirates</option>
             <option>Other</option>
           </select>
         </div>
+        <Field label="City" value={data.city} onChange={(v) => update("city", v)} placeholder="Johannesburg" />
         <Field label="Postal code" value={data.postalCode} onChange={(v) => update("postalCode", v)} placeholder="1804" />
       </div>
 
@@ -384,157 +1093,72 @@ function DetailsStep({ data, update }: { data: FormData; update: <K extends keyo
   );
 }
 
-function SubscriptionStep({ data, update }: { data: FormData; update: <K extends keyof FormData>(k: K, v: FormData[K]) => void }) {
-  const isCompany = data.membershipType === "COMPANY";
-  const isInternational = data.country !== "South Africa";
-  const localAmount = isCompany ? 300 : 140;
-  const intlAmount = isCompany ? 50 : 20;
-  const currency = isInternational ? "USD" : "ZAR";
-  const amount = isInternational ? intlAmount : localAmount;
+// ============ STEP 5: REVIEW ============
+
+function ReviewStep({ data }: { data: FormData }) {
+  const c = data.citizenshipType;
+  const isCompany = isCompanyType(c);
+  const isSoleProp = isSoleProprietorType(c);
+  const isNpo = isNpoNgoType(c);
+  const intl = isInternational(c);
 
   return (
     <div>
-      <h3 className="text-lg font-bold mb-1">Subscription & payment</h3>
+      <h3 className="text-lg font-bold mb-1">Review &amp; confirm</h3>
       <p className="text-sm text-muted-foreground mb-6">
-        Your subscription is paid monthly. R47 of each payment goes up 6 levels in the matrix; the remainder supports the KasiPool.
+        Please review your details before we generate your unique profile number.
       </p>
-
-      <Card className="p-5 mb-6 bg-muted/30 border-dashed">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm text-muted-foreground">Your plan</p>
-            <p className="text-2xl font-black mt-1">{currency} {amount}<span className="text-base font-normal text-muted-foreground">/month</span></p>
-            <p className="text-xs text-muted-foreground mt-1">
-              {isCompany ? "Company membership" : "Individual membership"} · {isInternational ? "International" : "Local (SADC)"}
-            </p>
-          </div>
-          <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200">
-            {isInternational ? `$${intlAmount}` : `R${localAmount}`}
-          </Badge>
-        </div>
-      </Card>
-
-      <Label>Choose payment method</Label>
-      <div className="grid sm:grid-cols-3 gap-3 mt-2">
-        {[
-          { key: "BANK", label: "Bank Transfer (EFT)", desc: "FNB · Solidus Holdings" },
-          { key: "CARD", label: "Card Payment", desc: "Visa / Mastercard" },
-          { key: "CASH", label: "Cash Deposit", desc: "At any FNB branch" },
-        ].map((m) => {
-          const active = data.paymentMethod === m.key;
-          return (
-            <button key={m.key} onClick={() => update("paymentMethod", m.key)} className="text-left">
-              <Card className={`p-4 cursor-pointer transition-all ${active ? "border-emerald-500 ring-2 ring-emerald-500/30" : "hover:border-border"}`}>
-                <CreditCard className={`h-5 w-5 mb-2 ${active ? "text-emerald-600" : "text-muted-foreground"}`} />
-                <p className="font-semibold text-sm">{m.label}</p>
-                <p className="text-xs text-muted-foreground">{m.desc}</p>
-              </Card>
-            </button>
-          );
-        })}
-      </div>
-
-      <Card className="mt-6 p-5 bg-amber-50/50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-900">
-        <div className="flex items-start gap-3">
-          <div className="w-10 h-10 rounded-lg bg-amber-500 text-white flex items-center justify-center flex-shrink-0">
-            <CreditCard className="h-5 w-5" />
-          </div>
-          <div className="text-sm">
-            <p className="font-semibold mb-1">Banking details</p>
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              Solidus Holdings (Pty) Ltd · FNB Gold Business Account<br />
-              Account: <span className="font-mono font-semibold">63212306319</span> · Branch: <span className="font-mono font-semibold">210835</span><br />
-              <span className="text-xs">External payment is a temporary solution until Roots CO-OP Bank is operational.</span>
-            </p>
-          </div>
-        </div>
-      </Card>
-    </div>
-  );
-}
-
-function KycStep({ data, update }: { data: FormData; update: <K extends keyof FormData>(k: K, v: FormData[K]) => void }) {
-  return (
-    <div>
-      <h3 className="text-lg font-bold mb-1">KYC verification</h3>
-      <p className="text-sm text-muted-foreground mb-6">
-        Complete external KYC verification. You&apos;ll receive a confirmation email once approved. Only one profile per ID/Passport is allowed.
-      </p>
-
-      <div className="space-y-4">
-        <Card className="p-5 border-dashed">
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 rounded-xl bg-muted flex items-center justify-center">
-              <Upload className="h-5 w-5 text-muted-foreground" />
-            </div>
-            <div className="flex-1">
-              <p className="font-semibold text-sm">Upload profile picture</p>
-              <p className="text-xs text-muted-foreground">A real, clear photo of yourself. Required for KYC.</p>
-            </div>
-            <Button variant="outline" size="sm" onClick={() => update("profilePicture", "uploaded")}>
-              {data.profilePicture ? <><Check className="h-4 w-4 mr-1" /> Uploaded</> : "Upload"}
-            </Button>
-          </div>
-        </Card>
-
-        <Card className="p-5 border-dashed">
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 rounded-xl bg-muted flex items-center justify-center">
-              <ShieldCheck className="h-5 w-5 text-muted-foreground" />
-            </div>
-            <div className="flex-1">
-              <p className="font-semibold text-sm">ID / Passport verification</p>
-              <p className="text-xs text-muted-foreground">External KYC partner will verify your identity document.</p>
-            </div>
-            <Button variant="outline" size="sm" onClick={() => update("kycStatus", "VERIFIED")}>
-              {data.kycStatus === "VERIFIED" ? <><Check className="h-4 w-4 mr-1" /> Verified</> : "Start verification"}
-            </Button>
-          </div>
-        </Card>
-
-        <div className="rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900 p-4">
-          <div className="flex items-start gap-3">
-            <Check className="h-5 w-5 text-emerald-600 mt-0.5 flex-shrink-0" />
-            <div className="text-sm">
-              <p className="font-semibold">Duplicate prevention</p>
-              <p className="text-xs text-muted-foreground mt-1">
-                Your ID/Passport number is unique to your profile. The only exception is profile inheritance,
-                which requires special handling by the KaSiHUB Exco.
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ProfileStep({ data, update }: { data: FormData; update: <K extends keyof FormData>(k: K, v: FormData[K]) => void }) {
-  const isCompany = data.membershipType === "COMPANY";
-  return (
-    <div>
-      <h3 className="text-lg font-bold mb-1">Review & confirm</h3>
-      <p className="text-sm text-muted-foreground mb-6">Please review your details before we generate your unique profile number.</p>
 
       <Card className="p-5 bg-muted/30">
         <dl className="grid gap-3 sm:grid-cols-2 text-sm">
-          <Row label="Membership type" value={isCompany ? "Company" : data.membershipType === "INDIVIDUAL_KIDS" ? "Individual - Kids" : "Individual - Adult"} />
-          {isCompany ? (
+          <Row label="Citizenship / Entity" value={citizenshipLabel(c)} />
+          <Row label="Membership" value={membershipLabel(c, data.membershipType)} />
+          <Row
+            label="Upline"
+            value={data.uplineProfileNumber ? (data.uplineName || data.uplineProfileNumber) : "Bulk registration"}
+          />
+          <Row
+            label="InstaPay status"
+            value={
+              INSTAPAY_CITIZENSHIPS.includes(c as CitizenshipType)
+                ? data.instapayStatus === "VERIFIED"
+                  ? `Verified (${data.instapayAccountRef})`
+                  : "Pending / Download app"
+                : "N/A"
+            }
+          />
+          <Row
+            label="Payment method"
+            value={intl ? "Bankus Platform" : "InstaPay Gini"}
+          />
+          {isCompany && (
             <>
               <Row label="Company" value={data.companyName || "—"} />
               <Row label="Reg. no." value={data.companyRegNo || "—"} />
             </>
-          ) : (
+          )}
+          {isSoleProp && (
             <>
-              <Row label="Name" value={`${data.firstName} ${data.lastName}`} />
-              <Row label="ID/Passport" value={data.idPassport || "—"} />
+              <Row label="Business" value={data.companyName || "—"} />
+              <Row label="Personal ID" value={data.idPassport || "—"} />
             </>
           )}
-          <Row label="Email" value={data.email} />
-          <Row label="Mobile" value={data.mobile} />
-          <Row label="Country" value={data.country} />
-          <Row label="Payment method" value={data.paymentMethod} />
-          <Row label="KYC status" value={data.kycStatus} />
+          {isNpo && (
+            <>
+              <Row label="Organisation" value={data.organizationName || "—"} />
+              <Row label="NPO/NGO no." value={data.npoNgoNumber || "—"} />
+            </>
+          )}
+          {!isCompany && !isSoleProp && !isNpo && (
+            <>
+              <Row label="Name" value={`${data.firstName} ${data.lastName}`.trim() || "—"} />
+              <Row label="ID / Passport" value={data.idPassport || "—"} />
+            </>
+          )}
+          <Row label="Email" value={data.email || "—"} />
+          <Row label="Mobile" value={data.mobile || "—"} />
+          <Row label="Country" value={data.country || "—"} />
+          <Row label="City" value={data.city || "—"} />
           <Row label="Beneficiary" value={data.beneficiaryName || "—"} />
         </dl>
       </Card>
@@ -543,16 +1167,42 @@ function ProfileStep({ data, update }: { data: FormData; update: <K extends keyo
         <p className="font-semibold mb-1">Once you complete registration:</p>
         <ul className="space-y-1 list-disc list-inside">
           <li>You&apos;ll receive a unique profile number (e.g. KSH-000123)</li>
-          <li>An NFC Tag and VISA card will be issued by Roots Bank</li>
-          <li>You&apos;ll be placed in the next open spot in the 5×6 matrix</li>
-          <li>You&apos;ll get full access to the KaSiHUB UI</li>
+          <li>You&apos;ll be placed in the Eco-System</li>
+          <li>Your profile will be created and you&apos;ll get access to the KaSiHUB UI.</li>
         </ul>
       </div>
+
+      {data.uplineProfileNumber && (
+        <label
+          htmlFor="review-confirm"
+          className="mt-4 flex items-start gap-3 p-4 rounded-lg border border-emerald-200 dark:border-emerald-900 bg-emerald-50/50 dark:bg-emerald-950/20 cursor-pointer"
+        >
+          <Checkbox
+            id="review-confirm"
+            checked={data.uplineConfirmed}
+            disabled
+            className="mt-0.5 data-[state=checked]:bg-emerald-600 data-[state=checked]:border-emerald-600"
+          />
+          <span className="text-sm font-medium">
+            I confirm that {data.uplineName || data.uplineProfileNumber} is my upline
+          </span>
+        </label>
+      )}
     </div>
   );
 }
 
-function DoneStep({ profileNumber, membershipType, onFinish }: { profileNumber: string | null; membershipType: MembershipType; onFinish: () => void }) {
+// ============ DONE STEP ============
+
+function DoneStep({
+  profileNumber,
+  membershipLabel,
+  onFinish,
+}: {
+  profileNumber: string | null;
+  membershipLabel: string;
+  onFinish: () => void;
+}) {
   return (
     <div className="text-center py-6">
       <motion.div
@@ -571,7 +1221,7 @@ function DoneStep({ profileNumber, membershipType, onFinish }: { profileNumber: 
 
       <h3 className="text-2xl font-black mt-6">Welcome to KaSiHUB!</h3>
       <p className="text-sm text-muted-foreground mt-2 max-w-sm mx-auto">
-        Your membership has been created. You&apos;re now part of the hybrid ecosystem.
+        Your membership has been created. You&apos;re now part of the Eco-System.
       </p>
 
       <Card className="mt-6 p-5 max-w-sm mx-auto bg-gradient-to-br from-emerald-50 to-amber-50 dark:from-emerald-950/30 dark:to-amber-950/30 border-emerald-200 dark:border-emerald-900">
@@ -582,7 +1232,7 @@ function DoneStep({ profileNumber, membershipType, onFinish }: { profileNumber: 
         <div className="mt-3 pt-3 border-t border-emerald-200 dark:border-emerald-900 grid grid-cols-2 gap-2 text-left">
           <div>
             <p className="text-[10px] text-muted-foreground">Membership</p>
-            <p className="text-xs font-semibold">{membershipType === "COMPANY" ? "Company" : "Individual"}</p>
+            <p className="text-xs font-semibold">{membershipLabel}</p>
           </div>
           <div>
             <p className="text-[10px] text-muted-foreground">Status</p>
@@ -592,13 +1242,22 @@ function DoneStep({ profileNumber, membershipType, onFinish }: { profileNumber: 
       </Card>
 
       <Button onClick={onFinish} className="mt-6 bg-gradient-to-r from-emerald-600 to-emerald-500">
-        Enter the ecosystem <ArrowRight className="h-4 w-4 ml-2" />
+        Enter the Eco-System <ArrowRight className="h-4 w-4 ml-2" />
       </Button>
     </div>
   );
 }
 
-function Field({ label, value, onChange, placeholder, type = "text", required }: {
+// ============ HELPERS ============
+
+function Field({
+  label,
+  value,
+  onChange,
+  placeholder,
+  type = "text",
+  required,
+}: {
   label: string;
   value: string;
   onChange: (v: string) => void;
@@ -608,7 +1267,10 @@ function Field({ label, value, onChange, placeholder, type = "text", required }:
 }) {
   return (
     <div>
-      <Label>{label}{required && <span className="text-destructive ml-0.5">*</span>}</Label>
+      <Label>
+        {label}
+        {required && <span className="text-destructive ml-0.5">*</span>}
+      </Label>
       <Input
         type={type}
         value={value}
@@ -624,7 +1286,7 @@ function Row({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex flex-col">
       <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className="font-semibold">{value}</dd>
+      <dd className="font-semibold break-words">{value}</dd>
     </div>
   );
 }

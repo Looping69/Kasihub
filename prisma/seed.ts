@@ -73,6 +73,8 @@ async function main() {
   await db.siloConfig.deleteMany();
   await db.setting.deleteMany();
   await db.dividendDeclaration.deleteMany();
+  await db.aureusShare.deleteMany();
+  await db.auditorNotification.deleteMany();
 
   // 0a. Silo Config (Exco-editable mall payment splits)
   const SILOS = [
@@ -87,17 +89,38 @@ async function main() {
 
   // 0b. Settings (commission rates, thresholds, etc.)
   await db.setting.create({ data: { key: "commission_per_level", value: JSON.stringify([20, 10, 8, 5, 3, 1]), category: "matrix" } });
+  // SA pricing
   await db.setting.create({ data: { key: "subscription_amount_individual", value: "140", category: "subscription" } });
   await db.setting.create({ data: { key: "subscription_amount_company", value: "300", category: "subscription" } });
-  await db.setting.create({ data: { key: "subscription_amount_intl_individual", value: "20", category: "subscription" } });
+  await db.setting.create({ data: { key: "subscription_amount_npo", value: "250", category: "subscription" } });
+  await db.setting.create({ data: { key: "subscription_amount_free", value: "0", category: "subscription" } });
+  // International pricing
+  await db.setting.create({ data: { key: "subscription_amount_intl_individual", value: "30", category: "subscription" } });
+  await db.setting.create({ data: { key: "subscription_amount_intl_kids", value: "30", category: "subscription" } });
   await db.setting.create({ data: { key: "subscription_amount_intl_company", value: "50", category: "subscription" } });
+  await db.setting.create({ data: { key: "subscription_amount_intl_free", value: "0", category: "subscription" } });
+  // Tax
   await db.setting.create({ data: { key: "tax_threshold_monthly", value: "7000", category: "tax" } });
   await db.setting.create({ data: { key: "tax_rate", value: "25", category: "tax" } });
+  await db.setting.create({ data: { key: "auditor_email", value: "auditor@kasihub.co.za", category: "tax" } });
+  // Roots Bank
   await db.setting.create({ data: { key: "pioneer_pool_pct", value: "1", category: "rootsbank" } });
   await db.setting.create({ data: { key: "pioneer_pool_target", value: "200", category: "rootsbank" } });
+  // Mall
   await db.setting.create({ data: { key: "mall_member_threshold", value: "5000", category: "mall" } });
+  // Shares
   await db.setting.create({ data: { key: "daily_profit_pool_usd", value: "2000", category: "shares" } });
+  await db.setting.create({ data: { key: "kasi_share_current_value_usd", value: "39.95", category: "shares" } });
+  await db.setting.create({ data: { key: "aureus_share_current_value_usd", value: "15.00", category: "shares" } });
+  // Pool
   await db.setting.create({ data: { key: "payout_time_sast", value: "12:00", category: "pool" } });
+  // InstaPay
+  await db.setting.create({ data: { key: "instapay_android_url", value: "https://play.google.com/store/apps/instapay-gini", category: "instapay" } });
+  await db.setting.create({ data: { key: "instapay_ios_url", value: "https://apps.apple.com/instapay-gini", category: "instapay" } });
+  await db.setting.create({ data: { key: "instapay_verify_api", value: "https://api.instapay-gini.co.za/verify", category: "instapay" } });
+  await db.setting.create({ data: { key: "adamo_subscription_api", value: "https://api.adamo.co.za/subscribe", category: "instapay" } });
+  // Bankus (international payments)
+  await db.setting.create({ data: { key: "bankus_payment_url", value: "https://bankus.io/pay/kasihub", category: "subscription" } });
 
   // 1. Share Phases
   for (const sp of SHARE_PHASES) {
@@ -116,6 +139,7 @@ async function main() {
     data: {
       profileNumber: "KSH-000001",
       membershipType: "INDIVIDUAL_ADULT",
+      citizenshipType: "SA_CITIZEN_SA",
       firstName: "Thabo",
       lastName: "Mokoena",
       idPassport: "8501015800087",
@@ -133,11 +157,15 @@ async function main() {
       subscriptionStatus: "ACTIVE",
       subscriptionAmount: 140,
       subscriptionCurrency: "ZAR",
-      paymentMethod: "BANK",
+      paymentMethod: "INSTAPAY",
       monthlyEarnings: 3450,
       nfcTagId: "NFC-KSH-000001",
       visaCardLast4: "4821",
       rootsBankAccount: "63212306319",
+      instapayStatus: "VERIFIED",
+      instapayVerifiedAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
+      instapayAccountRef: "IPG-TM-000001",
+      uplineConfirmed: true,
     },
   });
 
@@ -180,11 +208,13 @@ async function main() {
       const fn = rand(FIRST_NAMES);
       const ln = rand(LAST_NAMES);
       const membershipType = Math.random() > 0.85 ? "COMPANY" : Math.random() > 0.9 ? "INDIVIDUAL_KIDS" : "INDIVIDUAL_ADULT";
+      const citizenshipType = rand(["SA_CITIZEN_SA", "SA_CITIZEN_SA", "SA_CITIZEN_SA", "FOREIGN_CITIZEN_SA", "SA_CIPC_COMPANY", "SA_SOLE_PROPRIETOR", "SA_NPO_NGO", "SA_CITIZEN_ABROAD"]);
 
       const newMember = await db.member.create({
         data: {
           profileNumber: `KSH-${String(createdCount + 2).padStart(6, "0")}`,
           membershipType,
+          citizenshipType,
           firstName: membershipType === "COMPANY" ? null : fn,
           lastName: membershipType === "COMPANY" ? null : ln,
           companyName: membershipType === "COMPANY" ? `${ln} Trading Enterprises` : null,
@@ -309,19 +339,83 @@ async function main() {
     });
   }
 
-  // 8. KasiPool distributions for demo member (last 14 days)
+  // 8. KasiPool distributions for demo member (last 14 days) — 3 pool types
+  // Demo member is a Pioneer (has Roots Bank share), a Shareholder (has KasiShares), and a Marketplace enabler
   for (let i = 0; i < 14; i++) {
-    const amount = randFloat(20, 95);
+    const date = new Date(Date.now() - i * 24 * 60 * 60 * 1000);
+    // Pioneer KasiPool (1% profit — visible only to 200 pioneers)
     await db.kasiPoolDistribution.create({
       data: {
         memberId: demoMember.id,
-        amount,
-        source: rand(["MARKETPLACE", "MALL", "SUBSCRIPTION_DIFF"]),
-        payoutDate: new Date(Date.now() - i * 24 * 60 * 60 * 1000),
+        amount: randFloat(15, 55),
+        source: "MALL",
+        poolType: "PIONEER",
+        payoutDate: date,
+        status: "PAID",
+      },
+    });
+    // KasiMarketplace Pool (paid enablers only — included in today's total earnings)
+    await db.kasiPoolDistribution.create({
+      data: {
+        memberId: demoMember.id,
+        amount: randFloat(10, 40),
+        source: "MARKETPLACE",
+        poolType: "MARKETPLACE",
+        payoutDate: date,
+        status: "PAID",
+      },
+    });
+    // Kasi Shareholders Pool (shareholders only)
+    await db.kasiPoolDistribution.create({
+      data: {
+        memberId: demoMember.id,
+        amount: randFloat(20, 65),
+        source: "MALL",
+        poolType: "SHAREHOLDERS",
+        payoutDate: date,
         status: "PAID",
       },
     });
   }
+
+  // 8b. Aureus shares for demo member
+  await db.aureusShare.create({
+    data: {
+      memberId: demoMember.id,
+      phase: 1,
+      pricePerShare: 10,
+      quantity: 10,
+      totalAmount: 100,
+      certificateNo: "AUR-CERT-2025-000001",
+      status: "ACTIVE",
+    },
+  });
+  // One retracted Aureus certificate for the retracted tab demo
+  await db.aureusShare.create({
+    data: {
+      memberId: demoMember.id,
+      phase: 1,
+      pricePerShare: 10,
+      quantity: 5,
+      totalAmount: 50,
+      certificateNo: "AUR-CERT-2025-000000",
+      prevCertificateNo: null,
+      status: "RETRACTED",
+    },
+  });
+  // One retracted KasiShare certificate for the retracted tab demo
+  await db.share.create({
+    data: {
+      memberId: demoMember.id,
+      phase: 1,
+      pricePerShare: 25,
+      quantity: 5,
+      totalAmount: 125,
+      certificateNo: "KSH-CERT-2025-000000",
+      prevCertificateNo: null,
+      status: "REVOKED",
+    },
+  });
 
   // 9. Transactions for demo member
   const txTypes = [

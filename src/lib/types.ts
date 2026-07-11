@@ -1,6 +1,22 @@
 // KaSiHUB shared types
 
-export type MembershipType = "INDIVIDUAL_ADULT" | "INDIVIDUAL_KIDS" | "COMPANY";
+export type MembershipType =
+  | "INDIVIDUAL_ADULT"
+  | "INDIVIDUAL_KIDS"
+  | "COMPANY"
+  | "SOLE_PROPRIETOR"
+  | "NPO_NGO"
+  | "FREE";
+
+export type CitizenshipType =
+  | "SA_CITIZEN_SA"
+  | "FOREIGN_CITIZEN_SA"
+  | "SA_CIPC_COMPANY"
+  | "SA_SOLE_PROPRIETOR"
+  | "SA_NPO_NGO"
+  | "SA_CITIZEN_ABROAD"
+  | "FOREIGN_CITIZEN_ABROAD"
+  | "INTL_COMPANY";
 export type KycStatus = "PENDING" | "VERIFIED" | "REJECTED";
 export type SubscriptionStatus = "PENDING" | "ACTIVE" | "LAPSED";
 export type ViewKey =
@@ -10,7 +26,8 @@ export type ViewKey =
   | "shares"
   | "marketplace"
   | "mall"
-  | "rootsbank";
+  | "rootsbank"
+  | "legal";
 
 export interface Member {
   id: string;
@@ -43,6 +60,12 @@ export interface Member {
   nfcTagId: string | null;
   visaCardLast4: string | null;
   rootsBankAccount: string | null;
+  citizenshipType: string | null;
+  instapayStatus: string;
+  instapayVerifiedAt: string | null;
+  instapayAccountRef: string | null;
+  uplineProfileNumber: string | null;
+  uplineConfirmed: boolean;
   isAdmin: boolean;
   createdAt: string;
 }
@@ -85,6 +108,18 @@ export interface SharePhase {
   soldShares: number;
   status: string;
   bonusBuyOneGet: boolean;
+}
+
+export interface AureusShare {
+  id: string;
+  phase: number;
+  pricePerShare: number;
+  quantity: number;
+  totalAmount: number;
+  certificateNo: string;
+  prevCertificateNo: string | null;
+  status: string; // ACTIVE | RETRACTED
+  createdAt: string;
 }
 
 export interface Transaction {
@@ -163,19 +198,61 @@ export interface Subscription {
   createdAt: string;
 }
 
+export interface PoolDistribution {
+  id: string;
+  amount: number;
+  source: string;
+  payoutDate: string;
+  status: string;
+  poolType?: string;
+}
+
 export interface DashboardStats {
   member: Member;
   totalEarnings: number;
   monthlyEarnings: number;
-  poolShareTotal: number;
-  shareCount: number;
-  shareValue: number;
-  dailyDividend: number;
-  matrixDownline: number;
-  matrixLevels: number;
+  earningsToday: number;
+  earningsThisWeek: number;
+  earningsThisMonth: number;
+  ecosystemEarningsToday: number;
+  pools: {
+    pioneer: {
+      total: number;
+      today: number;
+      eligible: boolean;
+      distributions: PoolDistribution[];
+    };
+    marketplace: {
+      total: number;
+      today: number;
+      distributions: PoolDistribution[];
+    };
+    shareholders: {
+      total: number;
+      today: number;
+      eligible: boolean;
+      distributions: PoolDistribution[];
+    };
+  };
+  kasiShares: {
+    count: number;
+    valuePerShare: number;
+    totalValue: number;
+  };
+  aureusShares: {
+    count: number;
+    valuePerShare: number;
+    totalValue: number;
+  };
+  rootsBankShares: {
+    count: number;
+    totalValue: number;
+  };
+  ecosystemDownline: number;
+  ecosystemLevels: number;
   pioneerPoolEligible: boolean;
+  auditorNotified: boolean;
   transactions: Transaction[];
-  poolDistributions: KasiPoolDistribution[];
-  earningsTrend: { date: string; amount: number }[];
+  totalEarningsTrend: { date: string; amount: number }[];
   earningsBreakdown: { name: string; value: number; color: string }[];
 }
