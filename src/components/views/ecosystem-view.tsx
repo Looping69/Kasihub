@@ -571,17 +571,17 @@ function MatrixNode({ node, treeLevel }: { node: TreeNode; treeLevel: number }) 
           )}
         </motion.div>
       </TooltipTrigger>
-      <TooltipContent>
-        <div className="text-xs">
-          <p className="font-semibold">{name}</p>
-          <p className="text-muted-foreground">{node.member.profileNumber}</p>
-          <p className="text-muted-foreground">
+      <TooltipContent className="bg-primary text-primary-foreground border border-primary-foreground/20">
+        <div className="text-xs space-y-0.5">
+          <p className="font-bold text-sm">{name}</p>
+          <p className="text-primary-foreground/80 font-mono">{node.member.profileNumber}</p>
+          <p className="text-primary-foreground/70">
             {node.member.membershipType.replace(/_/g, " ")} · {node.member.country}
           </p>
-          <p className="text-muted-foreground">
+          <p className="text-primary-foreground/70">
             Status: {node.member.subscriptionStatus}
           </p>
-          <p className="text-muted-foreground capitalize">
+          <p className="text-primary-foreground/70 capitalize">
             Level {Math.max(1, treeLevel)} · {color.name}
           </p>
         </div>
@@ -602,9 +602,9 @@ function EmptySpot({ level }: { level: number }) {
           <p className="text-[8px] mt-0.5">Open · L{level}</p>
         </div>
       </TooltipTrigger>
-      <TooltipContent>
-        <p className="text-xs">Open position at level {level}</p>
-        <p className="text-muted-foreground text-[10px]">
+      <TooltipContent className="bg-primary text-primary-foreground border border-primary-foreground/20">
+        <p className="text-xs font-semibold">Open position at level {level}</p>
+        <p className="text-primary-foreground/70 text-[10px]">
           Next member will be placed here
         </p>
       </TooltipContent>
