@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   LayoutDashboard, Users, Network, Coins, ShoppingBag, Building2,
   Droplets, Landmark, Settings, LogOut, Menu, Bell, ChevronRight,
-  ShieldCheck, Crown, UserRound, ArrowLeftRight, Wallet,
+  ShieldCheck, Crown, UserRound, ArrowLeftRight, Wallet, Ticket, UserPlus, MessageCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -22,17 +22,23 @@ import { AdminMarketplace } from "@/components/admin/admin-marketplace";
 import { AdminMall } from "@/components/admin/admin-mall";
 import { AdminPool } from "@/components/admin/admin-pool";
 import { AdminRootsBank } from "@/components/admin/admin-rootsbank";
+import { AdminVouchers } from "@/components/admin/admin-vouchers";
+import { AdminReferrals } from "@/components/admin/admin-referrals";
+import { AdminNotifications } from "@/components/admin/admin-notifications";
 import { AdminSettings } from "@/components/admin/admin-settings";
 
 const NAV: { key: AdminViewKey; label: string; icon: typeof LayoutDashboard; desc: string }[] = [
   { key: "overview", label: "Overview", icon: LayoutDashboard, desc: "Platform analytics" },
   { key: "members", label: "Members & KYC", icon: Users, desc: "Manage members" },
-  { key: "matrix", label: "Matrix", icon: Network, desc: "5×6 ecosystem view" },
+  { key: "matrix", label: "Eco-System", icon: Network, desc: "5×6 structure view" },
   { key: "shares", label: "KasiShares", icon: Coins, desc: "Phases & dividends" },
   { key: "marketplace", label: "Marketplace", icon: ShoppingBag, desc: "Products & orders" },
   { key: "mall", label: "KasiMall", icon: Building2, desc: "Transactions & silos" },
   { key: "pool", label: "KasiPool", icon: Droplets, desc: "Distributions & payouts" },
   { key: "rootsbank", label: "Roots Bank", icon: Landmark, desc: "Pioneer pool" },
+  { key: "vouchers", label: "Vouchers", icon: Ticket, desc: "WABlast & vouchers" },
+  { key: "referrals", label: "Referrals", icon: UserPlus, desc: "Enabler referrals" },
+  { key: "notifications", label: "Notifications", icon: MessageCircle, desc: "WhatsApp reminders" },
   { key: "settings", label: "Settings", icon: Settings, desc: "Exco config" },
 ];
 
@@ -129,6 +135,9 @@ export function AdminShell() {
               {adminView === "mall" && <AdminMall />}
               {adminView === "pool" && <AdminPool />}
               {adminView === "rootsbank" && <AdminRootsBank />}
+              {adminView === "vouchers" && <AdminVouchers />}
+              {adminView === "referrals" && <AdminReferrals />}
+              {adminView === "notifications" && <AdminNotifications />}
               {adminView === "settings" && <AdminSettings />}
             </motion.div>
           </AnimatePresence>

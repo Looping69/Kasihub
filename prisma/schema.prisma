@@ -66,6 +66,10 @@ model Member {
   rootsBankShares RootsBankShare[]
   poolDistributions KasiPoolDistribution[]
   auditorNotifications AuditorNotification[]
+  vouchers        Voucher[]
+  referralsMade   Referral[] @relation("Referrer")
+  referralsReceived Referral[] @relation("Referred")
+  subscriptionNotifications SubscriptionNotification[]
 }
 
 // ============================================================
@@ -155,7 +159,8 @@ model MarketplaceProduct {
   description   String
   category      String   // GROCERIES | AIRTIME | UTILITIES | INSURANCE | TRANSPORT | HEALTH
   provider      String
-  price         Float
+  price         Float    // base price (paid members)
+  freePrice     Float    @default(0) // price for free members (usually higher)
   currency      String   @default("ZAR")
   commissionPct Float    // commission/cashback % paid to KasiPool
   imageColor    String   // tailwind gradient seed
@@ -171,6 +176,7 @@ model MarketplaceOrder {
   productId   String
   productName String
   amount      Float
+  pricingTier String   @default("PAID") // PAID | FREE
   commission  Float    // amount sent to KasiPool
   status      String   @default("COMPLETED")
   createdAt   DateTime @default(now())
@@ -287,4 +293,59 @@ model AuditorNotification {
   month       String   // e.g. "2025-07"
   sentAt      DateTime @default(now())
   status      String   @default("SENT") // SENT | ACKNOWLEDGED
+}
+
+// ============================================================
+// VOUCHERS - Member vouchers pushed via WABlast (WhatsApp)
+// ============================================================
+model Voucher {
+  id            String   @id @default(cuid())
+  memberId      String
+  member        Member   @relation(fields: [memberId], references: [id])
+  code          String   @unique
+  title         String
+  description   String
+  provider      String
+  value         Float    // voucher value in ZAR
+  category      String   @default("GENERAL") // GROCERIES | AIRTIME | UTILITIES | DISCOUNT | GENERAL
+  status        String   @default("ACTIVE") // ACTIVE | EXPIRED | REDEEMED
+  issueDate     DateTime @default(now())
+  expiryDate    DateTime
+  anniversaryDate DateTime? // for anniversary-based voucher expiry
+  wablastSent   Boolean  @default(false) // active vouchers pushed to WABlast
+  expiringSent  Boolean  @default(false) // expiring reminder pushed to WABlast
+  createdAt     DateTime @default(now())
+}
+
+// ============================================================
+// SUBSCRIPTION NOTIFICATIONS - WhatsApp renewal reminders (5/3/1 days)
+// ============================================================
+model SubscriptionNotification {
+  id          String   @id @default(cuid())
+  memberId    String
+  member      Member   @relation(fields: [memberId], references: [id])
+  daysBefore  Int      // 5 | 3 | 1
+  sentAt      DateTime @default(now())
+  channel     String   @default("WHATSAPP") // WHATSAPP | SMS | EMAIL
+  status      String   @default("SENT") // SENT | FAILED
+  message     String
+}
+
+// ============================================================
+// REFERRALS - Refer an Enabler program
+// ============================================================
+model Referral {
+  id              String   @id @default(cuid())
+  referrerId      String
+  referrer        Member   @relation("Referrer", fields: [referrerId], references: [id])
+  referredId      String?  // null until the referred person registers
+  referred        Member?  @relation("Referred", fields: [referredId], references: [id])
+  referralCode    String   @unique
+  referredName    String
+  referredEmail   String
+  referredMobile  String
+  status          String   @default("PENDING") // PENDING | REGISTERED | REWARDED
+  rewardAmount    Float    @default(0) // referral bonus in ZAR
+  createdAt       DateTime @default(now())
+  convertedAt     DateTime?
 }

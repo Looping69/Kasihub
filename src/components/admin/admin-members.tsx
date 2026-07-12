@@ -22,12 +22,14 @@ import {
 import { toast } from "sonner";
 
 interface AdminMember {
-  id: string; profileNumber: string; membershipType: string;
+  id: string; profileNumber: string; membershipType: string; citizenshipType: string | null;
   firstName: string | null; lastName: string | null; companyName: string | null;
   email: string; country: string; mobile: string;
   kycStatus: string; kycVerifiedAt: string | null;
   subscriptionStatus: string; subscriptionAmount: number; subscriptionCurrency: string;
   monthlyEarnings: number; taxThreshold: boolean; nfcTagId: string | null;
+  instapayStatus: string; instapayVerifiedAt: string | null; instapayAccountRef: string | null;
+  uplineProfileNumber: string | null; uplineConfirmed: boolean;
   createdAt: string; shareCount: number; transactionCount: number; orderCount: number;
 }
 
@@ -268,9 +270,12 @@ export function AdminMembers() {
                 {/* Status row */}
                 <div className="flex flex-wrap gap-2">
                   <Badge variant="outline" className="bg-muted/50">{selected.membershipType.replace(/_/g, " ")}</Badge>
+                  {selected.citizenshipType && <Badge variant="outline" className="bg-muted/50">{selected.citizenshipType.replace(/_/g, " ")}</Badge>}
                   {selected.kycStatus === "VERIFIED" && <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200"><ShieldCheck className="h-3 w-3 mr-1" />KYC Verified</Badge>}
                   {selected.kycStatus === "PENDING" && <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200"><ShieldAlert className="h-3 w-3 mr-1" />KYC Pending</Badge>}
                   {selected.kycStatus === "REJECTED" && <Badge variant="outline" className="bg-rose-50 text-rose-700 border-rose-200">KYC Rejected</Badge>}
+                  {selected.instapayStatus === "VERIFIED" && <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200"><ShieldCheck className="h-3 w-3 mr-1" />InstaPay Verified</Badge>}
+                  {selected.instapayStatus === "PENDING" && <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">InstaPay Pending</Badge>}
                   <Badge variant="outline" className={selected.subscriptionStatus === "ACTIVE" ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-rose-50 text-rose-700 border-rose-200"}>Subscription: {selected.subscriptionStatus}</Badge>
                   {selected.taxThreshold && <Badge variant="outline" className="bg-rose-50 text-rose-700 border-rose-200">Tax eligible ({">"}R7k/mo)</Badge>}
                 </div>
@@ -292,11 +297,15 @@ export function AdminMembers() {
                   <Detail icon={Mail} label="Email" value={selected.email} />
                   <Detail icon={Phone} label="Mobile" value={selected.mobile} />
                   <Detail icon={MapPin} label="Country" value={selected.country} />
-                  <Detail icon={CreditCard} label="NFC Tag" value={selected.nfcTagId || "—"} mono />
+                  <Detail icon={User} label="Citizenship type" value={selected.citizenshipType ? selected.citizenshipType.replace(/_/g, " ") : "—"} />
                   <Detail icon={Coins} label="Shares owned" value={`${selected.shareCount} shares`} />
                   <Detail icon={Calendar} label="Member since" value={new Date(selected.createdAt).toLocaleDateString("en-ZA")} />
                   <Detail icon={Coins} label="Monthly earnings" value={fmt(selected.monthlyEarnings)} />
                   <Detail icon={CreditCard} label="Subscription" value={`${selected.subscriptionCurrency} ${selected.subscriptionAmount}/mo`} />
+                  <Detail icon={CreditCard} label="Payment method" value={selected.instapayStatus === "VERIFIED" ? "InstaPay Gini" : selected.instapayStatus === "PENDING" ? "InstaPay (pending)" : "Bankus"} />
+                  <Detail icon={ShieldCheck} label="InstaPay status" value={selected.instapayStatus === "VERIFIED" ? `Verified (${selected.instapayAccountRef || "—"})` : selected.instapayStatus === "PENDING" ? "Pending" : "Not connected"} />
+                  <Detail icon={User} label="Upline" value={selected.uplineProfileNumber ? `${selected.uplineProfileNumber} ${selected.uplineConfirmed ? "✓" : "(unconfirmed)"}` : "Bulk registration"} />
+                  <Detail icon={CreditCard} label="NFC Tag" value={selected.nfcTagId || "—"} mono />
                 </div>
 
                 <Separator />

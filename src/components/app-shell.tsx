@@ -24,7 +24,9 @@ import { MarketplaceView } from "@/components/views/marketplace-view";
 import { MallView } from "@/components/views/mall-view";
 import { RootsBankView } from "@/components/views/rootsbank-view";
 import { LegalView } from "@/components/views/legal-view";
-import { Scale } from "lucide-react";
+import { VouchersView } from "@/components/views/vouchers-view";
+import { ReferView } from "@/components/views/refer-view";
+import { Scale, Ticket, UserPlus } from "lucide-react";
 
 const NAV: { key: ViewKey; label: string; icon: typeof LayoutDashboard; desc: string }[] = [
   { key: "dashboard", label: "Dashboard", icon: LayoutDashboard, desc: "Stats & overview" },
@@ -34,6 +36,8 @@ const NAV: { key: ViewKey; label: string; icon: typeof LayoutDashboard; desc: st
   { key: "marketplace", label: "Marketplace", icon: ShoppingBag, desc: "Products & services" },
   { key: "mall", label: "KasiMall", icon: Building2, desc: "Cashless mall" },
   { key: "rootsbank", label: "Roots Bank", icon: Landmark, desc: "Pioneer shares" },
+  { key: "vouchers", label: "My Vouchers", icon: Ticket, desc: "Voucher wallet" },
+  { key: "refer", label: "Refer an Enabler", icon: UserPlus, desc: "Earn referral rewards" },
   { key: "legal", label: "Legal", icon: Scale, desc: "Terms & compliance" },
 ];
 
@@ -155,6 +159,8 @@ export function AppShell() {
               {activeView === "marketplace" && <MarketplaceView />}
               {activeView === "mall" && <MallView />}
               {activeView === "rootsbank" && <RootsBankView />}
+              {activeView === "vouchers" && <VouchersView />}
+              {activeView === "refer" && <ReferView />}
               {activeView === "legal" && <LegalView />}
             </motion.div>
           </AnimatePresence>

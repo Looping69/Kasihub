@@ -66,8 +66,7 @@ export function LegalView() {
   }, []);
 
   useEffect(() => {
-    // ( |╲ ) Author: Klaasvaakie — defer stateful loading beyond the effect body.
-    void Promise.resolve().then(() => fetchDoc(activeTab));
+    fetchDoc(activeTab);
   }, [activeTab, fetchDoc]);
 
   return (

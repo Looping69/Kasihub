@@ -5,7 +5,7 @@ import { motion } from "framer-motion";
 import {
   Users, DollarSign, Coins, Building2, ShieldCheck, TrendingUp,
   Droplets, Award, Loader2, Wallet, AlertCircle, Activity, Crown,
-  ArrowUpRight, ArrowDownRight,
+  ArrowUpRight, ArrowDownRight, Ticket, UserPlus, MessageCircle,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -26,6 +26,14 @@ interface AdminStats {
     mallRevenue: number; marketplaceRevenue: number; poolPaidOut: number;
     poolBalance: number; poolIncoming: number; mallTransactions: number;
     marketplaceOrders: number; taxEligibleMembers: number;
+    // Vouchers
+    totalVouchers: number; activeVouchers: number; expiringVouchers: number; totalVoucherValue: number;
+    // Referrals
+    totalReferrals: number; registeredReferrals: number; referralConversionRate: number; totalReferralRewards: number;
+    // Notifications
+    totalNotifications: number; sent5Days: number; sent3Days: number; sent1Day: number;
+    // InstaPay
+    instapayVerifiedCount: number; instapayPendingCount: number;
   };
   memberGrowth: { date: string; count: number }[];
   cumulativeGrowth: { date: string; count: number }[];
@@ -88,6 +96,14 @@ export function AdminOverview() {
         <MiniKpi icon={Crown} label="Pioneers" value={`${stats.totals.pioneerCount}/${stats.totals.pioneerTarget}`} color="amber" onClick={() => setAdminView("rootsbank")} />
         <MiniKpi icon={Building2} label="Mall transactions" value={stats.totals.mallTransactions} color="rose" onClick={() => setAdminView("mall")} />
         <MiniKpi icon={AlertCircle} label="Tax-eligible members" value={stats.totals.taxEligibleMembers} color="rose" sub="earning > R7k/mo" />
+      </div>
+
+      {/* Tertiary KPIs — Vouchers, Referrals, Notifications, InstaPay */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <MiniKpi icon={Ticket} label="Active vouchers" value={stats.totals.activeVouchers} color="emerald" sub={`${stats.totals.expiringVouchers} expiring`} onClick={() => setAdminView("vouchers")} />
+        <MiniKpi icon={UserPlus} label="Referrals" value={`${stats.totals.registeredReferrals}/${stats.totals.totalReferrals}`} color="emerald" sub={`${stats.totals.referralConversionRate}% conversion`} onClick={() => setAdminView("referrals")} />
+        <MiniKpi icon={MessageCircle} label="WhatsApp reminders" value={stats.totals.totalNotifications} color="teal" sub="5/3/1 day sent" onClick={() => setAdminView("notifications")} />
+        <MiniKpi icon={ShieldCheck} label="InstaPay verified" value={stats.totals.instapayVerifiedCount} color="emerald" sub={`${stats.totals.instapayPendingCount} pending`} />
       </div>
 
       {/* Charts row 1 */}

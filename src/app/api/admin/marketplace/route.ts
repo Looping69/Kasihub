@@ -14,14 +14,16 @@ export async function GET() {
     ]);
 
     // Revenue by category
-    const categoryRevenueMap = new Map<string, { revenue: number; commission: number; count: number }>();
+    const categoryRevenueMap = new Map<string, { revenue: number; commission: number; count: number; freeOrders: number; paidOrders: number }>();
     for (const o of orders) {
       const p = products.find((x) => x.name === o.productName);
       const cat = p?.category || "OTHER";
-      const cur = categoryRevenueMap.get(cat) || { revenue: 0, commission: 0, count: 0 };
+      const cur = categoryRevenueMap.get(cat) || { revenue: 0, commission: 0, count: 0, freeOrders: 0, paidOrders: 0 };
       cur.revenue += o.amount;
       cur.commission += o.commission;
       cur.count += 1;
+      if (o.pricingTier === "FREE") cur.freeOrders++;
+      else cur.paidOrders++;
       categoryRevenueMap.set(cat, cur);
     }
     const categoryStats = Array.from(categoryRevenueMap.entries()).map(([category, stats]) => ({
@@ -29,13 +31,21 @@ export async function GET() {
       revenue: parseFloat(stats.revenue.toFixed(2)),
       commission: parseFloat(stats.commission.toFixed(2)),
       orderCount: stats.count,
+      freeOrders: stats.freeOrders,
+      paidOrders: stats.paidOrders,
     }));
 
     const totalRevenue = orders.reduce((s, o) => s + o.amount, 0);
     const totalCommission = orders.reduce((s, o) => s + o.commission, 0);
+    const freeMemberOrders = orders.filter((o) => o.pricingTier === "FREE").length;
+    const paidMemberOrders = orders.filter((o) => o.pricingTier === "PAID").length;
 
     return NextResponse.json({
-      products,
+      products: products.map((p) => ({
+        ...p,
+        createdAt: p.createdAt.toISOString(),
+        freePriceDelta: p.freePrice > 0 ? parseFloat((((p.freePrice - p.price) / p.price) * 100).toFixed(1)) : 0,
+      })),
       orders: orders.map((o) => ({
         ...o,
         createdAt: o.createdAt.toISOString(),
@@ -48,6 +58,8 @@ export async function GET() {
       totalRevenue: parseFloat(totalRevenue.toFixed(2)),
       totalCommission: parseFloat(totalCommission.toFixed(2)),
       totalOrders: orders.length,
+      freeMemberOrders,
+      paidMemberOrders,
     });
   } catch (error) {
     console.error("[admin/marketplace] error", error);
@@ -59,7 +71,7 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { name, description, category, provider, price, commissionPct, imageColor, rating, popular } = body;
+    const { name, description, category, provider, price, freePrice, commissionPct, imageColor, rating, popular } = body;
 
     if (!name || !description || !category || !provider || price === undefined) {
       return NextResponse.json({ error: "name, description, category, provider, price are required" }, { status: 400 });
@@ -72,6 +84,7 @@ export async function POST(req: NextRequest) {
         category,
         provider,
         price: parseFloat(price),
+        freePrice: freePrice ? parseFloat(freePrice) : Math.round(parseFloat(price) * 1.15),
         commissionPct: commissionPct ? parseFloat(commissionPct) : 0,
         imageColor: imageColor || "emerald",
         rating: rating ? parseFloat(rating) : 4.5,
@@ -102,6 +115,7 @@ export async function PATCH(req: NextRequest) {
       if (updates[k] !== undefined) data[k] = updates[k];
     }
     if (updates.price !== undefined) data.price = parseFloat(updates.price);
+    if (updates.freePrice !== undefined) data.freePrice = parseFloat(updates.freePrice);
     if (updates.commissionPct !== undefined) data.commissionPct = parseFloat(updates.commissionPct);
     if (updates.rating !== undefined) data.rating = parseFloat(updates.rating);
     if (updates.popular !== undefined) data.popular = updates.popular;

@@ -21,14 +21,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Member not found" }, { status: 404 });
     }
 
-    const commission = parseFloat((product.price * product.commissionPct / 100).toFixed(2));
+    // Determine pricing tier: FREE members pay the freePrice, paid members pay the standard price
+    const isFreeMember = member.membershipType === "FREE" || member.subscriptionStatus !== "ACTIVE";
+    const price = isFreeMember ? (product.freePrice || product.price) : product.price;
+    const pricingTier = isFreeMember ? "FREE" : "PAID";
+
+    const commission = parseFloat((price * product.commissionPct / 100).toFixed(2));
 
     const order = await db.marketplaceOrder.create({
       data: {
         memberId,
         productId,
         productName: product.name,
-        amount: product.price,
+        amount: price,
+        pricingTier,
         commission,
         status: "COMPLETED",
       },
@@ -39,14 +45,13 @@ export async function POST(req: NextRequest) {
       data: {
         memberId,
         type: "MARKETPLACE",
-        amount: -product.price,
-        description: `${product.name} — ${product.provider}`,
+        amount: -price,
+        description: `${product.name} — ${product.provider} (${pricingTier} member)`,
         status: "COMPLETED",
       },
     });
 
-    // Add commission to KasiPool (we just record a pool distribution to the member as simulation of shared pool benefit)
-    // In production this would be aggregated; here we credit a small portion back as illustration
+    // Add commission to KasiPool (MARKETPLACE pool type)
     const poolBenefit = parseFloat((commission * 0.05).toFixed(2));
     if (poolBenefit > 0) {
       await db.kasiPoolDistribution.create({
@@ -54,6 +59,7 @@ export async function POST(req: NextRequest) {
           memberId,
           amount: poolBenefit,
           source: "MARKETPLACE",
+          poolType: "MARKETPLACE",
           status: "PAID",
         },
       });
@@ -64,6 +70,8 @@ export async function POST(req: NextRequest) {
         ...order,
         createdAt: order.createdAt.toISOString(),
       },
+      price,
+      pricingTier,
       commission,
       poolBenefit,
     });

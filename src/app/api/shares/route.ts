@@ -45,8 +45,32 @@ export async function GET(req: NextRequest) {
     });
 
     const totalShares = activeShares.reduce((s, x) => s + x.quantity, 0);
-    // Value = current share value × total shares (NOT purchase price)
-    const totalValue = totalShares * shareValuePerShare;
+    // Value reflects the phase the shares were purchased in
+    // Each share's value = the pricePerShare of its phase (from the phases table)
+    // For legacy/Phase 1 BOGO shares, the value is the current share value setting
+    const phaseValueMap = new Map<number, number>();
+    for (const p of phases) {
+      phaseValueMap.set(p.phase, p.pricePerShare);
+    }
+    // Calculate total value = sum of (each share's quantity × its phase price)
+    const totalValue = activeShares.reduce((s, x) => {
+      const phasePrice = phaseValueMap.get(x.phase) || shareValuePerShare;
+      return s + (x.quantity * phasePrice);
+    }, 0);
+
+    // Add "legacy" flag: shares purchased in Phase 1 with BOGO are "legacy shares FREE"
+    const activeSharesWithMeta = activeShares.map((s) => {
+      const phase = phases.find((p) => p.phase === s.phase);
+      const isLegacy = s.phase === 1 && phase?.bonusBuyOneGet;
+      const phasePrice = phaseValueMap.get(s.phase) || shareValuePerShare;
+      return {
+        ...s,
+        isLegacy: !!isLegacy,
+        currentValuePerShare: phasePrice,
+        currentTotalValue: s.quantity * phasePrice,
+        createdAt: s.createdAt.toISOString(),
+      };
+    });
 
     // Calculate dividends (simulated): daily share of KasiMall profits
     const allSharesCount = await db.share.aggregate({
@@ -54,24 +78,27 @@ export async function GET(req: NextRequest) {
       _sum: { quantity: true },
     });
     const totalSharesOutstanding = allSharesCount._sum.quantity || 1;
-    const dailyProfitPool = 2000; // USD simulated
-    const dailyDividendPerShare = dailyProfitPool / totalSharesOutstanding;
-    const myDailyDividend = totalShares * dailyDividendPerShare;
+    const dailyProfitPoolZAR = 37000; // ZAR simulated daily profit pool (~$2000 × 18.5)
+    const dailyProfitSharePerShare = dailyProfitPoolZAR / totalSharesOutstanding;
+    const myDailyProfitShare = totalShares * dailyProfitSharePerShare;
 
     return NextResponse.json({
       phases,
-      activeShares: activeShares.map((s) => ({ ...s, createdAt: s.createdAt.toISOString() })),
+      activeShares: activeSharesWithMeta,
       retractedShares: retractedShares.map((s) => ({ ...s, createdAt: s.createdAt.toISOString() })),
       aureusShares: aureusShares.map((s) => ({ ...s, createdAt: s.createdAt.toISOString() })),
       retractedAureusShares: retractedAureusShares.map((s) => ({ ...s, createdAt: s.createdAt.toISOString() })),
       totalShares,
       totalValue: parseFloat(totalValue.toFixed(2)),
       shareValuePerShare,
+      // Legacy shares (Phase 1 BOGO) count
+      legacyShares: activeShares.filter((s) => s.phase === 1 && phases.find((p) => p.phase === 1)?.bonusBuyOneGet).reduce((sum, s) => sum + s.quantity, 0),
       aureusValuePerShare,
       aureusTotalShares: aureusShares.reduce((s, x) => s + x.quantity, 0),
       aureusTotalValue: parseFloat((aureusShares.reduce((s, x) => s + x.quantity, 0) * aureusValuePerShare).toFixed(2)),
-      dailyDividendPerShare: parseFloat(dailyDividendPerShare.toFixed(4)),
-      myDailyDividend: parseFloat(myDailyDividend.toFixed(2)),
+      // Daily profit share (in ZAR, not USD)
+      dailyProfitSharePerShare: parseFloat(dailyProfitSharePerShare.toFixed(2)),
+      myDailyProfitShare: parseFloat(myDailyProfitShare.toFixed(2)),
       totalSharesOutstanding,
     });
   } catch (error) {

@@ -9,6 +9,10 @@ export async function GET() {
       pioneerCount, totalSubscriptions, totalTransactions, totalMallTx,
       totalMarketplaceOrders, poolDistributions, dividendDeclarations,
       silos, phases, allMembers,
+      totalVouchers, activeVouchers, expiringVouchers, totalVoucherValue,
+      totalReferrals, registeredReferrals, totalReferralRewards,
+      totalNotifications, sent5Days, sent3Days, sent1Day,
+      instapayVerifiedCount, instapayPendingCount,
     ] = await Promise.all([
       db.member.count({ where: { isAdmin: false } }),
       db.member.count({ where: { subscriptionStatus: "ACTIVE", isAdmin: false } }),
@@ -27,8 +31,21 @@ export async function GET() {
       db.member.findMany({
         where: { isAdmin: false },
         orderBy: { createdAt: "asc" },
-        select: { id: true, createdAt: true, subscriptionStatus: true, kycStatus: true, membershipType: true, monthlyEarnings: true },
+        select: { id: true, createdAt: true, subscriptionStatus: true, kycStatus: true, membershipType: true, monthlyEarnings: true, instapayStatus: true },
       }),
+      db.voucher.count(),
+      db.voucher.count({ where: { status: "ACTIVE" } }),
+      db.voucher.count({ where: { status: "ACTIVE", expiryDate: { lte: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000) } } }),
+      db.voucher.aggregate({ where: { status: "ACTIVE" }, _sum: { value: true } }),
+      db.referral.count(),
+      db.referral.count({ where: { status: "REGISTERED" } }),
+      db.referral.aggregate({ where: { status: "REGISTERED" }, _sum: { rewardAmount: true } }),
+      db.subscriptionNotification.count(),
+      db.subscriptionNotification.count({ where: { daysBefore: 5 } }),
+      db.subscriptionNotification.count({ where: { daysBefore: 3 } }),
+      db.subscriptionNotification.count({ where: { daysBefore: 1 } }),
+      db.member.count({ where: { instapayStatus: "VERIFIED", isAdmin: false } }),
+      db.member.count({ where: { instapayStatus: "PENDING", isAdmin: false } }),
     ]);
 
     // Revenue calculations
@@ -120,6 +137,24 @@ export async function GET() {
         mallTransactions: totalMallTx.length,
         marketplaceOrders: totalMarketplaceOrders.length,
         taxEligibleMembers,
+        // Vouchers
+        totalVouchers,
+        activeVouchers,
+        expiringVouchers,
+        totalVoucherValue: parseFloat((totalVoucherValue._sum.value || 0).toFixed(2)),
+        // Referrals
+        totalReferrals,
+        registeredReferrals,
+        referralConversionRate: totalReferrals > 0 ? parseFloat(((registeredReferrals / totalReferrals) * 100).toFixed(1)) : 0,
+        totalReferralRewards: parseFloat((totalReferralRewards._sum.rewardAmount || 0).toFixed(2)),
+        // Notifications
+        totalNotifications,
+        sent5Days,
+        sent3Days,
+        sent1Day,
+        // InstaPay
+        instapayVerifiedCount,
+        instapayPendingCount,
       },
       memberGrowth,
       cumulativeGrowth,

@@ -13,6 +13,9 @@ export type AdminViewKey =
   | "mall"
   | "pool"
   | "rootsbank"
+  | "vouchers"
+  | "referrals"
+  | "notifications"
   | "settings";
 
 interface KasiState {

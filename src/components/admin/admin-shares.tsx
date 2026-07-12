@@ -1,10 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { motion } from "framer-motion";
 import {
   Coins, Loader2, Award, TrendingUp, Edit, Save, X, Plus,
-  DollarSign, FileText, Calendar,
+  DollarSign, FileText, Calendar, Sparkles,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -35,6 +34,9 @@ interface Dividend {
   status: string; declaredAt: string; paidAt: string | null;
 }
 
+// Approximate daily profit pool shared across all outstanding shares (ZAR)
+const DAILY_PROFIT_POOL_ZAR = 37000;
+
 export function AdminShares() {
   const [phases, setPhases] = useState<Phase[]>([]);
   const [shares, setShares] = useState<ShareRecord[]>([]);
@@ -43,7 +45,7 @@ export function AdminShares() {
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<Phase | null>(null);
   const [dividendOpen, setDividendOpen] = useState(false);
-  const [dividendAmount, setDividendAmount] = useState("50000");
+  const [dividendAmount, setDividendAmount] = useState("37000");
   const [declaring, setDeclaring] = useState(false);
 
   async function load() {
@@ -108,7 +110,7 @@ export function AdminShares() {
       if (!res.ok) {
         toast.error(result.error || "Declaration failed");
       } else {
-        toast.success(`Dividend declared! $${result.perShareAmount.toFixed(4)}/share distributed to ${result.distributedTo} members.`);
+        toast.success(`Profit share declared! R ${result.perShareAmount.toFixed(4)}/share distributed to ${result.distributedTo} members.`);
         setDividendOpen(false);
         await load();
       }
@@ -123,23 +125,61 @@ export function AdminShares() {
     return <div className="flex items-center justify-center py-24"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
   }
 
-  const fmtUSD = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const fmtUSD = (n: number) => `$${(n ?? 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const fmtZAR = (n: number) => `R ${(n ?? 0).toLocaleString("en-ZA", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  // Phase 1 BOGO → legacy shares are FREE (paid nothing at purchase)
+  const phase1IsLegacy = phases.find((p) => p.phase === 1)?.bonusBuyOneGet === true;
+
+  // Helper: get a share's phase pricePerShare (current value-per-share)
+  const phasePriceFor = (s: ShareRecord): number => {
+    const ph = phases.find((p) => p.phase === s.phase);
+    return ph?.pricePerShare ?? s.pricePerShare ?? 0;
+  };
+  const isLegacyShare = (s: ShareRecord): boolean => s.phase === 1 && phase1IsLegacy;
+
+  // Phase-based current total value across all ACTIVE shares
+  const totalPhaseValue = shares
+    .filter((s) => s.status === "ACTIVE")
+    .reduce((sum, s) => sum + s.quantity * phasePriceFor(s), 0);
+
+  // Daily profit share per share (ZAR), based on a ~R37,000 pool split across all active shares
+  const dailyProfitSharePerShare = totals.totalActiveShares > 0
+    ? DAILY_PROFIT_POOL_ZAR / totals.totalActiveShares
+    : 0;
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 mb-1"><Coins className="h-5 w-5 text-amber-600" /><h2 className="text-2xl font-black tracking-tight">KasiShares management</h2></div>
-          <p className="text-sm text-muted-foreground">Manage phases, declare dividends, and view all certificates.</p>
+          <p className="text-sm text-muted-foreground">Manage phases, declare daily profit share, and view all certificates.</p>
         </div>
-        <Button onClick={() => setDividendOpen(true)} className="bg-gradient-to-r from-amber-500 to-amber-600"><Award className="h-4 w-4 mr-1.5" /> Declare dividend</Button>
+        <Button onClick={() => setDividendOpen(true)} className="bg-gradient-to-r from-amber-500 to-amber-600"><Award className="h-4 w-4 mr-1.5" /> Declare profit share</Button>
       </div>
 
       {/* Stats */}
-      <div className="grid gap-4 sm:grid-cols-3">
-        <Card className="p-5"><div className="flex items-center justify-between"><p className="text-xs text-muted-foreground">Active shares outstanding</p><Coins className="h-4 w-4 text-amber-600" /></div><p className="text-2xl font-black mt-1">{totals.totalActiveShares.toLocaleString()}</p></Card>
-        <Card className="p-5"><div className="flex items-center justify-between"><p className="text-xs text-muted-foreground">Total value sold</p><DollarSign className="h-4 w-4 text-emerald-600" /></div><p className="text-2xl font-black mt-1">{fmtUSD(totals.totalActiveValue)}</p></Card>
-        <Card className="p-5"><div className="flex items-center justify-between"><p className="text-xs text-muted-foreground">Dividends declared</p><Award className="h-4 w-4 text-emerald-600" /></div><p className="text-2xl font-black mt-1">{dividends.length}</p></Card>
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Card className="p-5">
+          <div className="flex items-center justify-between"><p className="text-xs text-muted-foreground">Active shares outstanding</p><Coins className="h-4 w-4 text-amber-600" /></div>
+          <p className="text-2xl font-black mt-1">{totals.totalActiveShares.toLocaleString()}</p>
+          <p className="text-[10px] text-muted-foreground mt-0.5">across {shares.filter((s) => s.status === "ACTIVE").length} certificate(s)</p>
+        </Card>
+        <Card className="p-5">
+          <div className="flex items-center justify-between"><p className="text-xs text-muted-foreground">Total value sold (purchase)</p><DollarSign className="h-4 w-4 text-emerald-600" /></div>
+          <p className="text-2xl font-black mt-1">{fmtUSD(totals.totalActiveValue)}</p>
+          <p className="text-[10px] text-muted-foreground mt-0.5">sum of original purchase amounts</p>
+        </Card>
+        <Card className="p-5 ring-1 ring-emerald-200 dark:ring-emerald-900">
+          <div className="flex items-center justify-between"><p className="text-xs text-muted-foreground">Current value (phase-based)</p><TrendingUp className="h-4 w-4 text-emerald-600" /></div>
+          <p className="text-2xl font-black mt-1 text-emerald-600">{fmtUSD(totalPhaseValue)}</p>
+          <p className="text-[10px] text-muted-foreground mt-0.5">sum of qty × phase price</p>
+        </Card>
+        <Card className="p-5 ring-1 ring-amber-200 dark:ring-amber-900">
+          <div className="flex items-center justify-between"><p className="text-xs text-muted-foreground">Daily profit share / share</p><Sparkles className="h-4 w-4 text-amber-600" /></div>
+          <p className="text-2xl font-black mt-1 text-amber-600">{fmtZAR(dailyProfitSharePerShare)}</p>
+          <p className="text-[10px] text-muted-foreground mt-0.5">{fmtZAR(DAILY_PROFIT_POOL_ZAR)} pool / day</p>
+        </Card>
       </div>
 
       {/* Phases management */}
@@ -170,11 +210,11 @@ export function AdminShares() {
         </div>
       </Card>
 
-      {/* Dividends */}
+      {/* Profit share history */}
       <Card className="p-5">
-        <h3 className="font-bold mb-4 flex items-center gap-2"><Award className="h-4 w-4 text-amber-600" /> Dividend history</h3>
+        <h3 className="font-bold mb-4 flex items-center gap-2"><Award className="h-4 w-4 text-amber-600" /> Profit share history</h3>
         {dividends.length === 0 ? (
-          <p className="text-sm text-muted-foreground text-center py-8">No dividends declared yet.</p>
+          <p className="text-sm text-muted-foreground text-center py-8">No profit shares declared yet.</p>
         ) : (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {dividends.map((d) => (
@@ -183,11 +223,11 @@ export function AdminShares() {
                   <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[9px]">{d.status}</Badge>
                   <p className="text-[10px] text-muted-foreground flex items-center gap-1"><Calendar className="h-3 w-3" />{new Date(d.declaredAt).toLocaleDateString("en-ZA")}</p>
                 </div>
-                <p className="text-xl font-black">{fmtUSD(d.amount)}</p>
+                <p className="text-xl font-black">{fmtZAR(d.amount)}</p>
                 <Separator className="my-2" />
                 <div className="grid grid-cols-2 gap-2 text-[10px]">
                   <div><p className="text-muted-foreground">Shares</p><p className="font-semibold">{d.totalShares.toLocaleString()}</p></div>
-                  <div><p className="text-muted-foreground">Per share</p><p className="font-semibold">{fmtUSD(d.perShareAmount)}</p></div>
+                  <div><p className="text-muted-foreground">Per share</p><p className="font-semibold">{fmtZAR(d.perShareAmount)}</p></div>
                 </div>
               </div>
             ))}
@@ -206,22 +246,47 @@ export function AdminShares() {
                 <th className="text-left px-3 py-2 font-semibold text-xs text-muted-foreground uppercase">Member</th>
                 <th className="text-left px-3 py-2 font-semibold text-xs text-muted-foreground uppercase">Phase</th>
                 <th className="text-right px-3 py-2 font-semibold text-xs text-muted-foreground uppercase">Qty</th>
-                <th className="text-right px-3 py-2 font-semibold text-xs text-muted-foreground uppercase">Total</th>
+                <th className="text-right px-3 py-2 font-semibold text-xs text-muted-foreground uppercase">Phase price</th>
+                <th className="text-right px-3 py-2 font-semibold text-xs text-muted-foreground uppercase">Current value</th>
                 <th className="text-left px-3 py-2 font-semibold text-xs text-muted-foreground uppercase">Status</th>
               </tr>
             </thead>
             <tbody>
-              {shares.map((s) => (
-                <tr key={s.id} className="border-b border-border/40 hover:bg-muted/30">
-                  <td className="px-3 py-2 font-mono text-xs">{s.certificateNo}</td>
-                  <td className="px-3 py-2"><p className="font-semibold text-xs">{s.member.name}</p><p className="text-[10px] text-muted-foreground font-mono">{s.member.profileNumber}</p></td>
-                  <td className="px-3 py-2 text-xs">{s.phase}</td>
-                  <td className="px-3 py-2 text-right font-semibold">{s.quantity}</td>
-                  <td className="px-3 py-2 text-right font-mono text-xs">{fmtUSD(s.totalAmount)}</td>
-                  <td className="px-3 py-2"><Badge variant="outline" className={s.status === "ACTIVE" ? "bg-emerald-50 text-emerald-700 border-emerald-200 text-[9px]" : "bg-muted text-[9px]"}>{s.status}</Badge></td>
-                </tr>
-              ))}
+              {shares.map((s) => {
+                const phasePrice = phasePriceFor(s);
+                const currentValue = s.quantity * phasePrice;
+                const legacy = isLegacyShare(s);
+                return (
+                  <tr key={s.id} className="border-b border-border/40 hover:bg-muted/30">
+                    <td className="px-3 py-2 font-mono text-xs">{s.certificateNo}</td>
+                    <td className="px-3 py-2"><p className="font-semibold text-xs">{s.member.name}</p><p className="text-[10px] text-muted-foreground font-mono">{s.member.profileNumber}</p></td>
+                    <td className="px-3 py-2">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs">{s.phase}</span>
+                        {legacy && (
+                          <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200 text-[9px] px-1.5 py-0 flex items-center gap-0.5">
+                            <Sparkles className="h-2.5 w-2.5" />Legacy
+                          </Badge>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-3 py-2 text-right font-semibold">{s.quantity}</td>
+                    <td className="px-3 py-2 text-right font-mono text-xs">{fmtUSD(phasePrice)}</td>
+                    <td className="px-3 py-2 text-right font-mono text-xs font-semibold text-emerald-700 dark:text-emerald-400">{fmtUSD(currentValue)}</td>
+                    <td className="px-3 py-2"><Badge variant="outline" className={s.status === "ACTIVE" ? "bg-emerald-50 text-emerald-700 border-emerald-200 text-[9px]" : "bg-rose-50 text-rose-700 border-rose-200 text-[9px]"}>{s.status}</Badge></td>
+                  </tr>
+                );
+              })}
             </tbody>
+            <tfoot className="bg-muted/50 sticky bottom-0">
+              <tr>
+                <td colSpan={3} className="px-3 py-2 text-xs font-semibold uppercase text-muted-foreground">Total (active certificates, phase-based)</td>
+                <td className="px-3 py-2 text-right font-semibold text-xs">{totals.totalActiveShares.toLocaleString()}</td>
+                <td className="px-3 py-2 text-right text-[10px] text-muted-foreground">qty × phase price</td>
+                <td className="px-3 py-2 text-right font-mono text-sm font-black text-emerald-700 dark:text-emerald-400">{fmtUSD(totalPhaseValue)}</td>
+                <td />
+              </tr>
+            </tfoot>
           </table>
         </div>
       </Card>
@@ -242,7 +307,7 @@ export function AdminShares() {
                 </Select>
               </div>
               <div className="flex items-center justify-between p-3 rounded-lg bg-muted/30">
-                <div><p className="font-semibold text-sm">Buy One Get One Free</p><p className="text-xs text-muted-foreground">Phase 1 bonus special</p></div>
+                <div><p className="font-semibold text-sm">Buy One Get One Free</p><p className="text-xs text-muted-foreground">Phase 1 bonus special (legacy FREE shares)</p></div>
                 <Switch checked={editing.bonusBuyOneGet} onCheckedChange={(v) => setEditing({ ...editing, bonusBuyOneGet: v })} />
               </div>
               {editing.status === "OPEN" && (
@@ -260,24 +325,24 @@ export function AdminShares() {
         </DialogContent>
       </Dialog>
 
-      {/* Declare dividend dialog */}
+      {/* Declare profit share dialog */}
       <Dialog open={dividendOpen} onOpenChange={setDividendOpen}>
         <DialogContent className="max-w-md">
-          <DialogHeader><DialogTitle className="flex items-center gap-2"><Award className="h-5 w-5 text-amber-600" /> Declare dividend</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle className="flex items-center gap-2"><Award className="h-5 w-5 text-amber-600" /> Declare daily profit share</DialogTitle></DialogHeader>
           <div className="space-y-4 py-2">
             <div>
-              <Label>Total dividend amount (USD)</Label>
+              <Label>Total profit share amount (ZAR)</Label>
               <Input type="number" value={dividendAmount} onChange={(e) => setDividendAmount(e.target.value)} className="mt-1.5" />
-              <p className="text-xs text-muted-foreground mt-1.5">This will be distributed equally across all {totals.totalActiveShares.toLocaleString()} active shares held by members with ACTIVE subscriptions.</p>
+              <p className="text-xs text-muted-foreground mt-1.5">This will be distributed equally across all {totals.totalActiveShares.toLocaleString()} active shares held by members with ACTIVE subscriptions. The daily profit pool is approximately {fmtZAR(DAILY_PROFIT_POOL_ZAR)}.</p>
             </div>
             <Card className="p-4 bg-muted/30 space-y-2 text-sm">
-              <div className="flex justify-between"><span className="text-muted-foreground">Total amount</span><span className="font-semibold">{fmtUSD(parseFloat(dividendAmount) || 0)}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Total amount</span><span className="font-semibold">{fmtZAR(parseFloat(dividendAmount) || 0)}</span></div>
               <div className="flex justify-between"><span className="text-muted-foreground">Eligible shares</span><span className="font-semibold">{totals.totalActiveShares.toLocaleString()}</span></div>
               <Separator />
-              <div className="flex justify-between"><span className="font-semibold">Per share</span><span className="font-bold text-amber-600">{fmtUSD(totals.totalActiveShares > 0 ? (parseFloat(dividendAmount) || 0) / totals.totalActiveShares : 0)}</span></div>
+              <div className="flex justify-between"><span className="font-semibold">Per share</span><span className="font-bold text-amber-600">{fmtZAR(totals.totalActiveShares > 0 ? (parseFloat(dividendAmount) || 0) / totals.totalActiveShares : 0)}</span></div>
             </Card>
             <div className="rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900 p-3 text-xs text-emerald-800 dark:text-emerald-300">
-              <p>The dividend will be immediately distributed to all eligible shareholders as a DIVIDEND transaction, paid to their Roots Bank accounts.</p>
+              <p>The profit share will be immediately distributed to all eligible shareholders as a DIVIDEND transaction, paid to their Roots Bank accounts.</p>
             </div>
           </div>
           <DialogFooter>

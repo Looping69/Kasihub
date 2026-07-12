@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { motion } from "framer-motion";
 import {
   ShoppingBag, Loader2, Plus, Edit, Trash2, Search, Star,
   TrendingUp, DollarSign, Package, Save, X,
+  Crown, Sparkles,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -28,12 +28,17 @@ import { toast } from "sonner";
 
 interface Product {
   id: string; name: string; description: string; category: string; provider: string;
-  price: number; currency: string; commissionPct: number; imageColor: string;
-  rating: number; popular: boolean;
+  price: number; freePrice: number; freePriceDelta: number; currency: string;
+  commissionPct: number; imageColor: string; rating: number; popular: boolean;
 }
 interface Order {
   id: string; productName: string; amount: number; commission: number; status: string;
-  createdAt: string; member: { profileNumber: string; name: string };
+  pricingTier: "PAID" | "FREE"; createdAt: string;
+  member: { profileNumber: string; name: string };
+}
+interface CategoryStat {
+  category: string; revenue: number; commission: number; orderCount: number;
+  freeOrders: number; paidOrders: number;
 }
 
 const COLOR_MAP: Record<string, string> = {
@@ -47,14 +52,17 @@ const COLOR_MAP: Record<string, string> = {
 
 const EMPTY_PRODUCT: Partial<Product> = {
   name: "", description: "", category: "GROCERIES", provider: "", price: 0,
-  commissionPct: 5, imageColor: "emerald", rating: 4.5, popular: false,
+  freePrice: 0, commissionPct: 5, imageColor: "emerald", rating: 4.5, popular: false,
 };
 
 export function AdminMarketplace() {
   const [products, setProducts] = useState<Product[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
-  const [categoryStats, setCategoryStats] = useState<{ category: string; revenue: number; commission: number; orderCount: number }[]>([]);
-  const [totals, setTotals] = useState({ totalRevenue: 0, totalCommission: 0, totalOrders: 0 });
+  const [categoryStats, setCategoryStats] = useState<CategoryStat[]>([]);
+  const [totals, setTotals] = useState({
+    totalRevenue: 0, totalCommission: 0, totalOrders: 0,
+    freeMemberOrders: 0, paidMemberOrders: 0,
+  });
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [editing, setEditing] = useState<Partial<Product> | null>(null);
@@ -70,7 +78,13 @@ export function AdminMarketplace() {
         setProducts(d.products);
         setOrders(d.orders);
         setCategoryStats(d.categoryStats);
-        setTotals({ totalRevenue: d.totalRevenue, totalCommission: d.totalCommission, totalOrders: d.totalOrders });
+        setTotals({
+          totalRevenue: d.totalRevenue,
+          totalCommission: d.totalCommission,
+          totalOrders: d.totalOrders,
+          freeMemberOrders: d.freeMemberOrders ?? 0,
+          paidMemberOrders: d.paidMemberOrders ?? 0,
+        });
       }
     } finally {
       setLoading(false);
@@ -126,7 +140,7 @@ export function AdminMarketplace() {
     return <div className="flex items-center justify-center py-24"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
   }
 
-  const fmt = (n: number) => `R ${n.toLocaleString("en-ZA", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const fmt = (n: number) => `R ${(n ?? 0).toLocaleString("en-ZA", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const filtered = products.filter((p) => p.name.toLowerCase().includes(search.toLowerCase()) || p.provider.toLowerCase().includes(search.toLowerCase()));
 
   return (
@@ -140,24 +154,39 @@ export function AdminMarketplace() {
       </div>
 
       {/* Stats */}
-      <div className="grid gap-4 sm:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <Card className="p-5"><div className="flex items-center justify-between"><p className="text-xs text-muted-foreground">Total products</p><Package className="h-4 w-4 text-emerald-600" /></div><p className="text-2xl font-black mt-1">{products.length}</p></Card>
         <Card className="p-5"><div className="flex items-center justify-between"><p className="text-xs text-muted-foreground">Total orders</p><ShoppingBag className="h-4 w-4 text-amber-600" /></div><p className="text-2xl font-black mt-1">{totals.totalOrders}</p></Card>
         <Card className="p-5"><div className="flex items-center justify-between"><p className="text-xs text-muted-foreground">Total revenue</p><DollarSign className="h-4 w-4 text-emerald-600" /></div><p className="text-2xl font-black mt-1">{fmt(totals.totalRevenue)}</p></Card>
         <Card className="p-5"><div className="flex items-center justify-between"><p className="text-xs text-muted-foreground">Commission to KasiPool</p><TrendingUp className="h-4 w-4 text-teal-600" /></div><p className="text-2xl font-black mt-1 text-emerald-600">{fmt(totals.totalCommission)}</p></Card>
+        <Card className="p-5 ring-1 ring-emerald-200 dark:ring-emerald-900">
+          <div className="flex items-center justify-between"><p className="text-xs text-muted-foreground">Paid member orders</p><Crown className="h-4 w-4 text-emerald-600" /></div>
+          <p className="text-2xl font-black mt-1 text-emerald-600">{totals.paidMemberOrders}</p>
+          <p className="text-[10px] text-muted-foreground mt-0.5">subscribed members</p>
+        </Card>
+        <Card className="p-5 ring-1 ring-amber-200 dark:ring-amber-900">
+          <div className="flex items-center justify-between"><p className="text-xs text-muted-foreground">Free member orders</p><Sparkles className="h-4 w-4 text-amber-600" /></div>
+          <p className="text-2xl font-black mt-1 text-amber-600">{totals.freeMemberOrders}</p>
+          <p className="text-[10px] text-muted-foreground mt-0.5">FREE tier members</p>
+        </Card>
       </div>
 
       {/* Category revenue */}
       {categoryStats.length > 0 && (
         <Card className="p-5">
           <h3 className="font-bold mb-4">Revenue by category</h3>
-          <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
             {categoryStats.map((c) => (
               <div key={c.category} className="p-3 rounded-lg bg-muted/40 text-center">
                 <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{c.category}</p>
                 <p className="text-lg font-black mt-1">{fmt(c.revenue)}</p>
                 <p className="text-[10px] text-emerald-600 mt-0.5">+{fmt(c.commission)} pool</p>
                 <p className="text-[9px] text-muted-foreground mt-1">{c.orderCount} orders</p>
+                <Separator className="my-1.5" />
+                <div className="flex items-center justify-center gap-1.5 text-[9px]">
+                  <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200 px-1.5 py-0">{c.paidOrders} paid</Badge>
+                  <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200 px-1.5 py-0">{c.freeOrders} free</Badge>
+                </div>
               </div>
             ))}
           </div>
@@ -179,33 +208,50 @@ export function AdminMarketplace() {
               <tr>
                 <th className="text-left px-3 py-2 font-semibold text-xs text-muted-foreground uppercase">Product</th>
                 <th className="text-left px-3 py-2 font-semibold text-xs text-muted-foreground uppercase hidden md:table-cell">Category</th>
-                <th className="text-right px-3 py-2 font-semibold text-xs text-muted-foreground uppercase">Price</th>
+                <th className="text-right px-3 py-2 font-semibold text-xs text-muted-foreground uppercase">Member price</th>
+                <th className="text-right px-3 py-2 font-semibold text-xs text-muted-foreground uppercase">Free price</th>
                 <th className="text-right px-3 py-2 font-semibold text-xs text-muted-foreground uppercase">Commission</th>
                 <th className="text-left px-3 py-2 font-semibold text-xs text-muted-foreground uppercase hidden lg:table-cell">Rating</th>
                 <th className="text-right px-3 py-2 font-semibold text-xs text-muted-foreground uppercase">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {filtered.map((p) => (
-                <tr key={p.id} className="border-b border-border/40 hover:bg-muted/30">
-                  <td className="px-3 py-2">
-                    <div className="flex items-center gap-3">
-                      <div className={`w-9 h-9 rounded-lg bg-gradient-to-br ${COLOR_MAP[p.imageColor] || "from-emerald-500 to-amber-500"} flex items-center justify-center text-white font-bold text-xs`}>{p.provider[0]}</div>
-                      <div className="min-w-0"><p className="font-semibold truncate">{p.name} {p.popular && <Star className="inline h-3 w-3 fill-amber-500 text-amber-500 ml-1" />}</p><p className="text-[10px] text-muted-foreground">{p.provider}</p></div>
-                    </div>
-                  </td>
-                  <td className="px-3 py-2 hidden md:table-cell"><Badge variant="outline" className="text-[10px]">{p.category}</Badge></td>
-                  <td className="px-3 py-2 text-right font-mono font-semibold">{fmt(p.price)}</td>
-                  <td className="px-3 py-2 text-right"><span className="text-emerald-600 font-semibold">{p.commissionPct}%</span></td>
-                  <td className="px-3 py-2 hidden lg:table-cell"><span className="flex items-center gap-1 text-xs"><Star className="h-3 w-3 fill-amber-500 text-amber-500" />{p.rating}</span></td>
-                  <td className="px-3 py-2 text-right">
-                    <div className="flex gap-1 justify-end">
-                      <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => { setEditing({ ...p }); setIsNew(false); }}><Edit className="h-3.5 w-3.5" /></Button>
-                      <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-rose-600 hover:text-rose-700" onClick={() => setDeleteId(p.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+              {filtered.map((p) => {
+                const freeIsSame = !p.freePrice || p.freePrice === 0 || p.freePrice === p.price;
+                const delta = p.freePriceDelta ?? (p.price > 0 ? ((p.freePrice - p.price) / p.price) * 100 : 0);
+                return (
+                  <tr key={p.id} className="border-b border-border/40 hover:bg-muted/30">
+                    <td className="px-3 py-2">
+                      <div className="flex items-center gap-3">
+                        <div className={`w-9 h-9 rounded-lg bg-gradient-to-br ${COLOR_MAP[p.imageColor] || "from-emerald-500 to-amber-500"} flex items-center justify-center text-white font-bold text-xs`}>{p.provider[0]}</div>
+                        <div className="min-w-0"><p className="font-semibold truncate">{p.name} {p.popular && <Star className="inline h-3 w-3 fill-amber-500 text-amber-500 ml-1" />}</p><p className="text-[10px] text-muted-foreground">{p.provider}</p></div>
+                      </div>
+                    </td>
+                    <td className="px-3 py-2 hidden md:table-cell"><Badge variant="outline" className="text-[10px]">{p.category}</Badge></td>
+                    <td className="px-3 py-2 text-right font-mono font-semibold">{fmt(p.price)}</td>
+                    <td className="px-3 py-2 text-right">
+                      {freeIsSame ? (
+                        <span className="text-xs text-muted-foreground italic">Same</span>
+                      ) : (
+                        <div className="flex flex-col items-end">
+                          <span className="font-mono font-semibold text-amber-700 dark:text-amber-400">{fmt(p.freePrice)}</span>
+                          <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200 text-[9px] px-1.5 py-0 mt-0.5">
+                            {delta >= 0 ? "+" : ""}{delta.toFixed(0)}%
+                          </Badge>
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-right"><span className="text-emerald-600 font-semibold">{p.commissionPct}%</span></td>
+                    <td className="px-3 py-2 hidden lg:table-cell"><span className="flex items-center gap-1 text-xs"><Star className="h-3 w-3 fill-amber-500 text-amber-500" />{p.rating}</span></td>
+                    <td className="px-3 py-2 text-right">
+                      <div className="flex gap-1 justify-end">
+                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => { setEditing({ ...p }); setIsNew(false); }}><Edit className="h-3.5 w-3.5" /></Button>
+                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-rose-600 hover:text-rose-700" onClick={() => setDeleteId(p.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -213,12 +259,26 @@ export function AdminMarketplace() {
 
       {/* Recent orders */}
       <Card className="p-5">
-        <h3 className="font-bold mb-4">Recent orders</h3>
+        <h3 className="font-bold mb-4 flex items-center gap-2">
+          Recent orders
+          <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[9px]">{totals.paidMemberOrders} paid</Badge>
+          <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200 text-[9px]">{totals.freeMemberOrders} free</Badge>
+        </h3>
         <div className="space-y-1 max-h-80 overflow-y-auto scrollbar-kasi">
           {orders.map((o) => (
             <div key={o.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted/50">
               <div className="w-8 h-8 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 flex items-center justify-center"><ShoppingBag className="h-4 w-4 text-emerald-600" /></div>
-              <div className="flex-1 min-w-0"><p className="text-sm font-medium truncate">{o.productName}</p><p className="text-[10px] text-muted-foreground">{o.member.name} · {new Date(o.createdAt).toLocaleString("en-ZA", { dateStyle: "short", timeStyle: "short" })}</p></div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-medium truncate">{o.productName}</p>
+                  {o.pricingTier === "FREE" ? (
+                    <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200 text-[9px] px-1.5 py-0">FREE</Badge>
+                  ) : (
+                    <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[9px] px-1.5 py-0">PAID</Badge>
+                  )}
+                </div>
+                <p className="text-[10px] text-muted-foreground">{o.member.name} · {new Date(o.createdAt).toLocaleString("en-ZA", { dateStyle: "short", timeStyle: "short" })}</p>
+              </div>
               <div className="text-right"><p className="text-sm font-bold">{fmt(o.amount)}</p><p className="text-[10px] text-emerald-600">+{fmt(o.commission)} pool</p></div>
             </div>
           ))}
@@ -245,8 +305,30 @@ export function AdminMarketplace() {
                   </Select>
                 </div>
               </div>
-              <div className="grid grid-cols-3 gap-3">
-                <div><Label>Price (R)</Label><Input type="number" value={editing.price || 0} onChange={(e) => setEditing({ ...editing, price: parseFloat(e.target.value) || 0 })} className="mt-1.5" /></div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Price (R)</Label>
+                  <Input type="number" value={editing.price || 0} onChange={(e) => setEditing({ ...editing, price: parseFloat(e.target.value) || 0 })} className="mt-1.5" />
+                  <p className="text-[10px] text-muted-foreground mt-1">Base price for paid members.</p>
+                </div>
+                <div>
+                  <Label>Free member price (R)</Label>
+                  <Input
+                    type="number"
+                    value={editing.freePrice ?? 0}
+                    onChange={(e) => setEditing({ ...editing, freePrice: parseFloat(e.target.value) || 0 })}
+                    className="mt-1.5"
+                  />
+                  <p className="text-[10px] text-muted-foreground mt-1">Price for free members (usually 15% higher than member price).</p>
+                </div>
+              </div>
+              {editing.price > 0 && editing.freePrice > 0 && editing.freePrice !== editing.price && (
+                <div className="rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 p-2.5 text-xs text-amber-800 dark:text-amber-300 flex items-center gap-2">
+                  <Sparkles className="h-3.5 w-3.5 shrink-0" />
+                  <span>Free members pay <strong>{fmt(editing.freePrice)}</strong> — that's <strong>{(((editing.freePrice - editing.price) / editing.price) * 100).toFixed(0)}%</strong> more than paid members ({fmt(editing.price)}).</span>
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-3">
                 <div><Label>Commission %</Label><Input type="number" value={editing.commissionPct || 0} onChange={(e) => setEditing({ ...editing, commissionPct: parseFloat(e.target.value) || 0 })} className="mt-1.5" /></div>
                 <div><Label>Rating</Label><Input type="number" step="0.1" value={editing.rating || 4.5} onChange={(e) => setEditing({ ...editing, rating: parseFloat(e.target.value) || 0 })} className="mt-1.5" /></div>
               </div>

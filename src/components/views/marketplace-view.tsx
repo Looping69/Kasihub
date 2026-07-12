@@ -50,6 +50,7 @@ export function MarketplaceView() {
   const { currentMember } = useKasiStore();
   const [products, setProducts] = useState<MarketplaceProduct[]>([]);
   const [recentOrders, setRecentOrders] = useState<MarketplaceOrder[]>([]);
+  const [isFreeMember, setIsFreeMember] = useState(false);
   const [loading, setLoading] = useState(true);
   const [category, setCategory] = useState("ALL");
   const [search, setSearch] = useState("");
@@ -64,6 +65,7 @@ export function MarketplaceView() {
         const data = await res.json();
         setProducts(data.products);
         setRecentOrders(data.recentOrders);
+        setIsFreeMember(data.isFreeMember);
       }
     } finally {
       setLoading(false);
@@ -123,17 +125,23 @@ export function MarketplaceView() {
         </p>
       </div>
 
-      {/* Pool contribution banner */}
-      <Card className="p-5 bg-gradient-to-br from-emerald-600 to-emerald-700 text-white border-0 relative overflow-hidden">
+      {/* Pricing tier banner */}
+      <Card className={`p-5 relative overflow-hidden ${isFreeMember ? "bg-gradient-to-br from-amber-500 to-amber-600" : "bg-gradient-to-br from-emerald-600 to-emerald-700"} text-white border-0`}>
         <div className="absolute top-0 right-0 w-48 h-48 bg-white/10 rounded-full blur-3xl translate-x-1/4 -translate-y-1/4" />
         <div className="relative flex flex-col sm:flex-row items-start sm:items-center gap-4 justify-between">
           <div className="flex items-center gap-4">
             <div className="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center backdrop-blur">
-              <Wallet className="h-6 w-6" />
+              {isFreeMember ? <ShieldCheck className="h-6 w-6" /> : <Wallet className="h-6 w-6" />}
             </div>
             <div>
-              <p className="font-bold text-lg">Your purchases fuel the KasiPool</p>
-              <p className="text-sm text-emerald-50">Each order sends commission to the shared pool — paid out nightly to all members.</p>
+              <p className="font-bold text-lg">
+                {isFreeMember ? "Free Member pricing" : "Your purchases fuel the KasiPool"}
+              </p>
+              <p className="text-sm opacity-90">
+                {isFreeMember
+                  ? "Free members pay slightly higher prices. Upgrade to a paid membership for member pricing."
+                  : "Each order sends commission to the shared pool — paid out nightly to all members."}
+              </p>
             </div>
           </div>
           <div className="flex gap-3">
@@ -214,7 +222,10 @@ export function MarketplaceView() {
                   <Separator className="my-3" />
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-lg font-black">R {p.price.toFixed(2)}</p>
+                      <p className="text-lg font-black">R {(p as MarketplaceProduct & { displayPrice?: number }).displayPrice?.toFixed(2) || p.price.toFixed(2)}</p>
+                      {isFreeMember && (p as MarketplaceProduct & { freePrice?: number }).freePrice && (p as MarketplaceProduct & { freePrice?: number }).freePrice! > p.price && (
+                        <p className="text-[9px] text-amber-600 line-through">R {p.price.toFixed(2)} member price</p>
+                      )}
                       <p className="text-[10px] text-muted-foreground">by {p.provider}</p>
                     </div>
                     <Button size="sm" onClick={() => setBuyProduct(p)} className="bg-gradient-to-r from-emerald-600 to-emerald-500">

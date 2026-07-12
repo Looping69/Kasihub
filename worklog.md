@@ -187,3 +187,68 @@ Returns: `{ verified: boolean, accountRef?: string, member?: Member }`
 - Dev server log confirms `legal-view` module is now resolved and `GET /` returns 200 (the previous "Module not found" error from tasks 2-a..2-d is gone).
 - Work record: `agent-ctx/2-e-full-stack-developer.md`.
 
+
+## Task 4 — Shares View: Phase-aware values + Daily Profit Share (ZAR) (Agent: full-stack-developer)
+- Updated `/home/z/my-project/src/lib/types.ts` `Share` interface with 3 optional (backwards-compatible) fields returned by the new `/api/shares` payload: `isLegacy?: boolean` (Phase 1 BOGO / FREE), `currentValuePerShare?: number` (current phase price), `currentTotalValue?: number` (quantity × currentValuePerShare).
+- Updated `/home/z/my-project/src/components/views/shares-view.tsx`:
+  - **`SharesData` interface**: replaced `dailyDividendPerShare`/`myDailyDividend` with `dailyProfitSharePerShare`/`myDailyProfitShare` (both ZAR); added `legacyShares: number`; updated `totalValue` comment to "sum of each share's quantity × its phase price" and `shareValuePerShare` comment to "default/legacy value".
+  - **New helpers**: `fmtZAR` (`R X,XXX.XX`, `en-ZA`, 2dp) added next to existing `fmtUSD`. New computed `actualPurchaseValue = data.activeShares.reduce((s, x) => s + (x.totalAmount ?? 0), 0)` for the purchase-price "actual value" note.
+  - **"Your shares" tile**: now renders `{data.totalShares} shares` as the big line; below it shows `({data.legacyShares} legacy shares FREE)` in amber when `legacyShares > 0`, else falls back to the `{kasiActiveCount} certificate(s)` count — matches the "20 shares (20 legacy shares FREE)" spec.
+  - **"Total value" tile**: keeps `{fmtUSD(data.totalValue)}` (phase-based current value) as the big line; sub-line changed from "at current rate" to `(actual value {fmtUSD(actualPurchaseValue)})` showing the purchase price (sum of totalAmount) — matches the "$500 (actual value $1000)" spec.
+  - **Daily profit share mini-row**: "Your daily dividend" → "Daily profit share", value now `fmtZAR(data.myDailyProfitShare)` (R, ZAR). "Per share / day" → "Per share" (removed "/day"), value now `fmtZAR(data.dailyProfitSharePerShare)` (R, ZAR). Shares-outstanding sub-line unchanged.
+  - **Header subtitle**: "Daily dividends from KasiMall profits." → "Daily profit share from KasiMall & KasiMarketplace profits." (consistency with the rename + marketplace addition).
+  - **Active KasiShare certificate cards**: 2×2 grid relabelled — "Price/share" → "Value/share" (`fmtUSD(s.currentValuePerShare ?? s.pricePerShare)`), "Total paid" → "Current value" (`fmtUSD(s.currentTotalValue ?? s.totalAmount)`). Added a "Legacy FREE" amber `Badge` (with Sparkles) next to the Award icon on cards where `s.isLegacy` is true, tying the card to the `legacyShares` count. Retracted (Revoked) cards and both Aureus active/retracted cards kept unchanged (historical purchase price stays correct for revoked records; print certificates still use purchase `pricePerShare`/`totalAmount`).
+  - **"About KasiShares" bullet**: "Daily percentage of KasiMall profits shared equally between all sold shares." → "Daily percentage of KasiMall & KasiMarketplace profits shared equally between all sold shares."
+  - **Kept all existing features intact**: Active/Retracted `Tabs`, Print certificate buttons (`printKasiCertificate`/`printAureusCertificate`), Buy KasiShares dialog (phase Select, quantity Input, BOGO breakdown, Confirm purchase), Share phases list with `Progress` bars + Phase 1 BOGO badge + Buy buttons, Aureus Shares section with equation row, Framer Motion animations, emerald + amber palette. All imports unchanged (kept `DollarSign` import per "keep existing imports" instruction).
+  - `bun run lint` passes cleanly (0 errors, 0 warnings). `grep` confirms no remaining `dailyDividend`/`myDailyDividend`/`/ day`/`/day`/`Daily dividend`/`KasiMall profits` references in the file.
+  - Dev server recompiles cleanly after edits (`✓ Compiled` with no shares-view errors); pre-existing `vouchers-view`/`refer-view` "Module not found" errors in dev.log are unrelated to this task (separate views).
+  - Work record: `agent-ctx/4-full-stack-developer.md`.
+
+## Task admin-update — Admin views: marketplace free-price + shares phase-based value & daily profit share
+
+**Agent:** full-stack-developer
+**Task ID:** admin-update
+**Files touched:**
+- `/home/z/my-project/src/components/admin/admin-marketplace.tsx`
+- `/home/z/my-project/src/components/admin/admin-shares.tsx`
+- `/home/z/my-project/worklog.md` (this summary)
+- `/home/z/my-project/agent-ctx/admin-update-full-stack-developer.md` (work record)
+
+### Context
+The member-facing Shares view (`shares-view.tsx`, see task 4) and the marketplace backend were updated. The `/api/admin/marketplace` response now carries per-product `freePrice` + `freePriceDelta`, top-level `freeMemberOrders`/`paidMemberOrders`, per-category `freeOrders`/`paidOrders`, and per-order `pricingTier`. The member Shares view was renamed from "Daily dividend" (USD) to "Daily profit share" (ZAR) with a ~R37,000 pool, and legacy Phase-1 BOGO shares are shown as FREE. The two admin views had to be brought in line with these changes.
+
+### `src/components/admin/admin-marketplace.tsx`
+- Extended `Product` interface with `freePrice: number` + `freePriceDelta: number`. Extended `Order` interface with `pricingTier: "PAID" | "FREE"`. Added a new `CategoryStat` interface with `freeOrders`/`paidOrders`.
+- Extended `totals` state to include `freeMemberOrders` and `paidMemberOrders` (with `?? 0` fallbacks for safety).
+- **Stats grid**: expanded from `sm:grid-cols-4` to a responsive `sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6` grid. Added two new cards — "Paid member orders" (emerald ring, `Crown` icon) and "Free member orders" (amber ring, `Sparkles` icon) — both showing counts pulled from the new API fields.
+- **Category revenue grid**: each cell now also shows `paidOrders`/`freeOrders` counts via small emerald/amber outline badges below a `Separator`, alongside the existing revenue / commission / order count.
+- **Products table**: renamed "Price" header → "Member price" and inserted a new "Free price" column between member price and commission. The free-price cell renders `fmt(p.freePrice)` in amber with a `+N%` delta badge (using `p.freePriceDelta`); if `freePrice` is 0 or equals `price`, it shows a muted "Same" label instead.
+- **Recent orders card**: header now shows two summary badges (paid / free counts). Each order row gets a PAID (emerald) or FREE (amber) outline badge inline with the product name, driven by `o.pricingTier`.
+- **Edit/Create dialog**: added a "Free member price (R)" `Input` (paired with the existing "Price (R)" field in a 2-col grid) with the spec's note "Price for free members (usually 15% higher than member price)" below it. The existing helper text "Base price for paid members." was added under the price field. When both prices are set and differ, an amber info box appears: "Free members pay **R X.XX** — that's **N%** more than paid members (R Y.YY)."
+- **`EMPTY_PRODUCT`** now seeds `freePrice: 0` so new products start with an empty (not undefined) free-price field.
+- **Save**: the existing POST/PATCH body already spreads `editing` into the request, so `freePrice` is sent automatically. (The API route already accepts `freePrice` and defaults it to `price × 1.15` when omitted on POST.)
+- **Imports**: added `Crown` and `Sparkles` from lucide-react. Removed the now-unused `motion` import from framer-motion that was in the original file (the original imported it but never used it — eslint would flag this).
+
+### `src/components/admin/admin-shares.tsx`
+- Added module-level constant `DAILY_PROFIT_POOL_ZAR = 37000` to centralize the ~R37,000/day profit pool assumption.
+- Added `fmtZAR` helper next to the existing `fmtUSD`.
+- **Stats grid**: expanded from 3 cards to 4 (responsive `sm:grid-cols-2 lg:grid-cols-4`). Kept "Active shares outstanding" and "Total value sold (purchase)" (`fmtUSD`). Added a new "Current value (phase-based)" card (emerald ring) showing `sum(activeShares → qty × phasePrice)` formatted in USD, with sub-line "sum of qty × phase price". Added a new "Daily profit share / share" card (amber ring, `Sparkles` icon) showing `R 37,000 / totalActiveShares` in ZAR with sub-line "R 37,000.00 pool / day".
+- **Phase helper functions** added: `phasePriceFor(s)` (looks up the share's phase price in `phases`, falling back to `s.pricePerShare`) and `isLegacyShare(s)` (true when `s.phase === 1` and the Phase 1 entry has `bonusBuyOneGet === true`). Also added `phase1IsLegacy` derived boolean.
+- **All certificates table**: added two new columns — "Phase price" (`fmtUSD(phasePriceFor(s))`) and "Current value" (`fmtUSD(s.quantity × phasePriceFor(s))`, emerald, font-semibold). The Phase cell now includes an amber "Legacy" outline badge (with `Sparkles` icon) for certificates where `isLegacyShare(s)` is true. The Status badge uses emerald for ACTIVE and rose for non-active statuses (e.g. RETRACTED) so retracted certs remain visible with distinct styling.
+- **All certificates footer**: added a `tfoot` row that aggregates the active certificates' phase-based totals — `qty × phase price` label, total active shares count, and a bold emerald total `fmtUSD(totalPhaseValue)`. This satisfies "Total value should reflect phase-based pricing, not just totalAmount".
+- **Profit share history card**: header renamed from "Dividend history" → "Profit share history". Each historical dividend card now renders `fmtZAR(d.amount)` as the headline amount and `fmtZAR(d.perShareAmount)` for the per-share line (was USD). Empty-state copy changed to "No profit shares declared yet."
+- **Declare dialog**: header title "Declare dividend" → "Declare daily profit share". Label changed from "Total dividend amount (USD)" → "Total profit share amount (ZAR)". Default amount changed from `"50000"` → `"37000"`. Helper text now mentions "The daily profit pool is approximately R 37,000.00." Per-share row uses `fmtZAR`. The success toast on the client now formats as `R X.XXXX/share` (was `$X.XXXX/share`). The distribution info note ("immediately distributed ... DIVIDEND transaction, paid to their Roots Bank accounts") was kept verbatim.
+- **Phase edit dialog**: kept all existing fields (price, total shares, status, BOGO switch). Updated the BOGO switch sub-text from "Phase 1 bonus special" to "Phase 1 bonus special (legacy FREE shares)" to reflect the new legacy framing.
+- **Imports**: added `Sparkles` to the lucide-react import list. Removed the unused `motion` (framer-motion) and `Plus` imports that the original file declared but never used (these would have been flagged by eslint).
+
+### Cross-cutting
+- Both files keep the `"use client"` directive.
+- Emerald + amber palette throughout (no indigo/blue).
+- shadcn/ui `Card`/`Badge`/`Button`/`Input`/`Label`/`Separator`/`Switch`/`Dialog`/`Select`/`AlertDialog`/`Textarea` reused.
+- Currency: `R` (ZAR) for marketplace prices, free-vs-paid deltas, daily profit share, and historical dividend display. `$` (USD) for share phase prices and phase-based/current values (shares are still priced in USD, only the daily profit share is in ZAR — matches spec).
+- All existing features preserved: product search + edit/create dialog with color picker + delete confirm; phase editing + declare dialog + dividend history; active/retracted certificate rendering with status-coloured badges.
+
+### Verification
+- `bun run lint` → clean (0 errors, 0 warnings). The unused `motion` import was proactively removed from both files because eslint would have flagged it.
+- `tail -40 dev.log` → most recent lines show `✓ Compiled in NNNms` and successful `GET /api/admin/stats 200` responses after the edits. The pre-existing "Module not found" for `admin-notifications` (referenced by `admin-shell.tsx`) is unrelated to this task.
+- Work record: `agent-ctx/admin-update-full-stack-developer.md`.

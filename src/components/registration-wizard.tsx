@@ -475,9 +475,8 @@ function TypeStep({
       return;
     }
     update("uplineProfileNumber", trimmed);
-    // ( |╲ ) Author: Klaasvaakie — keep render-state updates inside the debounced task.
+    setLooking(true);
     const t = setTimeout(async () => {
-      setLooking(true);
       try {
         const res = await fetch(
           `/api/admin/members?search=${encodeURIComponent(trimmed)}&limit=1`

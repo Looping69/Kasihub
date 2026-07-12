@@ -18,7 +18,14 @@ export async function GET(req: NextRequest) {
       orderBy: { popular: "desc" },
     });
 
-    let recentOrders: { id: string; productName: string; amount: number; commission: number; createdAt: string }[] = [];
+    // Determine member's pricing tier
+    let isFreeMember = false;
+    if (memberId) {
+      const member = await db.member.findUnique({ where: { id: memberId } });
+      isFreeMember = member?.membershipType === "FREE" || member?.subscriptionStatus !== "ACTIVE";
+    }
+
+    let recentOrders: { id: string; productName: string; amount: number; commission: number; pricingTier: string; createdAt: string }[] = [];
     if (memberId) {
       const orders = await db.marketplaceOrder.findMany({
         where: { memberId },
@@ -30,13 +37,20 @@ export async function GET(req: NextRequest) {
         productName: o.productName,
         amount: o.amount,
         commission: o.commission,
+        pricingTier: o.pricingTier,
         createdAt: o.createdAt.toISOString(),
       }));
     }
 
     return NextResponse.json({
-      products,
+      products: products.map((p) => ({
+        ...p,
+        // Show the price the member will actually pay
+        displayPrice: isFreeMember ? (p.freePrice || p.price) : p.price,
+      })),
       recentOrders,
+      isFreeMember,
+      pricingTier: isFreeMember ? "FREE" : "PAID",
     });
   } catch (error) {
     console.error("[marketplace] error", error);

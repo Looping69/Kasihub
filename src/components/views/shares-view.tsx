@@ -33,13 +33,14 @@ interface SharesData {
   aureusShares: AureusShare[];
   retractedAureusShares: AureusShare[];
   totalShares: number;
-  totalValue: number; // = totalShares × shareValuePerShare
-  shareValuePerShare: number; // $39.95
+  totalValue: number; // = sum of each share's quantity × its phase price
+  shareValuePerShare: number; // $39.95 default/legacy value
+  legacyShares: number; // count of Phase 1 BOGO shares (legacy FREE)
   aureusValuePerShare: number; // $15.00
   aureusTotalShares: number;
   aureusTotalValue: number;
-  dailyDividendPerShare: number;
-  myDailyDividend: number;
+  dailyProfitSharePerShare: number; // in ZAR
+  myDailyProfitShare: number; // in ZAR
   totalSharesOutstanding: number;
 }
 
@@ -303,6 +304,7 @@ export function SharesView() {
 
   const activePhase = data.phases.find((p) => p.status === "OPEN");
   const fmtUSD = (n: number) => `$${(n ?? 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const fmtZAR = (n: number) => `R ${(n ?? 0).toLocaleString("en-ZA", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
   const memberName = memberDisplayName(currentMember);
 
@@ -310,6 +312,9 @@ export function SharesView() {
   const kasiRetractedCount = data.retractedShares.length;
   const aureusActiveCount = data.aureusShares.length;
   const aureusRetractedCount = data.retractedAureusShares.length;
+
+  // Purchase price (actual value) = sum of totalAmount across active KasiShares
+  const actualPurchaseValue = data.activeShares.reduce((s, x) => s + (x.totalAmount ?? 0), 0);
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto">
@@ -321,7 +326,7 @@ export function SharesView() {
             <h2 className="text-2xl font-black tracking-tight">KasiShares</h2>
           </div>
           <p className="text-sm text-muted-foreground">
-            Class B private shares sold by Solidus Holdings (Pty) Ltd. Daily dividends from KasiMall profits.
+            Class B private shares sold by Solidus Holdings (Pty) Ltd. Daily profit share from KasiMall &amp; KasiMarketplace profits.
           </p>
         </div>
         <Button
@@ -354,8 +359,12 @@ export function SharesView() {
         <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_1fr_auto_1fr] gap-2 sm:gap-3 items-center">
           <div className="rounded-lg bg-white/70 dark:bg-card/60 p-3 text-center border border-amber-100 dark:border-amber-900/50">
             <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Your shares</p>
-            <p className="text-2xl font-black mt-0.5">{data.totalShares}</p>
-            <p className="text-[10px] text-muted-foreground">{kasiActiveCount} certificate{kasiActiveCount !== 1 ? "s" : ""}</p>
+            <p className="text-2xl font-black mt-0.5">{data.totalShares} shares</p>
+            {data.legacyShares > 0 ? (
+              <p className="text-[10px] text-amber-600 font-semibold">({data.legacyShares} legacy shares FREE)</p>
+            ) : (
+              <p className="text-[10px] text-muted-foreground">{kasiActiveCount} certificate{kasiActiveCount !== 1 ? "s" : ""}</p>
+            )}
           </div>
           <div className="hidden sm:flex items-center justify-center text-amber-600 font-black text-xl">×</div>
           <div className="rounded-lg bg-white/70 dark:bg-card/60 p-3 text-center border border-amber-100 dark:border-amber-900/50">
@@ -367,25 +376,25 @@ export function SharesView() {
           <div className="rounded-lg bg-emerald-50 dark:bg-emerald-950/30 p-3 text-center border-2 border-emerald-200 dark:border-emerald-900">
             <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Total value</p>
             <p className="text-2xl font-black mt-0.5 text-emerald-600">{fmtUSD(data.totalValue)}</p>
-            <p className="text-[10px] text-muted-foreground">at current rate</p>
+            <p className="text-[10px] text-muted-foreground">(actual value {fmtUSD(actualPurchaseValue)})</p>
           </div>
         </div>
 
-        {/* Dividend mini-row */}
+        {/* Daily profit share mini-row */}
         <div className="grid grid-cols-2 gap-3 mt-3">
           <div className="rounded-lg bg-emerald-50/70 dark:bg-emerald-950/20 p-3 border border-emerald-100 dark:border-emerald-900/50">
             <div className="flex items-center justify-between">
-              <p className="text-[10px] text-muted-foreground">Your daily dividend</p>
+              <p className="text-[10px] text-muted-foreground">Daily profit share</p>
               <TrendingUp className="h-3.5 w-3.5 text-emerald-600" />
             </div>
-            <p className="text-lg font-black text-emerald-600 mt-0.5">{fmtUSD(data.myDailyDividend)}</p>
+            <p className="text-lg font-black text-emerald-600 mt-0.5">{fmtZAR(data.myDailyProfitShare)}</p>
           </div>
           <div className="rounded-lg bg-white/70 dark:bg-card/60 p-3 border border-amber-100 dark:border-amber-900/50">
             <div className="flex items-center justify-between">
-              <p className="text-[10px] text-muted-foreground">Per share / day</p>
+              <p className="text-[10px] text-muted-foreground">Per share</p>
               <Sparkles className="h-3.5 w-3.5 text-amber-600" />
             </div>
-            <p className="text-lg font-black mt-0.5">{fmtUSD(data.dailyDividendPerShare)}</p>
+            <p className="text-lg font-black mt-0.5">{fmtZAR(data.dailyProfitSharePerShare)}</p>
             <p className="text-[9px] text-muted-foreground mt-0.5">{data.totalSharesOutstanding.toLocaleString()} shares outstanding</p>
           </div>
         </div>
@@ -562,7 +571,14 @@ export function SharesView() {
                                 <p className="text-[10px] uppercase tracking-wider text-amber-700 dark:text-amber-400 font-semibold">KasiShares Certificate</p>
                                 <p className="font-mono text-xs text-muted-foreground mt-0.5">{s.certificateNo}</p>
                               </div>
-                              <Award className="h-8 w-8 text-amber-600" />
+                              <div className="flex items-center gap-2">
+                                {s.isLegacy && (
+                                  <Badge variant="outline" className="bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-950/40 dark:text-amber-400 dark:border-amber-900">
+                                    <Sparkles className="h-3 w-3 mr-1" /> Legacy FREE
+                                  </Badge>
+                                )}
+                                <Award className="h-8 w-8 text-amber-600" />
+                              </div>
                             </div>
                             <div className="grid grid-cols-2 gap-3 mb-4">
                               <div>
@@ -574,12 +590,12 @@ export function SharesView() {
                                 <p className="text-lg font-black">{s.quantity}</p>
                               </div>
                               <div>
-                                <p className="text-[10px] text-muted-foreground">Price/share</p>
-                                <p className="text-sm font-bold">{fmtUSD(s.pricePerShare)}</p>
+                                <p className="text-[10px] text-muted-foreground">Value/share</p>
+                                <p className="text-sm font-bold">{fmtUSD(s.currentValuePerShare ?? s.pricePerShare)}</p>
                               </div>
                               <div>
-                                <p className="text-[10px] text-muted-foreground">Total paid</p>
-                                <p className="text-sm font-bold">{fmtUSD(s.totalAmount)}</p>
+                                <p className="text-[10px] text-muted-foreground">Current value</p>
+                                <p className="text-sm font-bold">{fmtUSD(s.currentTotalValue ?? s.totalAmount)}</p>
                               </div>
                             </div>
                             <Separator className="my-3 bg-amber-200 dark:bg-amber-900" />
@@ -811,7 +827,7 @@ export function SharesView() {
             <ul className="space-y-1.5 text-xs text-muted-foreground">
               <li className="flex items-start gap-2"><Check className="h-3.5 w-3.5 text-emerald-600 mt-0.5 flex-shrink-0" /> Shares are a private offering by Solidus Holdings, not open to the public.</li>
               <li className="flex items-start gap-2"><Check className="h-3.5 w-3.5 text-emerald-600 mt-0.5 flex-shrink-0" /> Income from shares funds KasiMall construction and operations.</li>
-              <li className="flex items-start gap-2"><Check className="h-3.5 w-3.5 text-emerald-600 mt-0.5 flex-shrink-0" /> Daily percentage of KasiMall profits shared equally between all sold shares.</li>
+              <li className="flex items-start gap-2"><Check className="h-3.5 w-3.5 text-emerald-600 mt-0.5 flex-shrink-0" /> Daily percentage of KasiMall &amp; KasiMarketplace profits shared equally between all sold shares.</li>
               <li className="flex items-start gap-2"><Check className="h-3.5 w-3.5 text-emerald-600 mt-0.5 flex-shrink-0" /> Dividends declared from time to time by KasiMall, paid to Roots Bank accounts.</li>
               <li className="flex items-start gap-2"><Check className="h-3.5 w-3.5 text-emerald-600 mt-0.5 flex-shrink-0" /> Must maintain KasiHub membership to receive dividends and daily payouts.</li>
               <li className="flex items-start gap-2"><Check className="h-3.5 w-3.5 text-emerald-600 mt-0.5 flex-shrink-0" /> When you buy more, the previous certificate is revoked and a new one issued.</li>

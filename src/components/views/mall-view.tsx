@@ -120,90 +120,18 @@ export function MallView() {
         </div>
       </Card>
 
-      {/* Smart contract silos */}
-      <Card className="p-5">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h3 className="font-bold flex items-center gap-2">
-              <PieChart className="h-4 w-4 text-emerald-600" /> Smart-contract silo splits
-            </h3>
-            <p className="text-xs text-muted-foreground">Every KasiMall payment is split instantly across these silos. Percentages are editable by Exco.</p>
+      {/* Smart contract silos — moved to Admin dashboard */}
+      <Card className="p-5 bg-muted/30 border-dashed">
+        <div className="flex items-start gap-3">
+          <div className="w-10 h-10 rounded-lg bg-amber-100 dark:bg-amber-950/40 flex items-center justify-center flex-shrink-0">
+            <PieChart className="h-5 w-5 text-amber-600" />
           </div>
-          <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
-            <Info className="h-3 w-3 mr-1" /> Exco-editable
-          </Badge>
-        </div>
-
-        <div className="grid gap-4 lg:grid-cols-2">
-          {/* Silo cards */}
-          <div className="space-y-3">
-            {data.silos.map((s) => (
-              <motion.div
-                key={s.name}
-                initial={{ opacity: 0, x: -10 }}
-                animate={{ opacity: 1, x: 0 }}
-                className="p-4 rounded-lg border border-border/60"
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    <span className="w-3 h-3 rounded-full" style={{ background: s.color }} />
-                    <span className="font-semibold text-sm">{s.name}</span>
-                  </div>
-                  <span className="text-lg font-black" style={{ color: s.color }}>{s.pct}%</span>
-                </div>
-                <p className="text-xs text-muted-foreground">{s.description}</p>
-                <p className="text-xs font-semibold mt-1">
-                  of total spend: <span className="font-mono">{fmt(data.totals.amount * s.pct / 100)}</span>
-                </p>
-              </motion.div>
-            ))}
+          <div className="text-sm">
+            <p className="font-semibold mb-1">Smart-contract silo splits</p>
+            <p className="text-xs text-muted-foreground">
+              The Exco-editable silo split configuration (Cost of Sale, VAT, SharePool, KasiPool) is managed in the Admin dashboard under KasiMall.
+            </p>
           </div>
-
-          {/* Pie chart */}
-          <Card className="p-5 bg-muted/30 flex items-center justify-center">
-            <div className="w-full">
-              <div className="relative w-48 h-48 mx-auto">
-                <svg viewBox="0 0 100 100" className="w-full h-full -rotate-90">
-                  {(() => {
-                    let offset = 0;
-                    return data.silos.map((s) => {
-                      const dash = (s.pct / 100) * 251.2; // 2*pi*40
-                      const circle = (
-                        <circle
-                          key={s.name}
-                          cx="50" cy="50" r="40"
-                          fill="none"
-                          stroke={s.color}
-                          strokeWidth="16"
-                          strokeDasharray={`${dash} 251.2`}
-                          strokeDashoffset={-offset}
-                        />
-                      );
-                      offset += dash;
-                      return circle;
-                    });
-                  })()}
-                </svg>
-                <div className="absolute inset-0 flex flex-col items-center justify-center">
-                  <p className="text-[10px] text-muted-foreground">Total processed</p>
-                  <p className="text-lg font-black">{fmt(data.totals.amount)}</p>
-                </div>
-              </div>
-              <p className="text-center text-xs text-muted-foreground mt-4">All-time KasiMall revenue split</p>
-            </div>
-          </Card>
-        </div>
-
-        <Separator className="my-4" />
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          {data.silos.map((s) => (
-            <div key={s.name} className="text-center p-3 rounded-lg bg-muted/40">
-              <p className="text-[10px] text-muted-foreground">{s.name}</p>
-              <p className="text-sm font-bold font-mono" style={{ color: s.color }}>
-                {fmt(data.totals.amount * s.pct / 100)}
-              </p>
-            </div>
-          ))}
         </div>
       </Card>
 
@@ -301,9 +229,7 @@ export function MallView() {
             <p className="font-semibold mb-2">About KasiMall</p>
             <ul className="space-y-1.5 text-xs text-muted-foreground">
               <li className="flex items-start gap-2"><TrendingUp className="h-3.5 w-3.5 text-emerald-600 mt-0.5 flex-shrink-0" /> Malls are built in designated areas once 5,000 KasiHub members register.</li>
-              <li className="flex items-start gap-2"><Wallet className="h-3.5 w-3.5 text-emerald-600 mt-0.5 flex-shrink-0" /> 100% cashless — pay only with your NFC Tag linked to Roots Bank.</li>
-              <li className="flex items-start gap-2"><PieChart className="h-3.5 w-3.5 text-emerald-600 mt-0.5 flex-shrink-0" /> Smart-contract splits: 65% suppliers, 15% VAT, 10% SharePool, 10% KasiPool.</li>
-              <li className="flex items-start gap-2"><Info className="h-3.5 w-3.5 text-emerald-600 mt-0.5 flex-shrink-0" /> Exco can edit silo percentages via an editable table — no code changes needed.</li>
+              <li className="flex items-start gap-2"><Wallet className="h-3.5 w-3.5 text-emerald-600 mt-0.5 flex-shrink-0" /> 100% Cashless — pay with your Instapay Gini App.</li>
             </ul>
           </div>
         </div>

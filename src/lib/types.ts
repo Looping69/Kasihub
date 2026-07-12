@@ -27,7 +27,9 @@ export type ViewKey =
   | "marketplace"
   | "mall"
   | "rootsbank"
-  | "legal";
+  | "legal"
+  | "vouchers"
+  | "refer";
 
 export interface Member {
   id: string;
@@ -98,6 +100,10 @@ export interface Share {
   prevCertificateNo: string | null;
   status: string;
   createdAt: string;
+  // Phase-aware fields returned by /api/shares (optional for backwards compat)
+  isLegacy?: boolean; // true for Phase 1 BOGO (FREE) shares
+  currentValuePerShare?: number; // current phase price per share
+  currentTotalValue?: number; // quantity × currentValuePerShare
 }
 
 export interface SharePhase {

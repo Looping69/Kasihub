@@ -1,0 +1,889 @@
+     1→     1→"use client";
+     2→     2→
+     3→     3→import { useEffect, useState } from "react";
+     4→     4→import { motion } from "framer-motion";
+     5→     5→import {
+     6→     6→  Coins, TrendingUp, Award, FileText, Loader2, Sparkles, DollarSign,
+     7→     7→  Check, Lock, Calendar, Printer, Gem,
+     8→     8→} from "lucide-react";
+     9→     9→import { Card } from "@/components/ui/card";
+    10→    10→import { Badge } from "@/components/ui/badge";
+    11→    11→import { Button } from "@/components/ui/button";
+    12→    12→import { Progress } from "@/components/ui/progress";
+    13→    13→import { Separator } from "@/components/ui/separator";
+    14→    14→import {
+    15→    15→  Tabs, TabsList, TabsTrigger, TabsContent,
+    16→    16→} from "@/components/ui/tabs";
+    17→    17→import {
+    18→    18→  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+    19→    19→} from "@/components/ui/dialog";
+    20→    20→import {
+    21→    21→  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+    22→    22→} from "@/components/ui/select";
+    23→    23→import { Label } from "@/components/ui/label";
+    24→    24→import { Input } from "@/components/ui/input";
+    25→    25→import { useKasiStore } from "@/lib/store";
+    26→    26→import type { Share, SharePhase, AureusShare, Member } from "@/lib/types";
+    27→    27→import { toast } from "sonner";
+    28→    28→
+    29→    29→interface SharesData {
+    30→    30→  phases: SharePhase[];
+    31→    31→  activeShares: Share[];
+    32→    32→  retractedShares: Share[];
+    33→    33→  aureusShares: AureusShare[];
+    34→    34→  retractedAureusShares: AureusShare[];
+    35→    35→  totalShares: number;
+    36→    36→  totalValue: number; // = totalShares × shareValuePerShare
+    37→    37→  shareValuePerShare: number; // $39.95
+    38→    38→  aureusValuePerShare: number; // $15.00
+    39→    39→  aureusTotalShares: number;
+    40→    40→  aureusTotalValue: number;
+    41→    41→  dailyDividendPerShare: number;
+    42→    42→  myDailyDividend: number;
+    43→    43→  totalSharesOutstanding: number;
+    44→    44→}
+    45→    45→
+    46→    46→/** Derive a printable display name from a Member record. */
+    47→    47→function memberDisplayName(member: Member | null): string {
+    48→    48→  if (!member) return "—";
+    49→    49→  const isCompany =
+    50→    50→    member.membershipType === "COMPANY" ||
+    51→    51→    member.membershipType === "NPO_NGO" ||
+    52→    52→    member.membershipType === "SOLE_PROPRIETOR";
+    53→    53→  if (isCompany && member.companyName) return member.companyName;
+    54→    54→  const parts = [member.firstName, member.lastName].filter(Boolean);
+    55→    55→  if (parts.length) return parts.join(" ");
+    56→    56→  return member.email;
+    57→    57→}
+    58→    58→
+    59→    59→/** Open a new window with a printable KasiShare certificate and call print(). */
+    60→    60→function printKasiCertificate(share: Share, memberName: string) {
+    61→    61→  const issued = new Date(share.createdAt).toLocaleDateString("en-ZA", {
+    62→    62→    year: "numeric", month: "long", day: "numeric",
+    63→    63→  });
+    64→    64→  const total = (share.totalAmount ?? 0).toLocaleString("en-US", {
+    65→    65→    style: "currency", currency: "USD",
+    66→    66→  });
+    67→    67→  const perShare = (share.pricePerShare ?? 0).toLocaleString("en-US", {
+    68→    68→    style: "currency", currency: "USD",
+    69→    69→  });
+    70→    70→
+    71→    71→  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/>
+    72→    72→<title>KaSiHUB Share Certificate ${share.certificateNo}</title>
+    73→    73→<style>
+    74→    74→  * { box-sizing: border-box; }
+    75→    75→  body { font-family: Georgia, 'Times New Roman', serif; padding: 40px; background: #f5f5f4; color: #1c1917; margin: 0; }
+    76→    76→  .wrap { max-width: 800px; margin: 0 auto; }
+    77→    77→  .cert {
+    78→    78→    position: relative;
+    79→    79→    border: 8px double #059669;
+    80→    80→    padding: 48px 56px;
+    81→    81→    background: linear-gradient(135deg, #ffffff 0%, #f0fdf4 100%);
+    82→    82→    box-shadow: 0 4px 24px rgba(5,150,105,0.15);
+    83→    83→  }
+    84→    84→  .cert::before {
+    85→    85→    content: ""; position: absolute; inset: 12px;
+    86→    86→    border: 2px solid #f59e0b; pointer-events: none;
+    87→    87→  }
+    88→    88→  .corner { position: absolute; width: 40px; height: 40px; border: 3px solid #d97706; }
+    89→    89→  .corner.tl { top: 22px; left: 22px; border-right: none; border-bottom: none; }
+    90→    90→  .corner.tr { top: 22px; right: 22px; border-left: none; border-bottom: none; }
+    91→    91→  .corner.bl { bottom: 22px; left: 22px; border-right: none; border-top: none; }
+    92→    92→  .corner.br { bottom: 22px; right: 22px; border-left: none; border-top: none; }
+    93→    93→  .head { text-align: center; margin-bottom: 24px; }
+    94→    94→  .brand { font-size: 14px; letter-spacing: 4px; color: #d97706; text-transform: uppercase; font-weight: bold; }
+    95→    95→  h1 { color: #047857; font-size: 32px; margin: 8px 0 4px; letter-spacing: 1px; }
+    96→    96→  .sub { color: #6b7280; font-size: 13px; font-style: italic; }
+    97→    97→  .seal {
+    98→    98→    width: 88px; height: 88px; border-radius: 50%;
+    99→    99→    background: radial-gradient(circle at 30% 30%, #fbbf24, #d97706);
+   100→   100→    color: #fff; display: flex; align-items: center; justify-content: center;
+   101→   101→    font-weight: bold; font-size: 11px; text-align: center; line-height: 1.2;
+   102→   102→    margin: 0 auto 24px; box-shadow: 0 2px 8px rgba(217,119,6,0.4);
+   103→   103→    border: 3px solid #fff; outline: 2px solid #d97706;
+   104→   104→  }
+   105→   105→  .intro { text-align: center; font-size: 14px; color: #374151; margin-bottom: 24px; line-height: 1.6; }
+   106→   106→  .name { text-align: center; font-size: 22px; font-weight: bold; color: #1c1917; margin: 4px 0 24px; border-bottom: 1px solid #d1d5db; padding-bottom: 8px; }
+   107→   107→  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 32px; margin-bottom: 24px; }
+   108→   108→  .field { border-bottom: 1px dashed #9ca3af; padding-bottom: 6px; }
+   109→   109→  .label { font-size: 10px; letter-spacing: 2px; text-transform: uppercase; color: #6b7280; margin-bottom: 2px; }
+   110→   110→  .value { font-size: 16px; font-weight: bold; color: #111827; }
+   111→   111→  .footer { text-align: center; margin-top: 32px; padding-top: 16px; border-top: 1px solid #d1d5db; }
+   112→   112→  .footer .co { font-size: 13px; font-weight: bold; color: #047857; }
+   113→   113→  .footer .legal { font-size: 10px; color: #9ca3af; margin-top: 4px; line-height: 1.5; }
+   114→   114→  @media print { body { background: #fff; padding: 0; } .cert { box-shadow: none; } }
+   115→   115→</style></head><body><div class="wrap">
+   116→   116→  <div class="cert">
+   117→   117→    <span class="corner tl"></span><span class="corner tr"></span>
+   118→   118→    <span class="corner bl"></span><span class="corner br"></span>
+   119→   119→    <div class="head">
+   120→   120→      <div class="brand">Solidus Holdings (Pty) Ltd</div>
+   121→   121→      <h1>KaSiHUB Share Certificate</h1>
+   122→   122→      <div class="sub">Class B Private Shares</div>
+   123→   123→    </div>
+   124→   124→    <div class="seal">OFFICIAL<br/>SEAL</div>
+   125→   125→    <p class="intro">This is to certify that</p>
+   126→   126→    <div class="name">${memberName}</div>
+   127→   127→    <p class="intro">is the registered holder of <strong>${share.quantity}</strong> KasiShare(s) in the KaSiHUB private offering, subject to the terms and conditions of Solidus Holdings (Pty) Ltd.</p>
+   128→   128→    <div class="grid">
+   129→   129→      <div class="field"><div class="label">Certificate No.</div><div class="value">${share.certificateNo}</div></div>
+   130→   130→      <div class="field"><div class="label">Phase</div><div class="value">Phase ${share.phase}</div></div>
+   131→   131→      <div class="field"><div class="label">Number of Shares</div><div class="value">${share.quantity}</div></div>
+   132→   132→      <div class="field"><div class="label">Price per Share</div><div class="value">${perShare}</div></div>
+   133→   133→      <div class="field"><div class="label">Total Amount</div><div class="value">${total}</div></div>
+   134→   134→      <div class="field"><div class="label">Date Issued</div><div class="value">${issued}</div></div>
+   135→   135→    </div>
+   136→   136→    <div class="footer">
+   137→   137→      <div class="co">Solidus Holdings (Pty) Ltd</div>
+   138→   138→      <div class="legal">This certificate is non-transferable and represents a private shareholding. Dividends are declared at the discretion of KasiMall from daily profits. The holder must maintain KaSiHUB membership to receive payouts.</div>
+   139→   139→    </div>
+   140→   140→  </div>
+   141→   141→  <script>window.onload = function(){ setTimeout(function(){ window.print(); }, 250); };</script>
+   142→   142→</div></body></html>`;
+   143→   143→
+   144→   144→  const w = window.open("", "_blank", "width=900,height=1000");
+   145→   145→  if (!w) {
+   146→   146→    toast.error("Pop-up blocked. Please allow pop-ups to print the certificate.");
+   147→   147→    return;
+   148→   148→  }
+   149→   149→  w.document.open();
+   150→   150→  w.document.write(html);
+   151→   151→  w.document.close();
+   152→   152→}
+   153→   153→
+   154→   154→/** Open a new window with a printable Aureus certificate and call print(). */
+   155→   155→function printAureusCertificate(share: AureusShare, memberName: string) {
+   156→   156→  const issued = new Date(share.createdAt).toLocaleDateString("en-ZA", {
+   157→   157→    year: "numeric", month: "long", day: "numeric",
+   158→   158→  });
+   159→   159→  const total = (share.totalAmount ?? 0).toLocaleString("en-US", {
+   160→   160→    style: "currency", currency: "USD",
+   161→   161→  });
+   162→   162→  const perShare = (share.pricePerShare ?? 0).toLocaleString("en-US", {
+   163→   163→    style: "currency", currency: "USD",
+   164→   164→  });
+   165→   165→
+   166→   166→  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/>
+   167→   167→<title>Aureus Share Certificate ${share.certificateNo}</title>
+   168→   168→<style>
+   169→   169→  * { box-sizing: border-box; }
+   170→   170→  body { font-family: Georgia, 'Times New Roman', serif; padding: 40px; background: #f5f5f4; color: #1c1917; margin: 0; }
+   171→   171→  .wrap { max-width: 800px; margin: 0 auto; }
+   172→   172→  .cert {
+   173→   173→    position: relative;
+   174→   174→    border: 8px double #b45309;
+   175→   175→    padding: 48px 56px;
+   176→   176→    background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
+   177→   177→    box-shadow: 0 4px 24px rgba(180,83,9,0.18);
+   178→   178→  }
+   179→   179→  .cert::before {
+   180→   180→    content: ""; position: absolute; inset: 12px;
+   181→   181→    border: 2px solid #92400e; pointer-events: none;
+   182→   182→  }
+   183→   183→  .corner { position: absolute; width: 40px; height: 40px; border: 3px solid #92400e; }
+   184→   184→  .corner.tl { top: 22px; left: 22px; border-right: none; border-bottom: none; }
+   185→   185→  .corner.tr { top: 22px; right: 22px; border-left: none; border-bottom: none; }
+   186→   186→  .corner.bl { bottom: 22px; left: 22px; border-right: none; border-top: none; }
+   187→   187→  .corner.br { bottom: 22px; right: 22px; border-left: none; border-top: none; }
+   188→   188→  .head { text-align: center; margin-bottom: 24px; }
+   189→   189→  .brand { font-size: 14px; letter-spacing: 4px; color: #92400e; text-transform: uppercase; font-weight: bold; }
+   190→   190→  h1 { color: #92400e; font-size: 32px; margin: 8px 0 4px; letter-spacing: 1px; }
+   191→   191→  .sub { color: #6b7280; font-size: 13px; font-style: italic; }
+   192→   192→  .seal {
+   193→   193→    width: 88px; height: 88px; border-radius: 50%;
+   194→   194→    background: radial-gradient(circle at 30% 30%, #fde68a, #b45309);
+   195→   195→    color: #fff; display: flex; align-items: center; justify-content: center;
+   196→   196→    font-weight: bold; font-size: 11px; text-align: center; line-height: 1.2;
+   197→   197→    margin: 0 auto 24px; box-shadow: 0 2px 8px rgba(180,83,9,0.4);
+   198→   198→    border: 3px solid #fff; outline: 2px solid #92400e;
+   199→   199→  }
+   200→   200→  .intro { text-align: center; font-size: 14px; color: #374151; margin-bottom: 24px; line-height: 1.6; }
+   201→   201→  .name { text-align: center; font-size: 22px; font-weight: bold; color: #1c1917; margin: 4px 0 24px; border-bottom: 1px solid #d1d5db; padding-bottom: 8px; }
+   202→   202→  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 32px; margin-bottom: 24px; }
+   203→   203→  .field { border-bottom: 1px dashed #9ca3af; padding-bottom: 6px; }
+   204→   204→  .label { font-size: 10px; letter-spacing: 2px; text-transform: uppercase; color: #6b7280; margin-bottom: 2px; }
+   205→   205→  .value { font-size: 16px; font-weight: bold; color: #111827; }
+   206→   206→  .footer { text-align: center; margin-top: 32px; padding-top: 16px; border-top: 1px solid #d1d5db; }
+   207→   207→  .footer .co { font-size: 13px; font-weight: bold; color: #92400e; }
+   208→   208→  .footer .legal { font-size: 10px; color: #9ca3af; margin-top: 4px; line-height: 1.5; }
+   209→   209→  @media print { body { background: #fff; padding: 0; } .cert { box-shadow: none; } }
+   210→   210→</style></head><body><div class="wrap">
+   211→   211→  <div class="cert">
+   212→   212→    <span class="corner tl"></span><span class="corner tr"></span>
+   213→   213→    <span class="corner bl"></span><span class="corner br"></span>
+   214→   214→    <div class="head">
+   215→   215→      <div class="brand">Solidus Holdings (Pty) Ltd</div>
+   216→   216→      <h1>Aureus Share Certificate</h1>
+   217→   217→      <div class="sub">Private Aureus Shareholding</div>
+   218→   218→    </div>
+   219→   219→    <div class="seal">AUREUS<br/>SEAL</div>
+   220→   220→    <p class="intro">This is to certify that</p>
+   221→   221→    <div class="name">${memberName}</div>
+   222→   222→    <p class="intro">is the registered holder of <strong>${share.quantity}</strong> Aureus Share(s) issued by Solidus Holdings (Pty) Ltd.</p>
+   223→   223→    <div class="grid">
+   224→   224→      <div class="field"><div class="label">Certificate No.</div><div class="value">${share.certificateNo}</div></div>
+   225→   225→      <div class="field"><div class="label">Phase</div><div class="value">Phase ${share.phase}</div></div>
+   226→   226→      <div class="field"><div class="label">Number of Shares</div><div class="value">${share.quantity}</div></div>
+   227→   227→      <div class="field"><div class="label">Price per Share</div><div class="value">${perShare}</div></div>
+   228→   228→      <div class="field"><div class="label">Total Amount</div><div class="value">${total}</div></div>
+   229→   229→      <div class="field"><div class="label">Date Issued</div><div class="value">${issued}</div></div>
+   230→   230→    </div>
+   231→   231→    <div class="footer">
+   232→   232→      <div class="co">Solidus Holdings (Pty) Ltd</div>
+   233→   233→      <div class="legal">This certificate is non-transferable and represents a private Aureus shareholding. The holder must maintain KaSiHUB membership to retain this shareholding.</div>
+   234→   234→    </div>
+   235→   235→  </div>
+   236→   236→  <script>window.onload = function(){ setTimeout(function(){ window.print(); }, 250); };</script>
+   237→   237→</div></body></html>`;
+   238→   238→
+   239→   239→  const w = window.open("", "_blank", "width=900,height=1000");
+   240→   240→  if (!w) {
+   241→   241→    toast.error("Pop-up blocked. Please allow pop-ups to print the certificate.");
+   242→   242→    return;
+   243→   243→  }
+   244→   244→  w.document.open();
+   245→   245→  w.document.write(html);
+   246→   246→  w.document.close();
+   247→   247→}
+   248→   248→
+   249→   249→export function SharesView() {
+   250→   250→  const { currentMember } = useKasiStore();
+   251→   251→  const [data, setData] = useState<SharesData | null>(null);
+   252→   252→  const [loading, setLoading] = useState(true);
+   253→   253→  const [buyOpen, setBuyOpen] = useState(false);
+   254→   254→  const [selectedPhase, setSelectedPhase] = useState<number>(1);
+   255→   255→  const [quantity, setQuantity] = useState(10);
+   256→   256→  const [buying, setBuying] = useState(false);
+   257→   257→
+   258→   258→  async function load() {
+   259→   259→    if (!currentMember) return;
+   260→   260→    try {
+   261→   261→      const res = await fetch(`/api/shares?memberId=${currentMember.id}`, { cache: "no-store" });
+   262→   262→      if (res.ok) setData(await res.json());
+   263→   263→    } finally {
+   264→   264→      setLoading(false);
+   265→   265→    }
+   266→   266→  }
+   267→   267→
+   268→   268→  useEffect(() => {
+   269→   269→    load();
+   270→   270→  }, [currentMember]);
+   271→   271→
+   272→   272→  async function handleBuy() {
+   273→   273→    if (!currentMember) return;
+   274→   274→    setBuying(true);
+   275→   275→    try {
+   276→   276→      const res = await fetch("/api/shares/buy", {
+   277→   277→        method: "POST",
+   278→   278→        headers: { "Content-Type": "application/json" },
+   279→   279→        body: JSON.stringify({ memberId: currentMember.id, phase: selectedPhase, quantity }),
+   280→   280→      });
+   281→   281→      const result = await res.json();
+   282→   282→      if (!res.ok) {
+   283→   283→        toast.error(result.error || "Purchase failed");
+   284→   284→      } else {
+   285→   285→        toast.success(`Purchased ${quantity} share${quantity > 1 ? "s" : ""}! Certificate ${result.certificateNo} issued.`);
+   286→   286→        setBuyOpen(false);
+   287→   287→        await load();
+   288→   288→      }
+   289→   289→    } catch {
+   290→   290→      toast.error("Network error");
+   291→   291→    } finally {
+   292→   292→      setBuying(false);
+   293→   293→    }
+   294→   294→  }
+   295→   295→
+   296→   296→  if (loading || !data) {
+   297→   297→    return (
+   298→   298→      <div className="flex items-center justify-center py-24">
+   299→   299→        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+   300→   300→      </div>
+   301→   301→    );
+   302→   302→  }
+   303→   303→
+   304→   304→  const activePhase = data.phases.find((p) => p.status === "OPEN");
+   305→   305→  const fmtUSD = (n: number) => `$${(n ?? 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+   306→   306→
+   307→   307→  const memberName = memberDisplayName(currentMember);
+   308→   308→
+   309→   309→  const kasiActiveCount = data.activeShares.length;
+   310→   310→  const kasiRetractedCount = data.retractedShares.length;
+   311→   311→  const aureusActiveCount = data.aureusShares.length;
+   312→   312→  const aureusRetractedCount = data.retractedAureusShares.length;
+   313→   313→
+   314→   314→  return (
+   315→   315→    <div className="space-y-6 max-w-6xl mx-auto">
+   316→   316→      {/* Header */}
+   317→   317→      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+   318→   318→        <div>
+   319→   319→          <div className="flex items-center gap-2 mb-1">
+   320→   320→            <Coins className="h-5 w-5 text-amber-600" />
+   321→   321→            <h2 className="text-2xl font-black tracking-tight">KasiShares</h2>
+   322→   322→          </div>
+   323→   323→          <p className="text-sm text-muted-foreground">
+   324→   324→            Class B private shares sold by Solidus Holdings (Pty) Ltd. Daily dividends from KasiMall profits.
+   325→   325→          </p>
+   326→   326→        </div>
+   327→   327→        <Button
+   328→   328→          onClick={() => setBuyOpen(true)}
+   329→   329→          disabled={!activePhase}
+   330→   330→          className="bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700"
+   331→   331→        >
+   332→   332→          <Coins className="h-4 w-4 mr-1.5" /> Buy shares
+   333→   333→        </Button>
+   334→   334→      </div>
+   335→   335→
+   336→   336→      {/* KasiShares stats — value × shares = total (visual equation) */}
+   337→   337→      <Card className="p-5 border-2 border-amber-200 dark:border-amber-900 bg-gradient-to-br from-amber-50/60 via-emerald-50/30 to-amber-50/60 dark:from-amber-950/20 dark:via-emerald-950/10 dark:to-amber-950/20">
+   338→   338→        <div className="flex items-center justify-between mb-3">
+   339→   339→          <div className="flex items-center gap-2">
+   340→   340→            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-500 to-amber-600 flex items-center justify-center">
+   341→   341→              <Coins className="h-4 w-4 text-white" />
+   342→   342→            </div>
+   343→   343→            <div>
+   344→   344→              <p className="font-bold text-sm">KasiShares holdings</p>
+   345→   345→              <p className="text-[10px] text-muted-foreground">Current share value</p>
+   346→   346→            </div>
+   347→   347→          </div>
+   348→   348→          <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-400 dark:border-amber-900">
+   349→   349→            <Sparkles className="h-3 w-3 mr-1" /> {fmtUSD(data.shareValuePerShare)} / share
+   350→   350→          </Badge>
+   351→   351→        </div>
+   352→   352→
+   353→   353→        {/* Equation row: shares × value = total */}
+   354→   354→        <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_1fr_auto_1fr] gap-2 sm:gap-3 items-center">
+   355→   355→          <div className="rounded-lg bg-white/70 dark:bg-card/60 p-3 text-center border border-amber-100 dark:border-amber-900/50">
+   356→   356→            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Your shares</p>
+   357→   357→            <p className="text-2xl font-black mt-0.5">{data.totalShares}</p>
+   358→   358→            <p className="text-[10px] text-muted-foreground">{kasiActiveCount} certificate{kasiActiveCount !== 1 ? "s" : ""}</p>
+   359→   359→          </div>
+   360→   360→          <div className="hidden sm:flex items-center justify-center text-amber-600 font-black text-xl">×</div>
+   361→   361→          <div className="rounded-lg bg-white/70 dark:bg-card/60 p-3 text-center border border-amber-100 dark:border-amber-900/50">
+   362→   362→            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Share value</p>
+   363→   363→            <p className="text-2xl font-black mt-0.5 text-amber-600">{fmtUSD(data.shareValuePerShare)}</p>
+   364→   364→            <p className="text-[10px] text-muted-foreground">per share</p>
+   365→   365→          </div>
+   366→   366→          <div className="hidden sm:flex items-center justify-center text-amber-600 font-black text-xl">=</div>
+   367→   367→          <div className="rounded-lg bg-emerald-50 dark:bg-emerald-950/30 p-3 text-center border-2 border-emerald-200 dark:border-emerald-900">
+   368→   368→            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Total value</p>
+   369→   369→            <p className="text-2xl font-black mt-0.5 text-emerald-600">{fmtUSD(data.totalValue)}</p>
+   370→   370→            <p className="text-[10px] text-muted-foreground">at current rate</p>
+   371→   371→          </div>
+   372→   372→        </div>
+   373→   373→
+   374→   374→        {/* Dividend mini-row */}
+   375→   375→        <div className="grid grid-cols-2 gap-3 mt-3">
+   376→   376→          <div className="rounded-lg bg-emerald-50/70 dark:bg-emerald-950/20 p-3 border border-emerald-100 dark:border-emerald-900/50">
+   377→   377→            <div className="flex items-center justify-between">
+   378→   378→              <p className="text-[10px] text-muted-foreground">Your daily dividend</p>
+   379→   379→              <TrendingUp className="h-3.5 w-3.5 text-emerald-600" />
+   380→   380→            </div>
+   381→   381→            <p className="text-lg font-black text-emerald-600 mt-0.5">{fmtUSD(data.myDailyDividend)}</p>
+   382→   382→          </div>
+   383→   383→          <div className="rounded-lg bg-white/70 dark:bg-card/60 p-3 border border-amber-100 dark:border-amber-900/50">
+   384→   384→            <div className="flex items-center justify-between">
+   385→   385→              <p className="text-[10px] text-muted-foreground">Per share / day</p>
+   386→   386→              <Sparkles className="h-3.5 w-3.5 text-amber-600" />
+   387→   387→            </div>
+   388→   388→            <p className="text-lg font-black mt-0.5">{fmtUSD(data.dailyDividendPerShare)}</p>
+   389→   389→            <p className="text-[9px] text-muted-foreground mt-0.5">{data.totalSharesOutstanding.toLocaleString()} shares outstanding</p>
+   390→   390→          </div>
+   391→   391→        </div>
+   392→   392→      </Card>
+   393→   393→
+   394→   394→      {/* Aureus Shares section */}
+   395→   395→      <Card className="p-5 border-2 border-orange-200 dark:border-orange-900 bg-gradient-to-br from-orange-50/60 via-amber-50/30 to-orange-50/60 dark:from-orange-950/20 dark:via-amber-950/10 dark:to-orange-950/20">
+   396→   396→        <div className="flex items-center justify-between mb-3">
+   397→   397→          <div className="flex items-center gap-2">
+   398→   398→            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-orange-500 to-amber-700 flex items-center justify-center">
+   399→   399→              <Gem className="h-4 w-4 text-white" />
+   400→   400→            </div>
+   401→   401→            <div>
+   402→   402→              <p className="font-bold text-sm">Aureus Shares</p>
+   403→   403→              <p className="text-[10px] text-muted-foreground">Private gold-tier shareholding</p>
+   404→   404→            </div>
+   405→   405→          </div>
+   406→   406→          <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-950/40 dark:text-orange-400 dark:border-orange-900">
+   407→   407→            <Gem className="h-3 w-3 mr-1" /> {fmtUSD(data.aureusValuePerShare)} / share
+   408→   408→          </Badge>
+   409→   409→        </div>
+   410→   410→
+   411→   411→        {/* Equation row */}
+   412→   412→        <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_1fr_auto_1fr] gap-2 sm:gap-3 items-center">
+   413→   413→          <div className="rounded-lg bg-white/70 dark:bg-card/60 p-3 text-center border border-orange-100 dark:border-orange-900/50">
+   414→   414→            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Your shares</p>
+   415→   415→            <p className="text-2xl font-black mt-0.5">{data.aureusTotalShares}</p>
+   416→   416→            <p className="text-[10px] text-muted-foreground">{aureusActiveCount} certificate{aureusActiveCount !== 1 ? "s" : ""}</p>
+   417→   417→          </div>
+   418→   418→          <div className="hidden sm:flex items-center justify-center text-orange-600 font-black text-xl">×</div>
+   419→   419→          <div className="rounded-lg bg-white/70 dark:bg-card/60 p-3 text-center border border-orange-100 dark:border-orange-900/50">
+   420→   420→            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Share value</p>
+   421→   421→            <p className="text-2xl font-black mt-0.5 text-orange-600">{fmtUSD(data.aureusValuePerShare)}</p>
+   422→   422→            <p className="text-[10px] text-muted-foreground">per share</p>
+   423→   423→          </div>
+   424→   424→          <div className="hidden sm:flex items-center justify-center text-orange-600 font-black text-xl">=</div>
+   425→   425→          <div className="rounded-lg bg-amber-50 dark:bg-amber-950/30 p-3 text-center border-2 border-amber-200 dark:border-amber-900">
+   426→   426→            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Total value</p>
+   427→   427→            <p className="text-2xl font-black mt-0.5 text-amber-600">{fmtUSD(data.aureusTotalValue)}</p>
+   428→   428→            <p className="text-[10px] text-muted-foreground">at current rate</p>
+   429→   429→          </div>
+   430→   430→        </div>
+   431→   431→      </Card>
+   432→   432→
+   433→   433→      {/* Phases */}
+   434→   434→      <Card className="p-5">
+   435→   435→        <div className="flex items-center justify-between mb-4">
+   436→   436→          <div>
+   437→   437→            <h3 className="font-bold">Share phases</h3>
+   438→   438→            <p className="text-xs text-muted-foreground">Each phase has a set number of shares at a fixed price. Next phase opens when current sells out.</p>
+   439→   439→          </div>
+   440→   440→          <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
+   441→   441→            <Sparkles className="h-3 w-3 mr-1" /> Phase 1 BOGO
+   442→   442→          </Badge>
+   443→   443→        </div>
+   444→   444→
+   445→   445→        <div className="space-y-3">
+   446→   446→          {data.phases.map((p) => {
+   447→   447→            const soldPct = (p.soldShares / p.totalShares) * 100;
+   448→   448→            const isOpen = p.status === "OPEN";
+   449→   449→            return (
+   450→   450→              <motion.div
+   451→   451→                key={p.phase}
+   452→   452→                initial={{ opacity: 0, x: -10 }}
+   453→   453→                animate={{ opacity: 1, x: 0 }}
+   454→   454→                className={`p-4 rounded-xl border-2 transition-all ${
+   455→   455→                  isOpen ? "border-amber-300 bg-amber-50/50 dark:bg-amber-950/20" : "border-border/60"
+   456→   456→                }`}
+   457→   457→              >
+   458→   458→                <div className="flex items-center justify-between mb-2">
+   459→   459→                  <div className="flex items-center gap-3">
+   460→   460→                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center font-black ${
+   461→   461→                      isOpen ? "bg-gradient-to-br from-amber-500 to-amber-600 text-white" : "bg-muted text-muted-foreground"
+   462→   462→                    }`}>
+   463→   463→                      {p.phase}
+   464→   464→                    </div>
+   465→   465→                    <div>
+   466→   466→                      <p className="font-bold text-sm">Phase {p.phase}</p>
+   467→   467→                      <p className="text-xs text-muted-foreground">
+   468→   468→                        {fmtUSD(p.pricePerShare)} per share
+   469→   469→                        {p.bonusBuyOneGet && <span className="ml-2 text-amber-600 font-semibold">· Buy One Get One Free</span>}
+   470→   470→                      </p>
+   471→   471→                    </div>
+   472→   472→                  </div>
+   473→   473→                  <div className="flex items-center gap-2">
+   474→   474→                    <Badge variant={isOpen ? "default" : "outline"} className={isOpen ? "bg-amber-500" : ""}>
+   475→   475→                      {p.status === "OPEN" && "Open"}
+   476→   476→                      {p.status === "UPCOMING" && "Upcoming"}
+   477→   477→                      {p.status === "SOLD_OUT" && "Sold out"}
+   478→   478→                    </Badge>
+   479→   479→                    {isOpen && (
+   480→   480→                      <Button size="sm" onClick={() => { setSelectedPhase(p.phase); setBuyOpen(true); }}>
+   481→   481→                        Buy
+   482→   482→                      </Button>
+   483→   483→                    )}
+   484→   484→                    {!isOpen && <Lock className="h-4 w-4 text-muted-foreground" />}
+   485→   485→                  </div>
+   486→   486→                </div>
+   487→   487→                <div className="flex items-center gap-2 text-xs">
+   488→   488→                  <span className="text-muted-foreground">{p.soldShares.toLocaleString()} / {p.totalShares.toLocaleString()} sold</span>
+   489→   489→                  <span className="text-muted-foreground">·</span>
+   490→   490→                  <span className="font-semibold">{soldPct.toFixed(1)}%</span>
+   491→   491→                </div>
+   492→   492→                <Progress value={soldPct} className="h-1.5 mt-1.5" />
+   493→   493→              </motion.div>
+   494→   494→            );
+   495→   495→          })}
+   496→   496→        </div>
+   497→   497→      </Card>
+   498→   498→
+   499→   499→      {/* Certificates with tabs */}
+   500→   500→      <Card className="p-5">
+   501→   501→        <div className="flex items-center justify-between mb-4">
+   502→   502→          <div>
+   503→   503→            <h3 className="font-bold flex items-center gap-2">
+   504→   504→              <FileText className="h-4 w-4 text-emerald-600" /> Your certificates
+   505→   505→            </h3>
+   506→   506→            <p className="text-xs text-muted-foreground">Digital certificates are re-issued when you purchase more shares. Retracted certificates are kept as historical records.</p>
+   507→   507→          </div>
+   508→   508→        </div>
+   509→   509→
+   510→   510→        <Tabs defaultValue="active" className="w-full">
+   511→   511→          <TabsList className="grid w-full max-w-md grid-cols-2">
+   512→   512→            <TabsTrigger value="active" className="data-[state=active]:bg-emerald-50 dark:data-[state=active]:bg-emerald-950/40 data-[state=active]:text-emerald-700 dark:data-[state=active]:text-emerald-400">
+   513→   513→              <Award className="h-3.5 w-3.5 mr-1.5" />
+   514→   514→              Active
+   515→   515→              {(kasiActiveCount + aureusActiveCount) > 0 && (
+   516→   516→                <Badge variant="secondary" className="ml-1.5 h-5 px-1.5 text-[10px]">{kasiActiveCount + aureusActiveCount}</Badge>
+   517→   517→              )}
+   518→   518→            </TabsTrigger>
+   519→   519→            <TabsTrigger value="retracted" className="data-[state=active]:bg-rose-50 dark:data-[state=active]:bg-rose-950/40 data-[state=active]:text-rose-700 dark:data-[state=active]:text-rose-400">
+   520→   520→              <FileText className="h-3.5 w-3.5 mr-1.5" />
+   521→   521→              Retracted
+   522→   522→              {(kasiRetractedCount + aureusRetractedCount) > 0 && (
+   523→   523→                <Badge variant="secondary" className="ml-1.5 h-5 px-1.5 text-[10px]">{kasiRetractedCount + aureusRetractedCount}</Badge>
+   524→   524→              )}
+   525→   525→            </TabsTrigger>
+   526→   526→          </TabsList>
+   527→   527→
+   528→   528→          {/* Active tab */}
+   529→   529→          <TabsContent value="active" className="mt-4 space-y-5">
+   530→   530→            {kasiActiveCount === 0 && aureusActiveCount === 0 ? (
+   531→   531→              <div className="text-center py-12">
+   532→   532→                <div className="w-16 h-16 rounded-2xl bg-muted mx-auto flex items-center justify-center mb-3">
+   533→   533→                  <FileText className="h-8 w-8 text-muted-foreground" />
+   534→   534→                </div>
+   535→   535→                <p className="font-semibold mb-1">No active certificates yet</p>
+   536→   536→                <p className="text-sm text-muted-foreground mb-4">Purchase your first shares to receive a digital certificate.</p>
+   537→   537→                <Button onClick={() => setBuyOpen(true)} className="bg-gradient-to-r from-amber-500 to-amber-600">
+   538→   538→                  <Coins className="h-4 w-4 mr-1.5" /> Buy your first shares
+   539→   539→                </Button>
+   540→   540→              </div>
+   541→   541→            ) : (
+   542→   542→              <>
+   543→   543→                {/* Active KasiShare certificates */}
+   544→   544→                {kasiActiveCount > 0 && (
+   545→   545→                  <div>
+   546→   546→                    <div className="flex items-center gap-2 mb-2">
+   547→   547→                      <Coins className="h-3.5 w-3.5 text-amber-600" />
+   548→   548→                      <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">KasiShare certificates</p>
+   549→   549→                    </div>
+   550→   550→                    <div className="grid gap-4 sm:grid-cols-2">
+   551→   551→                      {data.activeShares.map((s) => (
+   552→   552→                        <motion.div
+   553→   553→                          key={s.id}
+   554→   554→                          initial={{ opacity: 0, scale: 0.95 }}
+   555→   555→                          animate={{ opacity: 1, scale: 1 }}
+   556→   556→                          className="relative rounded-xl border-2 border-amber-200 dark:border-amber-900 bg-gradient-to-br from-amber-50 via-emerald-50/40 to-amber-50 dark:from-amber-950/30 dark:via-emerald-950/20 dark:to-amber-950/30 p-5 overflow-hidden"
+   557→   557→                        >
+   558→   558→                          <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/10 rounded-full blur-2xl translate-x-1/3 -translate-y-1/3" />
+   559→   559→                          <div className="relative">
+   560→   560→                            <div className="flex items-start justify-between mb-4">
+   561→   561→                              <div>
+   562→   562→                                <p className="text-[10px] uppercase tracking-wider text-amber-700 dark:text-amber-400 font-semibold">KasiShares Certificate</p>
+   563→   563→                                <p className="font-mono text-xs text-muted-foreground mt-0.5">{s.certificateNo}</p>
+   564→   564→                              </div>
+   565→   565→                              <Award className="h-8 w-8 text-amber-600" />
+   566→   566→                            </div>
+   567→   567→                            <div className="grid grid-cols-2 gap-3 mb-4">
+   568→   568→                              <div>
+   569→   569→                                <p className="text-[10px] text-muted-foreground">Phase</p>
+   570→   570→                                <p className="text-lg font-black">{s.phase}</p>
+   571→   571→                              </div>
+   572→   572→                              <div>
+   573→   573→                                <p className="text-[10px] text-muted-foreground">Shares</p>
+   574→   574→                                <p className="text-lg font-black">{s.quantity}</p>
+   575→   575→                              </div>
+   576→   576→                              <div>
+   577→   577→                                <p className="text-[10px] text-muted-foreground">Price/share</p>
+   578→   578→                                <p className="text-sm font-bold">{fmtUSD(s.pricePerShare)}</p>
+   579→   579→                              </div>
+   580→   580→                              <div>
+   581→   581→                                <p className="text-[10px] text-muted-foreground">Total paid</p>
+   582→   582→                                <p className="text-sm font-bold">{fmtUSD(s.totalAmount)}</p>
+   583→   583→                              </div>
+   584→   584→                            </div>
+   585→   585→                            <Separator className="my-3 bg-amber-200 dark:bg-amber-900" />
+   586→   586→                            <div className="flex items-center justify-between gap-2">
+   587→   587→                              <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+   588→   588→                                <Calendar className="h-3 w-3" /> Issued {new Date(s.createdAt).toLocaleDateString("en-ZA")}
+   589→   589→                              </span>
+   590→   590→                              <Button
+   591→   591→                                size="sm"
+   592→   592→                                variant="outline"
+   593→   593→                                onClick={() => printKasiCertificate(s, memberName)}
+   594→   594→                                className="h-7 gap-1 text-[11px] border-amber-300 text-amber-700 hover:bg-amber-50 dark:border-amber-900 dark:text-amber-400 dark:hover:bg-amber-950/40"
+   595→   595→                              >
+   596→   596→                                <Printer className="h-3 w-3" /> Print
+   597→   597→                              </Button>
+   598→   598→                            </div>
+   599→   599→                          </div>
+   600→   600→                        </motion.div>
+   601→   601→                      ))}
+   602→   602→                    </div>
+   603→   603→                  </div>
+   604→   604→                )}
+   605→   605→
+   606→   606→                {/* Active Aureus certificates */}
+   607→   607→                {aureusActiveCount > 0 && (
+   608→   608→                  <div>
+   609→   609→                    <div className="flex items-center gap-2 mb-2">
+   610→   610→                      <Gem className="h-3.5 w-3.5 text-orange-600" />
+   611→   611→                      <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Aureus certificates</p>
+   612→   612→                    </div>
+   613→   613→                    <div className="grid gap-4 sm:grid-cols-2">
+   614→   614→                      {data.aureusShares.map((s) => (
+   615→   615→                        <motion.div
+   616→   616→                          key={s.id}
+   617→   617→                          initial={{ opacity: 0, scale: 0.95 }}
+   618→   618→                          animate={{ opacity: 1, scale: 1 }}
+   619→   619→                          className="relative rounded-xl border-2 border-orange-200 dark:border-orange-900 bg-gradient-to-br from-orange-50 via-amber-50/40 to-orange-50 dark:from-orange-950/30 dark:via-amber-950/20 dark:to-orange-950/30 p-5 overflow-hidden"
+   620→   620→                        >
+   621→   621→                          <div className="absolute top-0 right-0 w-32 h-32 bg-orange-500/10 rounded-full blur-2xl translate-x-1/3 -translate-y-1/3" />
+   622→   622→                          <div className="relative">
+   623→   623→                            <div className="flex items-start justify-between mb-4">
+   624→   624→                              <div>
+   625→   625→                                <p className="text-[10px] uppercase tracking-wider text-orange-700 dark:text-orange-400 font-semibold">Aureus Certificate</p>
+   626→   626→                                <p className="font-mono text-xs text-muted-foreground mt-0.5">{s.certificateNo}</p>
+   627→   627→                              </div>
+   628→   628→                              <Gem className="h-8 w-8 text-orange-600" />
+   629→   629→                            </div>
+   630→   630→                            <div className="grid grid-cols-2 gap-3 mb-4">
+   631→   631→                              <div>
+   632→   632→                                <p className="text-[10px] text-muted-foreground">Phase</p>
+   633→   633→                                <p className="text-lg font-black">{s.phase}</p>
+   634→   634→                              </div>
+   635→   635→                              <div>
+   636→   636→                                <p className="text-[10px] text-muted-foreground">Shares</p>
+   637→   637→                                <p className="text-lg font-black">{s.quantity}</p>
+   638→   638→                              </div>
+   639→   639→                              <div>
+   640→   640→                                <p className="text-[10px] text-muted-foreground">Price/share</p>
+   641→   641→                                <p className="text-sm font-bold">{fmtUSD(s.pricePerShare)}</p>
+   642→   642→                              </div>
+   643→   643→                              <div>
+   644→   644→                                <p className="text-[10px] text-muted-foreground">Total paid</p>
+   645→   645→                                <p className="text-sm font-bold">{fmtUSD(s.totalAmount)}</p>
+   646→   646→                              </div>
+   647→   647→                            </div>
+   648→   648→                            <Separator className="my-3 bg-orange-200 dark:bg-orange-900" />
+   649→   649→                            <div className="flex items-center justify-between gap-2">
+   650→   650→                              <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+   651→   651→                                <Calendar className="h-3 w-3" /> Issued {new Date(s.createdAt).toLocaleDateString("en-ZA")}
+   652→   652→                              </span>
+   653→   653→                              <Button
+   654→   654→                                size="sm"
+   655→   655→                                variant="outline"
+   656→   656→                                onClick={() => printAureusCertificate(s, memberName)}
+   657→   657→                                className="h-7 gap-1 text-[11px] border-orange-300 text-orange-700 hover:bg-orange-50 dark:border-orange-900 dark:text-orange-400 dark:hover:bg-orange-950/40"
+   658→   658→                              >
+   659→   659→                                <Printer className="h-3 w-3" /> Print
+   660→   660→                              </Button>
+   661→   661→                            </div>
+   662→   662→                          </div>
+   663→   663→                        </motion.div>
+   664→   664→                      ))}
+   665→   665→                    </div>
+   666→   666→                  </div>
+   667→   667→                )}
+   668→   668→              </>
+   669→   669→            )}
+   670→   670→          </TabsContent>
+   671→   671→
+   672→   672→          {/* Retracted tab */}
+   673→   673→          <TabsContent value="retracted" className="mt-4 space-y-5">
+   674→   674→            {kasiRetractedCount === 0 && aureusRetractedCount === 0 ? (
+   675→   675→              <div className="text-center py-12">
+   676→   676→                <div className="w-16 h-16 rounded-2xl bg-muted mx-auto flex items-center justify-center mb-3">
+   677→   677→                  <FileText className="h-8 w-8 text-muted-foreground" />
+   678→   678→                </div>
+   679→   679→                <p className="font-semibold mb-1">No retracted certificates</p>
+   680→   680→                <p className="text-sm text-muted-foreground">When you purchase more shares, the previous certificate is revoked and kept here as a historical record.</p>
+   681→   681→              </div>
+   682→   682→            ) : (
+   683→   683→              <>
+   684→   684→                {/* Retracted KasiShare certificates */}
+   685→   685→                {kasiRetractedCount > 0 && (
+   686→   686→                  <div>
+   687→   687→                    <div className="flex items-center gap-2 mb-2">
+   688→   688→                      <Coins className="h-3.5 w-3.5 text-muted-foreground" />
+   689→   689→                      <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Revoked KasiShare certificates</p>
+   690→   690→                    </div>
+   691→   691→                    <div className="grid gap-4 sm:grid-cols-2">
+   692→   692→                      {data.retractedShares.map((s) => (
+   693→   693→                        <motion.div
+   694→   694→                          key={s.id}
+   695→   695→                          initial={{ opacity: 0, scale: 0.95 }}
+   696→   696→                          animate={{ opacity: 1, scale: 1 }}
+   697→   697→                          className="relative rounded-xl border-2 border-dashed border-muted-foreground/30 bg-muted/30 dark:bg-muted/10 p-5 overflow-hidden opacity-70"
+   698→   698→                        >
+   699→   699→                          <div className="flex items-start justify-between mb-4">
+   700→   700→                            <div>
+   701→   701→                              <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold line-through">KasiShares Certificate</p>
+   702→   702→                              <p className="font-mono text-xs text-muted-foreground mt-0.5 line-through">{s.certificateNo}</p>
+   703→   703→                            </div>
+   704→   704→                            <Badge variant="outline" className="bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-400 dark:border-rose-900">
+   705→   705→                              Revoked
+   706→   706→                            </Badge>
+   707→   707→                          </div>
+   708→   708→                          <div className="grid grid-cols-2 gap-3 mb-4">
+   709→   709→                            <div>
+   710→   710→                              <p className="text-[10px] text-muted-foreground">Phase</p>
+   711→   711→                              <p className="text-lg font-black text-muted-foreground line-through">{s.phase}</p>
+   712→   712→                            </div>
+   713→   713→                            <div>
+   714→   714→                              <p className="text-[10px] text-muted-foreground">Shares</p>
+   715→   715→                              <p className="text-lg font-black text-muted-foreground line-through">{s.quantity}</p>
+   716→   716→                            </div>
+   717→   717→                            <div>
+   718→   718→                              <p className="text-[10px] text-muted-foreground">Price/share</p>
+   719→   719→                              <p className="text-sm font-bold text-muted-foreground">{fmtUSD(s.pricePerShare)}</p>
+   720→   720→                            </div>
+   721→   721→                            <div>
+   722→   722→                              <p className="text-[10px] text-muted-foreground">Total paid</p>
+   723→   723→                              <p className="text-sm font-bold text-muted-foreground">{fmtUSD(s.totalAmount)}</p>
+   724→   724→                            </div>
+   725→   725→                          </div>
+   726→   726→                          <Separator className="my-3 bg-muted-foreground/20" />
+   727→   727→                          <div className="flex items-center justify-between text-[10px]">
+   728→   728→                            <span className="text-muted-foreground flex items-center gap-1">
+   729→   729→                              <Calendar className="h-3 w-3" /> Issued {new Date(s.createdAt).toLocaleDateString("en-ZA")}
+   730→   730→                            </span>
+   731→   731→                            {s.prevCertificateNo && (
+   732→   732→                              <span className="text-rose-700 dark:text-rose-400">Replaced by newer certificate</span>
+   733→   733→                            )}
+   734→   734→                          </div>
+   735→   735→                        </motion.div>
+   736→   736→                      ))}
+   737→   737→                    </div>
+   738→   738→                  </div>
+   739→   739→                )}
+   740→   740→
+   741→   741→                {/* Retracted Aureus certificates */}
+   742→   742→                {aureusRetractedCount > 0 && (
+   743→   743→                  <div>
+   744→   744→                    <div className="flex items-center gap-2 mb-2">
+   745→   745→                      <Gem className="h-3.5 w-3.5 text-muted-foreground" />
+   746→   746→                      <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Retracted Aureus certificates</p>
+   747→   747→                    </div>
+   748→   748→                    <div className="grid gap-4 sm:grid-cols-2">
+   749→   749→                      {data.retractedAureusShares.map((s) => (
+   750→   750→                        <motion.div
+   751→   751→                          key={s.id}
+   752→   752→                          initial={{ opacity: 0, scale: 0.95 }}
+   753→   753→                          animate={{ opacity: 1, scale: 1 }}
+   754→   754→                          className="relative rounded-xl border-2 border-dashed border-muted-foreground/30 bg-muted/30 dark:bg-muted/10 p-5 overflow-hidden opacity-70"
+   755→   755→                        >
+   756→   756→                          <div className="flex items-start justify-between mb-4">
+   757→   757→                            <div>
+   758→   758→                              <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold line-through">Aureus Certificate</p>
+   759→   759→                              <p className="font-mono text-xs text-muted-foreground mt-0.5 line-through">{s.certificateNo}</p>
+   760→   760→                            </div>
+   761→   761→                            <Badge variant="outline" className="bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-400 dark:border-rose-900">
+   762→   762→                              Retracted
+   763→   763→                            </Badge>
+   764→   764→                          </div>
+   765→   765→                          <div className="grid grid-cols-2 gap-3 mb-4">
+   766→   766→                            <div>
+   767→   767→                              <p className="text-[10px] text-muted-foreground">Phase</p>
+   768→   768→                              <p className="text-lg font-black text-muted-foreground line-through">{s.phase}</p>
+   769→   769→                            </div>
+   770→   770→                            <div>
+   771→   771→                              <p className="text-[10px] text-muted-foreground">Shares</p>
+   772→   772→                              <p className="text-lg font-black text-muted-foreground line-through">{s.quantity}</p>
+   773→   773→                            </div>
+   774→   774→                            <div>
+   775→   775→                              <p className="text-[10px] text-muted-foreground">Price/share</p>
+   776→   776→                              <p className="text-sm font-bold text-muted-foreground">{fmtUSD(s.pricePerShare)}</p>
+   777→   777→                            </div>
+   778→   778→                            <div>
+   779→   779→                              <p className="text-[10px] text-muted-foreground">Total paid</p>
+   780→   780→                              <p className="text-sm font-bold text-muted-foreground">{fmtUSD(s.totalAmount)}</p>
+   781→   781→                            </div>
+   782→   782→                          </div>
+   783→   783→                          <Separator className="my-3 bg-muted-foreground/20" />
+   784→   784→                          <div className="flex items-center justify-between text-[10px]">
+   785→   785→                            <span className="text-muted-foreground flex items-center gap-1">
+   786→   786→                              <Calendar className="h-3 w-3" /> Issued {new Date(s.createdAt).toLocaleDateString("en-ZA")}
+   787→   787→                            </span>
+   788→   788→                            {s.prevCertificateNo && (
+   789→   789→                              <span className="text-rose-700 dark:text-rose-400">Replaced by newer certificate</span>
+   790→   790→                            )}
+   791→   791→                          </div>
+   792→   792→                        </motion.div>
+   793→   793→                      ))}
+   794→   794→                    </div>
+   795→   795→                  </div>
+   796→   796→                )}
+   797→   797→              </>
+   798→   798→            )}
+   799→   799→          </TabsContent>
+   800→   800→        </Tabs>
+   801→   801→      </Card>
+   802→   802→
+   803→   803→      {/* Info */}
+   804→   804→      <Card className="p-5 bg-muted/30 border-dashed">
+   805→   805→        <div className="flex items-start gap-3">
+   806→   806→          <div className="w-10 h-10 rounded-lg bg-amber-100 dark:bg-amber-950/40 flex items-center justify-center flex-shrink-0">
+   807→   807→            <Sparkles className="h-5 w-5 text-amber-600" />
+   808→   808→          </div>
+   809→   809→          <div className="text-sm">
+   810→   810→            <p className="font-semibold mb-2">About KasiShares</p>
+   811→   811→            <ul className="space-y-1.5 text-xs text-muted-foreground">
+   812→   812→              <li className="flex items-start gap-2"><Check className="h-3.5 w-3.5 text-emerald-600 mt-0.5 flex-shrink-0" /> Shares are a private offering by Solidus Holdings, not open to the public.</li>
+   813→   813→              <li className="flex items-start gap-2"><Check className="h-3.5 w-3.5 text-emerald-600 mt-0.5 flex-shrink-0" /> Income from shares funds KasiMall construction and operations.</li>
+   814→   814→              <li className="flex items-start gap-2"><Check className="h-3.5 w-3.5 text-emerald-600 mt-0.5 flex-shrink-0" /> Daily percentage of KasiMall profits shared equally between all sold shares.</li>
+   815→   815→              <li className="flex items-start gap-2"><Check className="h-3.5 w-3.5 text-emerald-600 mt-0.5 flex-shrink-0" /> Dividends declared from time to time by KasiMall, paid to Roots Bank accounts.</li>
+   816→   816→              <li className="flex items-start gap-2"><Check className="h-3.5 w-3.5 text-emerald-600 mt-0.5 flex-shrink-0" /> Must maintain KasiHub membership to receive dividends and daily payouts.</li>
+   817→   817→              <li className="flex items-start gap-2"><Check className="h-3.5 w-3.5 text-emerald-600 mt-0.5 flex-shrink-0" /> When you buy more, the previous certificate is revoked and a new one issued.</li>
+   818→   818→            </ul>
+   819→   819→          </div>
+   820→   820→        </div>
+   821→   821→      </Card>
+   822→   822→
+   823→   823→      {/* Buy dialog */}
+   824→   824→      <Dialog open={buyOpen} onOpenChange={setBuyOpen}>
+   825→   825→        <DialogContent className="max-w-md">
+   826→   826→          <DialogHeader>
+   827→   827→            <DialogTitle className="flex items-center gap-2">
+   828→   828→              <Coins className="h-5 w-5 text-amber-600" /> Buy KasiShares
+   829→   829→            </DialogTitle>
+   830→   830→          </DialogHeader>
+   831→   831→          <div className="space-y-4 py-2">
+   832→   832→            <div>
+   833→   833→              <Label>Phase</Label>
+   834→   834→              <Select value={String(selectedPhase)} onValueChange={(v) => setSelectedPhase(parseInt(v))}>
+   835→   835→                <SelectTrigger className="mt-1.5">
+   836→   836→                  <SelectValue />
+   837→   837→                </SelectTrigger>
+   838→   838→                <SelectContent>
+   839→   839→                  {data.phases.filter((p) => p.status === "OPEN").map((p) => (
+   840→   840→                    <SelectItem key={p.phase} value={String(p.phase)}>
+   841→   841→                      Phase {p.phase} — {fmtUSD(p.pricePerShare)}/share {p.bonusBuyOneGet ? "(BOGO)" : ""}
+   842→   842→                    </SelectItem>
+   843→   843→                  ))}
+   844→   844→                </SelectContent>
+   845→   845→              </Select>
+   846→   846→            </div>
+   847→   847→            <div>
+   848→   848→              <Label>Quantity</Label>
+   849→   849→              <Input
+   850→   850→                type="number"
+   851→   851→                min={1}
+   852→   852→                value={quantity}
+   853→   853→                onChange={(e) => setQuantity(Math.max(1, parseInt(e.target.value) || 1))}
+   854→   854→                className="mt-1.5"
+   855→   855→              />
+   856→   856→            </div>
+   857→   857→            {(() => {
+   858→   858→              const phase = data.phases.find((p) => p.phase === selectedPhase);
+   859→   859→              if (!phase) return null;
+   860→   860→              const total = phase.pricePerShare * quantity;
+   861→   861→              const effective = phase.bonusBuyOneGet ? quantity * 2 : quantity;
+   862→   862→              return (
+   863→   863→                <Card className="p-4 bg-muted/30">
+   864→   864→                  <div className="space-y-2 text-sm">
+   865→   865→                    <div className="flex justify-between"><span className="text-muted-foreground">Price per share</span><span className="font-semibold">{fmtUSD(phase.pricePerShare)}</span></div>
+   866→   866→                    <div className="flex justify-between"><span className="text-muted-foreground">Quantity</span><span className="font-semibold">{quantity}</span></div>
+   867→   867→                    {phase.bonusBuyOneGet && (
+   868→   868→                      <div className="flex justify-between text-amber-600"><span className="flex items-center gap-1"><Sparkles className="h-3 w-3" /> BOGO bonus</span><span className="font-semibold">+{quantity} free</span></div>
+   869→   869→                    )}
+   870→   870→                    <Separator />
+   871→   871→                    <div className="flex justify-between"><span className="text-muted-foreground">Total shares issued</span><span className="font-bold">{effective}</span></div>
+   872→   872→                    <div className="flex justify-between"><span className="font-semibold">Total cost</span><span className="font-bold text-amber-600">{fmtUSD(total)}</span></div>
+   873→   873→                  </div>
+   874→   874→                </Card>
+   875→   875→              );
+   876→   876→            })()}
+   877→   877→          </div>
+   878→   878→          <DialogFooter>
+   879→   879→            <Button variant="outline" onClick={() => setBuyOpen(false)}>Cancel</Button>
+   880→   880→            <Button onClick={handleBuy} disabled={buying} className="bg-gradient-to-r from-amber-500 to-amber-600">
+   881→   881→              {buying ? <><Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> Processing...</> : <>Confirm purchase</>}
+   882→   882→            </Button>
+   883→   883→          </DialogFooter>
+   884→   884→        </DialogContent>
+   885→   885→      </Dialog>
+   886→   886→    </div>
+   887→   887→  );
+   888→   888→}
+   889→   889→

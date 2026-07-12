@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import {
   User, ShieldCheck, CreditCard, Phone, Mail, MapPin, Calendar,
   FileText, Wallet, QrCode, Building2, Loader2, Download, ChevronRight,
-  Banknote, Hash, Smartphone,
+  Banknote, Hash, Smartphone, MessageCircle,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -69,9 +69,6 @@ export function ProfileView() {
             <div className="flex items-center gap-2 mt-2">
               <Badge variant="secondary" className="font-mono">
                 <Hash className="h-3 w-3 mr-1" /> {m.profileNumber}
-              </Badge>
-              <Badge variant="secondary" className="font-mono">
-                <QrCode className="h-3 w-3 mr-1" /> {m.nfcTagId}
               </Badge>
             </div>
           </div>
@@ -157,10 +154,6 @@ export function ProfileView() {
                 <p className="text-xs text-emerald-100 mb-1">Account number</p>
                 <p className="text-lg font-mono font-bold tracking-wider mb-4">{m.rootsBankAccount}</p>
                 <div className="flex justify-between text-xs">
-                  <div>
-                    <p className="text-emerald-100">NFC Tag</p>
-                    <p className="font-mono font-semibold">{m.nfcTagId}</p>
-                  </div>
                   <div>
                     <p className="text-emerald-100">VISA Card</p>
                     <p className="font-mono font-semibold">**** {m.visaCardLast4}</p>
@@ -261,22 +254,6 @@ export function ProfileView() {
               <InfoRow label="Tax threshold" value={m.taxThreshold ? "Active (25% applies over R7,000/mo)" : "Below threshold"} />
             </div>
           </Card>
-
-          <Card className="p-5 bg-muted/30 border-dashed">
-            <div className="flex items-start gap-3">
-              <div className="w-10 h-10 rounded-lg bg-amber-100 dark:bg-amber-950/40 flex items-center justify-center flex-shrink-0">
-                <CreditCard className="h-5 w-5 text-amber-600" />
-              </div>
-              <div className="text-sm">
-                <p className="font-semibold mb-1">NFC Tag & VISA Card</p>
-                <p className="text-xs text-muted-foreground leading-relaxed">
-                  Each member receives an NFC Tag for exclusive use at KasiMall stores, and a VISA card
-                  usable at any VISA paypoint. Both are linked to your Roots Bank account for instant
-                  commission, KasiPool and dividend payouts.
-                </p>
-              </div>
-            </div>
-          </Card>
         </TabsContent>
 
         {/* Transactions tab */}
@@ -334,11 +311,43 @@ export function ProfileView() {
                     <div className="flex items-center gap-3">
                       <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[9px]">{s.status}</Badge>
                       <p className="font-bold font-mono">{s.currency} {s.amount}</p>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-[10px]"
+                        onClick={() => {
+                          window.open(`/api/subscriptions/invoice?memberId=${m.id}&subscriptionId=${s.id}`, "_blank");
+                        }}
+                      >
+                        <Download className="h-3 w-3 mr-1" /> Invoice
+                      </Button>
                     </div>
                   </div>
                 ))}
               </div>
             )}
+          </Card>
+
+          {/* WhatsApp renewal reminders */}
+          <Card className="p-5">
+            <h3 className="font-bold mb-4 flex items-center gap-2">
+              <MessageCircle className="h-4 w-4 text-emerald-600" /> WhatsApp renewal reminders
+            </h3>
+            <p className="text-xs text-muted-foreground mb-4">
+              Automated WhatsApp reminders are sent 5, 3, and 1 day(s) before your subscription renews.
+            </p>
+            <div className="grid grid-cols-3 gap-3">
+              {[5, 3, 1].map((days) => (
+                <div key={days} className="text-center p-3 rounded-lg bg-muted/40">
+                  <p className="text-2xl font-black text-emerald-600">{days}</p>
+                  <p className="text-[10px] text-muted-foreground">day{days > 1 ? "s" : ""} before</p>
+                </div>
+              ))}
+            </div>
+            <div className="mt-3 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900 p-3 text-xs text-emerald-800 dark:text-emerald-300 flex items-start gap-2">
+              <MessageCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+              <p>Reminders are sent to your WhatsApp number ({m.mobile}) via WABlast. Ensure your InstaPay Gini account is funded to avoid interruption.</p>
+            </div>
           </Card>
         </TabsContent>
       </Tabs>

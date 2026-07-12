@@ -75,6 +75,9 @@ async function main() {
   await db.dividendDeclaration.deleteMany();
   await db.aureusShare.deleteMany();
   await db.auditorNotification.deleteMany();
+  await db.voucher.deleteMany();
+  await db.subscriptionNotification.deleteMany();
+  await db.referral.deleteMany();
 
   // 0a. Silo Config (Exco-editable mall payment splits)
   const SILOS = [
@@ -130,7 +133,7 @@ async function main() {
   // 2. Marketplace Products
   for (const p of MARKETPLACE_PRODUCTS) {
     await db.marketplaceProduct.create({
-      data: { ...p, currency: "ZAR" },
+      data: { ...p, currency: "ZAR", freePrice: Math.round(p.price * 1.15) }, // free members pay 15% more
     });
   }
 
@@ -539,6 +542,78 @@ async function main() {
 
   console.log(`  ✓ Created admin member (JP), silo config, settings, dividend declarations`);
   console.log(`  ✓ Created shares, subscriptions, transactions, mall transactions, marketplace orders`);
+
+  // 14. Vouchers for demo member (mix of active, expiring soon, and expired)
+  const now = new Date();
+  const vouchers = [
+    { title: "R50 Airtime Voucher", description: "Free R50 airtime on any network", provider: "Vodacom", value: 50, category: "AIRTIME", daysToExpiry: 30, anniversary: false },
+    { title: "R100 Grocery Voucher", description: "R100 off your next grocery purchase", provider: "Kasi Suppliers", value: 100, category: "GROCERIES", daysToExpiry: 45, anniversary: false },
+    { title: "Free Data Bundle", description: "1GB data bundle valid for 7 days", provider: "Kasi Connect", value: 35, category: "AIRTIME", daysToExpiry: 4, anniversary: false },
+    { title: "R200 Pharmacy Voucher", description: "R200 voucher for participating pharmacies", provider: "Kasi Pharmacy", value: 200, category: "HEALTH", daysToExpiry: 2, anniversary: false },
+    { title: "Anniversary Bonus Voucher", description: "Special anniversary reward - R150 off", provider: "KaSiHUB", value: 150, category: "DISCOUNT", daysToExpiry: 5, anniversary: true },
+    { title: "Electricity Token", description: "R100 prepaid electricity token", provider: "Eskom Direct", value: 100, category: "UTILITIES", daysToExpiry: -5, anniversary: false }, // expired
+  ];
+  for (let i = 0; i < vouchers.length; i++) {
+    const v = vouchers[i];
+    const expiryDate = new Date(now.getTime() + v.daysToExpiry * 24 * 60 * 60 * 1000);
+    const anniversaryDate = v.anniversary ? new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000) : null;
+    await db.voucher.create({
+      data: {
+        memberId: demoMember.id,
+        code: `VCH-${String(i + 1).padStart(5, "0")}-${now.getFullYear()}`,
+        title: v.title,
+        description: v.description,
+        provider: v.provider,
+        value: v.value,
+        category: v.category,
+        status: v.daysToExpiry < 0 ? "EXPIRED" : "ACTIVE",
+        issueDate: new Date(now.getTime() - 10 * 24 * 60 * 60 * 1000),
+        expiryDate,
+        anniversaryDate,
+        wablastSent: i < 2, // first 2 already pushed
+        expiringSent: false,
+      },
+    });
+  }
+
+  // 15. Subscription notifications (WhatsApp reminders sent)
+  const notifDays = [5, 3, 1];
+  for (const days of notifDays) {
+    await db.subscriptionNotification.create({
+      data: {
+        memberId: demoMember.id,
+        daysBefore: days,
+        channel: "WHATSAPP",
+        status: "SENT",
+        message: `Hi Thabo, your KaSiHUB subscription renewal is in ${days} day${days > 1 ? "s" : ""}. Ensure your InstaPay Gini account has sufficient funds to avoid interruption.`,
+        sentAt: new Date(now.getTime() - days * 24 * 60 * 60 * 1000),
+      },
+    });
+  }
+
+  // 16. Referrals — demo member has referred 3 people
+  const referrals = [
+    { name: "Sipho Dlamini", email: "sipho.dlamini@example.co.za", mobile: "+27 84 111 2222", status: "REGISTERED", reward: 50 },
+    { name: "Nomsa Khumalo", email: "nomsa.khumalo@example.co.za", mobile: "+27 83 333 4444", status: "REGISTERED", reward: 50 },
+    { name: "Bongani Sithole", email: "bongani.sithole@example.co.za", mobile: "+27 82 555 6666", status: "PENDING", reward: 0 },
+  ];
+  for (let i = 0; i < referrals.length; i++) {
+    const r = referrals[i];
+    await db.referral.create({
+      data: {
+        referrerId: demoMember.id,
+        referralCode: `REF-${demoMember.profileNumber}-${String(i + 1).padStart(2, "0")}`,
+        referredName: r.name,
+        referredEmail: r.email,
+        referredMobile: r.mobile,
+        status: r.status,
+        rewardAmount: r.reward,
+        convertedAt: r.status === "REGISTERED" ? new Date(now.getTime() - (i + 1) * 7 * 24 * 60 * 60 * 1000) : null,
+      },
+    });
+  }
+
+  console.log(`  ✓ Created vouchers, subscription notifications, referrals`);
   console.log(`\n✅ Seed complete!`);
   console.log(`   Demo member: ${demoMember.email} (Profile: ${demoMember.profileNumber})`);
   console.log(`   Admin member: ${adminMember.email} (Profile: ${adminMember.profileNumber})`);
