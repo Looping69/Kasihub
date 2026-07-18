@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import {
   Network, Users, Loader2, Info, UserCircle2,
@@ -347,12 +347,12 @@ export function EcosystemView() {
       </Card>
 
       {/* Eco-System tree visualization */}
-      <Card className="p-5 overflow-x-auto">
+      <Card className="p-5">
         <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
           <div>
             <h3 className="font-bold">Eco-System tree</h3>
             <p className="text-xs text-muted-foreground">
-              Up to 6 levels deep, 5 wide per node
+              Up to 6 levels deep, 5 wide per node · drag to explore
             </p>
           </div>
           <div className="flex items-center gap-3 text-[10px] flex-wrap">
@@ -373,11 +373,13 @@ export function EcosystemView() {
           </div>
         </div>
 
-        <TooltipProvider>
-          <div className="min-w-[800px]">
-            {data.tree && <MatrixRow node={data.tree} focusLevel={focusLevel} />}
-          </div>
-        </TooltipProvider>
+        <DraggableTreeCanvas>
+          <TooltipProvider>
+            <div className="min-w-[800px] py-1">
+              {data.tree && <MatrixRow node={data.tree} focusLevel={focusLevel} />}
+            </div>
+          </TooltipProvider>
+        </DraggableTreeCanvas>
       </Card>
 
       {/* Info card */}
@@ -406,6 +408,77 @@ export function EcosystemView() {
           </div>
         </div>
       </Card>
+    </div>
+  );
+}
+
+// Pointer panning works for mouse, pen, and touch without hiding native scrollbars.
+// Author: Klaasvaakie ( |╲ )
+function DraggableTreeCanvas({ children }: { children: React.ReactNode }) {
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef({
+    pointerId: -1,
+    startX: 0,
+    startY: 0,
+    scrollLeft: 0,
+    scrollTop: 0,
+    moved: false,
+  });
+  const [dragging, setDragging] = useState(false);
+
+  function finishDrag(pointerId: number) {
+    const viewport = viewportRef.current;
+    if (!viewport || dragRef.current.pointerId !== pointerId) return;
+    if (viewport.hasPointerCapture(pointerId)) viewport.releasePointerCapture(pointerId);
+    dragRef.current.pointerId = -1;
+    setDragging(false);
+  }
+
+  return (
+    <div
+      ref={viewportRef}
+      role="region"
+      aria-label="Draggable Eco-System tree"
+      className={`overflow-auto overscroll-contain rounded-lg select-none touch-none ${
+        dragging ? "cursor-grabbing" : "cursor-grab"
+      }`}
+      onPointerDown={(event) => {
+        if (event.pointerType === "mouse" && event.button !== 0) return;
+        const viewport = viewportRef.current;
+        if (!viewport) return;
+        dragRef.current = {
+          pointerId: event.pointerId,
+          startX: event.clientX,
+          startY: event.clientY,
+          scrollLeft: viewport.scrollLeft,
+          scrollTop: viewport.scrollTop,
+          moved: false,
+        };
+        viewport.setPointerCapture(event.pointerId);
+        setDragging(true);
+      }}
+      onPointerMove={(event) => {
+        const viewport = viewportRef.current;
+        const drag = dragRef.current;
+        if (!viewport || drag.pointerId !== event.pointerId) return;
+        const deltaX = event.clientX - drag.startX;
+        const deltaY = event.clientY - drag.startY;
+        if (!drag.moved && Math.hypot(deltaX, deltaY) > 5) drag.moved = true;
+        if (!drag.moved) return;
+        event.preventDefault();
+        viewport.scrollLeft = drag.scrollLeft - deltaX;
+        viewport.scrollTop = drag.scrollTop - deltaY;
+      }}
+      onPointerUp={(event) => finishDrag(event.pointerId)}
+      onPointerCancel={(event) => finishDrag(event.pointerId)}
+      onClickCapture={(event) => {
+        if (!dragRef.current.moved) return;
+        event.preventDefault();
+        event.stopPropagation();
+        dragRef.current.moved = false;
+      }}
+    >
+      {children}
     </div>
   );
 }

@@ -1,42 +1,22 @@
+// Author: Klaasvaakie ( |╲ )
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { EncoreRequestError, encoreRequest, encoreSessionToken } from "@/lib/encore-client";
 
-// GET /api/admin/shares - all shares across platform
+type Share = { quantity: number; totalAmount: number; profileId: string } & Record<string, unknown>;
+
 export async function GET(req: NextRequest) {
+  const token = await encoreSessionToken();
+  if (!token) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
+  const limit = Math.min(Math.max(Number(req.nextUrl.searchParams.get("limit") ?? 50), 1), 500);
   try {
-    const { searchParams } = new URL(req.url);
-    const limit = parseInt(searchParams.get("limit") || "50");
-
-    const shares = await db.share.findMany({
-      orderBy: { createdAt: "desc" },
-      take: limit,
-      include: {
-        member: {
-          select: { profileNumber: true, firstName: true, lastName: true, companyName: true, email: true },
-        },
-      },
-    });
-
-    const totalShares = await db.share.aggregate({
-      where: { status: "ACTIVE" },
-      _sum: { quantity: true, totalAmount: true },
-    });
-
+    const { shares } = await encoreRequest<{ shares: Share[] }>(`/admin/shares?limit=${limit}`, {}, token);
     return NextResponse.json({
-      shares: shares.map((s) => ({
-        ...s,
-        createdAt: s.createdAt.toISOString(),
-        member: {
-          profileNumber: s.member.profileNumber,
-          name: s.member.companyName || `${s.member.firstName} ${s.member.lastName}`,
-          email: s.member.email,
-        },
-      })),
-      totalActiveShares: totalShares._sum.quantity || 0,
-      totalActiveValue: totalShares._sum.totalAmount || 0,
+      shares: shares.map((share) => ({ ...share, member: { profileNumber: `KSI-${share.profileId.slice(0, 8).toUpperCase()}`, name: "Encore member", email: "" } })),
+      totalActiveShares: shares.reduce((sum, share) => sum + share.quantity, 0),
+      totalActiveValue: shares.reduce((sum, share) => sum + share.totalAmount, 0),
     });
   } catch (error) {
-    console.error("[admin/shares] error", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    const status = error instanceof EncoreRequestError ? error.status : 500;
+    return NextResponse.json({ error: "Unable to load Encore shares administration" }, { status });
   }
 }

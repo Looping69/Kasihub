@@ -12,32 +12,12 @@ export default function Home() {
   const { isAuthenticated, registrationOpen, adminMode } = useKasiStore();
   const [booted, setBooted] = useState(false);
 
-  // Auto-login the demo member on first load so the dashboard is explorable.
-  // If a member is already persisted (e.g. just registered), keep them logged in.
-  // Users can still "logout" to see the landing and re-register.
+  // Author: Klaasvaakie ( |╲ )
+  // Always begin on the landing page. Demo and admin sessions start only when
+  // the visitor explicitly selects their entry point from the landing page.
   useEffect(() => {
-    async function boot() {
-      // If already authenticated from a previous session, keep them.
-      const existing = useKasiStore.getState();
-      if (existing.isAuthenticated && existing.currentMember) {
-        setBooted(true);
-        return;
-      }
-      try {
-        const res = await fetch("/api/auth/login", { cache: "no-store" });
-        if (res.ok) {
-          const data = await res.json();
-          if (data.member) {
-            useKasiStore.getState().setMember(data.member);
-          }
-        }
-      } catch {
-        // ignore - user will see landing
-      } finally {
-        setBooted(true);
-      }
-    }
-    boot();
+    useKasiStore.getState().logout();
+    queueMicrotask(() => setBooted(true));
   }, []);
 
   if (!booted) {

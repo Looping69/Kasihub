@@ -26,6 +26,7 @@ import { AdminVouchers } from "@/components/admin/admin-vouchers";
 import { AdminReferrals } from "@/components/admin/admin-referrals";
 import { AdminNotifications } from "@/components/admin/admin-notifications";
 import { AdminSettings } from "@/components/admin/admin-settings";
+import { BrandLogo } from "@/components/brand-logo";
 
 const NAV: { key: AdminViewKey; label: string; icon: typeof LayoutDashboard; desc: string }[] = [
   { key: "overview", label: "Overview", icon: LayoutDashboard, desc: "Platform analytics" },
@@ -47,7 +48,7 @@ export function AdminShell() {
   const activeNav = NAV.find((n) => n.key === adminView) || NAV[0];
 
   return (
-    <div className="min-h-screen flex bg-muted/20">
+    <div className="min-h-screen flex bg-role-page">
       {/* Desktop Sidebar */}
       <aside className="hidden lg:flex w-64 flex-col fixed inset-y-0 left-0 z-30 bg-sidebar text-sidebar-foreground">
         <AdminSidebarContent />
@@ -152,19 +153,9 @@ function AdminSidebarContent({ mobile = false }: { mobile?: boolean }) {
   return (
     <div className="flex flex-col h-full">
       {/* Logo */}
-      <div className={`p-5 ${mobile ? "hidden" : ""}`}>
-        <div className="flex items-center gap-3">
-          <div className="relative w-10 h-10 flex-shrink-0">
-            <div className="absolute inset-0 rounded-xl bg-gradient-to-br from-amber-500 to-amber-600" />
-            <div className="absolute inset-0.5 rounded-[10px] bg-sidebar flex items-center justify-center">
-              <ShieldCheck className="h-5 w-5 text-amber-500" />
-            </div>
-          </div>
-          <div>
-            <p className="font-black text-lg leading-none text-sidebar-foreground">KaSiHUB</p>
-            <p className="text-[10px] text-amber-400/80 leading-none mt-0.5 font-semibold uppercase tracking-wider">Admin Portal</p>
-          </div>
-        </div>
+      <div className={`px-5 py-3 ${mobile ? "hidden" : ""}`}>
+        <BrandLogo className="h-16 w-full" priority />
+        <p className="mt-1 text-center text-[10px] text-amber-400/90 font-semibold uppercase tracking-[0.18em]">Admin Portal</p>
       </div>
 
       <Separator className="bg-sidebar-border" />
@@ -180,7 +171,7 @@ function AdminSidebarContent({ mobile = false }: { mobile?: boolean }) {
               onClick={() => setAdminView(item.key)}
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all duration-200 group ${
                 active
-                  ? "bg-sidebar-primary text-sidebar-primary-foreground shadow-lg shadow-amber-900/20"
+                  ? "bg-sidebar-primary text-sidebar-primary-foreground shadow-lg shadow-orange-950/20"
                   : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground"
               }`}
             >
@@ -203,7 +194,7 @@ function AdminSidebarContent({ mobile = false }: { mobile?: boolean }) {
           variant="outline"
           size="sm"
           onClick={() => setAdminMode(false)}
-          className="w-full border-sidebar-border text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground justify-start"
+          className="w-full bg-transparent border-sidebar-border text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground justify-start"
         >
           <UserRound className="h-4 w-4 mr-2" /> Switch to member view
         </Button>

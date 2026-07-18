@@ -26,6 +26,7 @@ import { RootsBankView } from "@/components/views/rootsbank-view";
 import { LegalView } from "@/components/views/legal-view";
 import { VouchersView } from "@/components/views/vouchers-view";
 import { ReferView } from "@/components/views/refer-view";
+import { BrandLogo } from "@/components/brand-logo";
 import { Scale, Ticket, UserPlus } from "lucide-react";
 
 const NAV: { key: ViewKey; label: string; icon: typeof LayoutDashboard; desc: string }[] = [
@@ -64,7 +65,7 @@ export function AppShell() {
   const activeNav = NAV.find((n) => n.key === activeView) || NAV[0];
 
   return (
-    <div className="min-h-screen flex bg-muted/20">
+    <div className="min-h-screen flex bg-role-page">
       {/* Desktop Sidebar */}
       <aside className="hidden lg:flex w-64 flex-col fixed inset-y-0 left-0 z-30 bg-sidebar text-sidebar-foreground">
         <SidebarContent />
@@ -175,19 +176,8 @@ function SidebarContent({ mobile = false }: { mobile?: boolean }) {
   return (
     <div className="flex flex-col h-full">
       {/* Logo */}
-      <div className={`p-5 ${mobile ? "hidden" : ""}`}>
-        <div className="flex items-center gap-3">
-          <div className="relative w-10 h-10 flex-shrink-0">
-            <div className="absolute inset-0 rounded-xl bg-gradient-to-br from-emerald-500 to-amber-500" />
-            <div className="absolute inset-0.5 rounded-[10px] bg-sidebar flex items-center justify-center">
-              <span className="text-xl font-black bg-gradient-to-br from-emerald-400 to-amber-400 bg-clip-text text-transparent">K</span>
-            </div>
-          </div>
-          <div>
-            <p className="font-black text-lg leading-none text-sidebar-foreground">KaSiHUB</p>
-            <p className="text-[10px] text-sidebar-foreground/60 leading-none mt-0.5">Hybrid Ecosystem</p>
-          </div>
-        </div>
+      <div className={`px-5 py-3 ${mobile ? "hidden" : ""}`}>
+        <BrandLogo className="h-20 w-full" priority />
       </div>
 
       <Separator className="bg-sidebar-border" />
@@ -203,7 +193,7 @@ function SidebarContent({ mobile = false }: { mobile?: boolean }) {
               onClick={() => setView(item.key)}
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all duration-200 group ${
                 active
-                  ? "bg-sidebar-primary text-sidebar-primary-foreground shadow-lg shadow-emerald-900/20"
+                  ? "bg-sidebar-primary text-sidebar-primary-foreground shadow-lg shadow-orange-950/20"
                   : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground"
               }`}
             >

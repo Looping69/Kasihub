@@ -77,7 +77,9 @@ export const useKasiStore = create<KasiState>()(
           adminMode: member.isAdmin,
         }),
 
-      logout: () =>
+      // Author: Klaasvaakie ( |╲ )
+      logout: () => {
+        void fetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);
         set({
           currentMemberId: null,
           currentMember: null,
@@ -85,7 +87,8 @@ export const useKasiStore = create<KasiState>()(
           activeView: "dashboard",
           adminView: "overview",
           adminMode: false,
-        }),
+        });
+      },
 
       setView: (view) =>
         set({ activeView: view, sidebarOpen: false }),

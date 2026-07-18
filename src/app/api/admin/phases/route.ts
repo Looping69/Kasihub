@@ -1,42 +1,22 @@
+// Author: Klaasvaakie ( |╲ )
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { EncoreRequestError, encoreRequest, encoreSessionToken } from "@/lib/encore-client";
 
-// PATCH /api/admin/phases - update a share phase (price, totalShares, status, bonus)
 export async function PATCH(req: NextRequest) {
+  const token = await encoreSessionToken();
+  if (!token) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
+  const body = await req.json();
+  if (!body.phaseId) return NextResponse.json({ error: "phaseId is required" }, { status: 400 });
   try {
-    const body = await req.json();
-    const { phaseId, pricePerShare, totalShares, status, bonusBuyOneGet } = body;
-
-    if (!phaseId) {
-      return NextResponse.json({ error: "phaseId is required" }, { status: 400 });
-    }
-
-    const existing = await db.sharePhase.findUnique({ where: { id: phaseId } });
-    if (!existing) {
-      return NextResponse.json({ error: "Phase not found" }, { status: 404 });
-    }
-
-    const data: {
-      pricePerShare?: number;
-      totalShares?: number;
-      status?: string;
-      bonusBuyOneGet?: boolean;
-    } = {};
-    if (pricePerShare !== undefined) data.pricePerShare = parseFloat(pricePerShare);
-    if (totalShares !== undefined) data.totalShares = parseInt(totalShares);
-    if (status !== undefined) data.status = status;
-    if (bonusBuyOneGet !== undefined) data.bonusBuyOneGet = bonusBuyOneGet;
-
-    const updated = await db.sharePhase.update({
-      where: { id: phaseId },
-      data,
-    });
-
-    return NextResponse.json({
-      phase: { ...updated, createdAt: updated.createdAt.toISOString(), updatedAt: updated.updatedAt.toISOString() },
-    });
+    const data = await encoreRequest<{ phase: Record<string, unknown> }>(
+      `/admin/shares/phases/${encodeURIComponent(body.phaseId)}`,
+      { method: "PATCH", body: JSON.stringify(body) },
+      token,
+    );
+    const phase = data.phase as { phaseNumber: number; quantityAvailable: number; totalShares?: number; pricePerShare: string; status: string };
+    return NextResponse.json({ phase: { ...phase, phase: phase.phaseNumber, pricePerShare: Number(phase.pricePerShare), totalShares: phase.totalShares ?? phase.quantityAvailable, soldShares: (phase.totalShares ?? phase.quantityAvailable) - phase.quantityAvailable, status: phase.status === "active" ? "OPEN" : phase.status.toUpperCase() } });
   } catch (error) {
-    console.error("[admin/phases] error", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    const status = error instanceof EncoreRequestError ? error.status : 500;
+    return NextResponse.json({ error: "Encore phase update failed" }, { status });
   }
 }

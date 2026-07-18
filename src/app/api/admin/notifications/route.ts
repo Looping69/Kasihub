@@ -1,98 +1,25 @@
+// Author: Klaasvaakie ( |╲ )
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { EncoreRequestError, encoreRequest, encoreSessionToken } from "@/lib/encore-client";
 
-// GET /api/admin/notifications - all subscription WhatsApp notifications
+type Notification = { memberId: string; daysBefore: number } & Record<string, unknown>;
+
 export async function GET() {
+  const token = await encoreSessionToken();
+  if (!token) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
   try {
-    const notifications = await db.subscriptionNotification.findMany({
-      orderBy: { sentAt: "desc" },
-      take: 200,
-      include: {
-        member: {
-          select: { profileNumber: true, firstName: true, lastName: true, companyName: true, mobile: true, subscriptionStatus: true },
-        },
-      },
-    });
-
-    const sent5Days = notifications.filter((n) => n.daysBefore === 5).length;
-    const sent3Days = notifications.filter((n) => n.daysBefore === 3).length;
-    const sent1Day = notifications.filter((n) => n.daysBefore === 1).length;
-
-    // Members with upcoming renewals (mock: active members)
-    const activeMembers = await db.member.count({ where: { subscriptionStatus: "ACTIVE", isAdmin: false } });
-
-    return NextResponse.json({
-      notifications: notifications.map((n) => ({
-        ...n,
-        sentAt: n.sentAt.toISOString(),
-        member: {
-          profileNumber: n.member.profileNumber,
-          name: n.member.companyName || `${n.member.firstName} ${n.member.lastName}`,
-          mobile: n.member.mobile,
-        },
-      })),
-      stats: {
-        total: notifications.length,
-        sent5Days,
-        sent3Days,
-        sent1Day,
-        activeMembers,
-      },
-    });
-  } catch (error) {
-    console.error("[admin/notifications] error", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
-  }
+    const data = await encoreRequest<{ notifications: Notification[]; activeMembers: number }>("/admin/subscription-notifications", {}, token);
+    return NextResponse.json({ notifications: data.notifications.map((notification) => ({ ...notification, member: { profileNumber: `KSI-${notification.memberId.slice(0, 8).toUpperCase()}`, name: "Encore member", mobile: "" } })), stats: { total: data.notifications.length, sent5Days: data.notifications.filter((notification) => notification.daysBefore === 5).length, sent3Days: data.notifications.filter((notification) => notification.daysBefore === 3).length, sent1Day: data.notifications.filter((notification) => notification.daysBefore === 1).length, activeMembers: data.activeMembers } });
+  } catch (error) { return failure(error); }
 }
 
-// POST /api/admin/notifications - trigger WhatsApp reminders for all eligible members at a given day threshold
 export async function POST(req: NextRequest) {
-  try {
-    const body = await req.json();
-    const { daysBefore } = body; // 5 | 3 | 1
-
-    if (![5, 3, 1].includes(daysBefore)) {
-      return NextResponse.json({ error: "daysBefore must be 5, 3, or 1" }, { status: 400 });
-    }
-
-    // Get all active, non-admin members who haven't received this notification
-    const activeMembers = await db.member.findMany({
-      where: { subscriptionStatus: "ACTIVE", isAdmin: false },
-    });
-
-    let sentCount = 0;
-    const messages: Record<number, string> = {
-      5: "Your KaSiHUB subscription renews in 5 days. Ensure your InstaPay Gini account is funded.",
-      3: "Your KaSiHUB subscription renews in 3 days. Top up your InstaPay Gini account.",
-      1: "URGENT: Your KaSiHUB subscription renews TOMORROW. Fund your InstaPay Gini account now.",
-    };
-
-    for (const member of activeMembers) {
-      const existing = await db.subscriptionNotification.findFirst({
-        where: { memberId: member.id, daysBefore },
-      });
-      if (existing) continue;
-
-      await db.subscriptionNotification.create({
-        data: {
-          memberId: member.id,
-          daysBefore,
-          channel: "WHATSAPP",
-          status: "SENT",
-          message: `Hi ${member.firstName}, ${messages[daysBefore]}`,
-        },
-      });
-      sentCount++;
-    }
-
-    return NextResponse.json({
-      sent: sentCount,
-      totalEligible: activeMembers.length,
-      daysBefore,
-      message: `WhatsApp ${daysBefore}-day renewal reminder sent to ${sentCount} member(s).`,
-    });
-  } catch (error) {
-    console.error("[admin/notifications/trigger] error", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
-  }
+  const token = await encoreSessionToken();
+  if (!token) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
+  const { daysBefore } = await req.json();
+  if (![1, 3, 5].includes(daysBefore)) return NextResponse.json({ error: "daysBefore must be 1, 3, or 5" }, { status: 400 });
+  try { return NextResponse.json(await encoreRequest("/admin/subscription-notifications", { method: "POST", body: JSON.stringify({ daysBefore }) }, token)); }
+  catch (error) { return failure(error); }
 }
+
+function failure(error: unknown) { const status = error instanceof EncoreRequestError ? error.status : 500; return NextResponse.json({ error: "Encore notification operation failed" }, { status }); }

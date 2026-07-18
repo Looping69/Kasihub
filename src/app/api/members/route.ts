@@ -1,199 +1,107 @@
+// Author: Klaasvaakie ( |╲ )
+import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import {
+  ENCORE_SESSION_COOKIE,
+  EncoreRequestError,
+  encoreRequest,
+} from "@/lib/encore-client";
+import type { Member } from "@/lib/types";
 
-// POST /api/members - create a new member (registration)
+type RegisterResponse = { user: { profileId: string; profileNumber: string } };
+type LoginResponse = { token: string };
+type ProfileResponse = { member: Member };
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-
-    // Generate a unique profile number
-    const count = await db.member.count();
-    const profileNumber = `KSH-${String(count + 1).padStart(6, "0")}`;
-
-    // Determine subscription amount based on citizenship type + membership type
-    const citizenshipType = body.citizenshipType || "SA_CITIZEN_SA";
-    const isInternational = ["SA_CITIZEN_ABROAD", "FOREIGN_CITIZEN_ABROAD", "INTL_COMPANY"].includes(citizenshipType);
-    let subscriptionAmount = 140;
-    let subscriptionCurrency = "ZAR";
-
-    if (body.membershipType === "FREE") {
-      subscriptionAmount = 0;
-      subscriptionCurrency = isInternational ? "USD" : "ZAR";
-    } else if (isInternational) {
-      // International pricing: Individual Adult $30, Kids $30, Company $50
-      subscriptionCurrency = "USD";
-      if (body.membershipType === "COMPANY") subscriptionAmount = 50;
-      else subscriptionAmount = 30; // INDIVIDUAL_ADULT or INDIVIDUAL_KIDS
-    } else {
-      // SA pricing: Individual R140, Company/Sole Proprietor R300, NPO/NGO R250
-      subscriptionCurrency = "ZAR";
-      if (body.membershipType === "COMPANY" || body.membershipType === "SOLE_PROPRIETOR") subscriptionAmount = 300;
-      else if (body.membershipType === "NPO_NGO") subscriptionAmount = 250;
-      else subscriptionAmount = 140; // INDIVIDUAL_ADULT, INDIVIDUAL_KIDS
-    }
-
-    // Payment method: SA members use InstaPay; International uses Bankus
-    const paymentMethod = isInternational ? "BANKUS" : "INSTAPAY";
-
-    // Check for duplicate ID/Passport
-    if (body.idPassport) {
-      const existing = await db.member.findUnique({
-        where: { idPassport: body.idPassport },
-      });
-      if (existing) {
-        return NextResponse.json(
-          { error: "A member with this ID/Passport number already exists. Only one profile per ID is allowed." },
-          { status: 409 }
-        );
-      }
-    }
-
-    // Check for duplicate email
-    const existingEmail = await db.member.findUnique({
-      where: { email: body.email },
-    });
-    if (existingEmail) {
+    if (!body.email || !body.password || !body.membershipType) {
       return NextResponse.json(
-        { error: "A member with this email already exists." },
-        { status: 409 }
+        { error: "Email, password and membership type are required" },
+        { status: 400 },
       );
     }
-
-    // Generate NFC tag + Visa card last 4 + Roots Bank account
-    const nfcTagId = `NFC-${profileNumber}`;
-    const visaCardLast4 = String(Math.floor(Math.random() * 9000 + 1000));
-    const rootsBankAccount = String(63212300000 + Math.floor(Math.random() * 99999));
-
-    const member = await db.member.create({
-      data: {
-        profileNumber,
-        membershipType: body.membershipType,
-        citizenshipType: body.citizenshipType || null,
-        firstName: body.firstName || null,
-        lastName: body.lastName || null,
-        companyName: body.companyName || null,
-        companyRegNo: body.companyRegNo || null,
-        idPassport: body.idPassport || null,
-        sarsNumber: body.sarsNumber || null,
+    const profileType = body.membershipType === "COMPANY" || body.membershipType === "SOLE_PROPRIETOR" || body.membershipType === "NPO_NGO"
+      ? "company"
+      : body.membershipType === "INDIVIDUAL_KIDS" ? "minor" : "individual";
+    const registered = await encoreRequest<RegisterResponse>("/auth/register", {
+      method: "POST",
+      body: JSON.stringify({
         email: body.email,
+        password: body.password,
+        phone: body.mobile,
+        profileType,
+        firstName: body.firstName,
+        surname: body.lastName,
+        companyName: body.companyName,
+        companyRegistrationNumber: body.companyRegNo,
+        idOrPassportNumber: body.idPassport,
+        sarsNumber: body.sarsNumber,
         country: body.country,
-        mobile: body.mobile,
-        addressLine: body.addressLine || null,
-        city: body.city || null,
-        postalCode: body.postalCode || null,
-        profilePicture: body.profilePicture || null,
-        beneficiaryName: body.beneficiaryName || null,
-        beneficiaryId: body.beneficiaryId || null,
-        guardianName: body.guardianName || null,
-        kycStatus: body.kycStatus || "PENDING",
-        subscriptionStatus: body.membershipType === "FREE" ? "ACTIVE" : "ACTIVE",
-        subscriptionAmount,
-        subscriptionCurrency,
-        paymentMethod,
-        nfcTagId,
-        visaCardLast4,
-        rootsBankAccount,
-        instapayStatus: body.instapayStatus || (isInternational ? "NONE" : "PENDING"),
-        instapayVerifiedAt: body.instapayVerifiedAt ? new Date(body.instapayVerifiedAt) : null,
-        instapayAccountRef: body.instapayAccountRef || null,
-        uplineProfileNumber: body.uplineProfileNumber || body.sponsorProfileNumber || null,
-        uplineConfirmed: body.uplineConfirmed || false,
-      },
+      }),
     });
-
-    // Place member in the next open matrix spot (top-left to bottom-right fill)
-    const allNodes = await db.matrixNode.findMany({ orderBy: { nodeIndex: "asc" } });
-    // Find sponsor if provided
-    let sponsorId: string | null = null;
-    if (body.sponsorProfileNumber) {
-      const sponsor = await db.member.findUnique({
-        where: { profileNumber: body.sponsorProfileNumber },
-      });
-      if (sponsor) sponsorId = sponsor.id;
+    const login = await encoreRequest<LoginResponse>("/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email: body.email, password: body.password }),
+    });
+    await encoreRequest(
+      "/membership/subscribe",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          profileId: registered.user.profileId,
+          planCode: membershipPlanCode(body.membershipType, body.citizenshipType),
+        }),
+      },
+      login.token,
+    );
+    if (body.instapayStatus === "PENDING") {
+      await encoreRequest(
+        "/kyc/cases",
+        { method: "POST", body: JSON.stringify({ profileId: registered.user.profileId, provider: "instapay" }) },
+        login.token,
+      );
     }
-
-    // Find next open position: BFS - first node with < 5 children gets the new member
-    let parentId: string | null = null;
-    let level = 0;
-    let position = 0;
-    let nodeIndex = allNodes.length;
-
-    const childCountMap = new Map<string, number>();
-    for (const n of allNodes) {
-      if (n.parentId) {
-        childCountMap.set(n.parentId, (childCountMap.get(n.parentId) || 0) + 1);
-      }
-    }
-
-    for (const n of allNodes) {
-      const childCount = childCountMap.get(n.id) || 0;
-      if (childCount < 5) {
-        parentId = n.id;
-        level = n.level + 1;
-        position = childCount;
-        break;
-      }
-    }
-
-    await db.matrixNode.create({
-      data: {
-        memberId: member.id,
-        parentId,
-        level,
-        position,
-        nodeIndex,
-        sponsorId,
-      },
-    });
-
-    // Record initial subscription payment
-    await db.subscription.create({
-      data: {
-        memberId: member.id,
-        amount: subscriptionAmount,
-        currency: subscriptionCurrency,
-        method: body.paymentMethod || "BANK",
-        status: "PAID",
-        period: new Date().toISOString().slice(0, 7),
-      },
-    });
-
-    // Record transaction
-    await db.transaction.create({
-      data: {
-        memberId: member.id,
-        type: "SUBSCRIPTION",
-        amount: -subscriptionAmount,
-        description: `Initial ${subscriptionCurrency} ${subscriptionAmount} membership subscription`,
-        status: "COMPLETED",
-      },
-    });
-
-    return NextResponse.json({ member, profileNumber }, { status: 201 });
+    const profile = await encoreRequest<ProfileResponse>("/profiles/me", {}, login.token);
+    const response = NextResponse.json(
+      { member: profile.member, profileNumber: registered.user.profileNumber },
+      { status: 201 },
+    );
+    setSessionCookie(response, login.token);
+    return response;
   } catch (error) {
-    console.error("[members/create] error", error);
+    const status = error instanceof EncoreRequestError ? error.status : 500;
     return NextResponse.json(
-      { error: "Failed to create member. " + (error as Error).message },
-      { status: 500 }
+      { error: status === 409 ? "A member with these identity details already exists." : "Encore registration failed" },
+      { status },
     );
   }
 }
 
-// GET /api/members?memberId=xxx - get a single member
-export async function GET(req: NextRequest) {
+export async function GET() {
+  const cookieStore = await cookies();
+  const token = cookieStore.get(ENCORE_SESSION_COOKIE)?.value;
+  if (!token) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
   try {
-    const { searchParams } = new URL(req.url);
-    const memberId = searchParams.get("memberId");
-    if (!memberId) {
-      return NextResponse.json({ error: "memberId is required" }, { status: 400 });
-    }
-    const member = await db.member.findUnique({ where: { id: memberId } });
-    if (!member) {
-      return NextResponse.json({ error: "Member not found" }, { status: 404 });
-    }
-    return NextResponse.json({ member });
+    return NextResponse.json(await encoreRequest<ProfileResponse>("/profiles/me", {}, token));
   } catch (error) {
-    console.error("[members/get] error", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    const status = error instanceof EncoreRequestError ? error.status : 500;
+    return NextResponse.json({ error: "Unable to load member from Encore" }, { status });
   }
+}
+
+function membershipPlanCode(membershipType: string, citizenshipType?: string): string {
+  const international = ["SA_CITIZEN_ABROAD", "FOREIGN_CITIZEN_ABROAD", "INTL_COMPANY"].includes(citizenshipType ?? "");
+  const company = ["COMPANY", "SOLE_PROPRIETOR", "NPO_NGO"].includes(membershipType);
+  return `${company ? "COMPANY" : "INDIVIDUAL"}_${international ? "INTERNATIONAL" : "LOCAL"}`;
+}
+
+function setSessionCookie(response: NextResponse, token: string) {
+  response.cookies.set(ENCORE_SESSION_COOKIE, token, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    maxAge: 60 * 60 * 24 * 7,
+  });
 }

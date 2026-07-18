@@ -1,29 +1,61 @@
+// Author: Klaasvaakie ( |╲ )
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import {
+  ENCORE_SESSION_COOKIE,
+  EncoreRequestError,
+  encoreRequest,
+} from "@/lib/encore-client";
+import type { Member } from "@/lib/types";
 
-// GET /api/auth/login?role=admin - auto-login as demo member or admin
+type LoginResponse = { token: string };
+type ProfileResponse = { member: Member };
+
 export async function GET(req: NextRequest) {
+  const role = req.nextUrl.searchParams.get("role");
+  const isAdmin = role === "admin";
+  const email = process.env[isAdmin ? "KASIHUB_DEMO_ADMIN_EMAIL" : "KASIHUB_DEMO_MEMBER_EMAIL"];
+  const password = process.env[isAdmin ? "KASIHUB_DEMO_ADMIN_PASSWORD" : "KASIHUB_DEMO_MEMBER_PASSWORD"];
+  if (!email || !password) {
+    return NextResponse.json(
+      { error: "Demo access is not configured. Use a registered account." },
+      { status: 503 },
+    );
+  }
+  return authenticate(email, password, isAdmin);
+}
+
+export async function POST(req: NextRequest) {
+  const body = (await req.json()) as { email?: string; password?: string };
+  if (!body.email || !body.password) {
+    return NextResponse.json({ error: "Email and password are required" }, { status: 400 });
+  }
+  return authenticate(body.email, body.password, false);
+}
+
+async function authenticate(email: string, password: string, requireAdmin: boolean) {
   try {
-    const { searchParams } = new URL(req.url);
-    const role = searchParams.get("role"); // "admin" returns the admin member
-
-    let member;
-    if (role === "admin") {
-      member = await db.member.findFirst({ where: { isAdmin: true } });
-    } else {
-      member = await db.member.findFirst({ where: { profileNumber: "KSH-000001" } });
+    const login = await encoreRequest<LoginResponse>("/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    });
+    const profile = await encoreRequest<ProfileResponse>("/profiles/me", {}, login.token);
+    if (requireAdmin && !profile.member.isAdmin) {
+      return NextResponse.json({ error: "Administrator access required" }, { status: 403 });
     }
-
-    if (!member) {
-      return NextResponse.json(
-        { error: role === "admin" ? "No admin member found. Please run the seed script." : "No demo member found. Please run the seed script." },
-        { status: 404 }
-      );
-    }
-
-    return NextResponse.json({ member });
+    const response = NextResponse.json({ member: profile.member });
+    response.cookies.set(ENCORE_SESSION_COOKIE, login.token, {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      path: "/",
+      maxAge: 60 * 60 * 24 * 7,
+    });
+    return response;
   } catch (error) {
-    console.error("[auth/login] error", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    const status = error instanceof EncoreRequestError ? error.status : 500;
+    return NextResponse.json(
+      { error: status === 401 ? "Invalid email or password" : "Unable to sign in through Encore" },
+      { status },
+    );
   }
 }

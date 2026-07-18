@@ -1,70 +1,25 @@
+// Author: Klaasvaakie ( |╲ )
 import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { EncoreRequestError, encoreRequest, encoreSessionToken } from "@/lib/encore-client";
 
-// GET /api/admin/vouchers - all vouchers across the platform
+type Voucher = { value: number; status: string; expiryDate: string } & Record<string, unknown>;
+
 export async function GET() {
+  const token = await encoreSessionToken();
+  if (!token) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
   try {
-    const vouchers = await db.voucher.findMany({
-      orderBy: { createdAt: "desc" },
-      include: {
-        member: {
-          select: { profileNumber: true, firstName: true, lastName: true, companyName: true, mobile: true },
-        },
-      },
-    });
-
-    const now = new Date();
-    const active = vouchers.filter((v) => v.status === "ACTIVE" && new Date(v.expiryDate) > now);
-    const expired = vouchers.filter((v) => v.status === "EXPIRED" || new Date(v.expiryDate) <= now);
-    const expiringSoon = active.filter((v) => {
-      const days = Math.ceil((new Date(v.expiryDate).getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-      return days <= 5;
-    });
-    const wablastPushed = vouchers.filter((v) => v.wablastSent).length;
-    const expiringPushed = vouchers.filter((v) => v.expiringSent).length;
-    const totalValue = active.reduce((s, v) => s + v.value, 0);
-
-    // Category breakdown
+    const { vouchers } = await encoreRequest<{ vouchers: (Voucher & { memberId: string; category: string; wablastSent: boolean; expiringSent: boolean })[] }>("/admin/vouchers", {}, token);
+    const now = Date.now();
+    const decorated = vouchers.map((voucher) => ({ ...voucher, daysToExpiry: Math.ceil((new Date(voucher.expiryDate).getTime() - now) / 86400000), member: { profileNumber: `KSI-${voucher.memberId.slice(0, 8).toUpperCase()}`, name: "Encore member", mobile: "" } }));
+    const active = decorated.filter((voucher) => voucher.status === "ACTIVE" && new Date(voucher.expiryDate).getTime() > now);
     const categoryMap = new Map<string, { count: number; value: number }>();
-    for (const v of active) {
-      const cur = categoryMap.get(v.category) || { count: 0, value: 0 };
-      cur.count++;
-      cur.value += v.value;
-      categoryMap.set(v.category, cur);
+    for (const voucher of active) {
+      const entry = categoryMap.get(voucher.category) ?? { count: 0, value: 0 };
+      entry.count++; entry.value += voucher.value; categoryMap.set(voucher.category, entry);
     }
-    const categoryStats = Array.from(categoryMap.entries()).map(([category, stats]) => ({
-      category,
-      count: stats.count,
-      value: parseFloat(stats.value.toFixed(2)),
-    }));
-
-    return NextResponse.json({
-      vouchers: vouchers.map((v) => ({
-        ...v,
-        issueDate: v.issueDate.toISOString(),
-        expiryDate: v.expiryDate.toISOString(),
-        anniversaryDate: v.anniversaryDate?.toISOString() || null,
-        createdAt: v.createdAt.toISOString(),
-        daysToExpiry: Math.ceil((new Date(v.expiryDate).getTime() - now.getTime()) / (1000 * 60 * 60 * 24)),
-        member: {
-          profileNumber: v.member.profileNumber,
-          name: v.member.companyName || `${v.member.firstName} ${v.member.lastName}`,
-          mobile: v.member.mobile,
-        },
-      })),
-      stats: {
-        total: vouchers.length,
-        active: active.length,
-        expired: expired.length,
-        expiringSoon: expiringSoon.length,
-        wablastPushed,
-        expiringPushed,
-        totalValue: parseFloat(totalValue.toFixed(2)),
-      },
-      categoryStats,
-    });
+    return NextResponse.json({ vouchers: decorated, stats: { total: decorated.length, active: active.length, expired: decorated.length - active.length, expiringSoon: active.filter((voucher) => voucher.daysToExpiry <= 5).length, wablastPushed: decorated.filter((voucher) => voucher.wablastSent).length, expiringPushed: decorated.filter((voucher) => voucher.expiringSent).length, totalValue: active.reduce((sum, voucher) => sum + voucher.value, 0) }, categoryStats: Array.from(categoryMap, ([category, stats]) => ({ category, ...stats })) });
   } catch (error) {
-    console.error("[admin/vouchers] error", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    const status = error instanceof EncoreRequestError ? error.status : 500;
+    return NextResponse.json({ error: "Unable to load Encore voucher administration" }, { status });
   }
 }

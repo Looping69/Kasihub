@@ -1,33 +1,21 @@
+// Author: Klaasvaakie ( |╲ )
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { EncoreRequestError, encoreRequest, encoreSessionToken } from "@/lib/encore-client";
 
-// GET /api/instapay/status?memberId=xxx - check InstaPay status + get download links
 export async function GET(req: NextRequest) {
+  const memberId = req.nextUrl.searchParams.get("memberId");
+  const links = {
+    androidUrl: process.env.INSTAPAY_ANDROID_URL ?? "https://play.google.com/store/apps/instapay-gini",
+    iosUrl: process.env.INSTAPAY_IOS_URL ?? "https://apps.apple.com/instapay-gini",
+  };
+  if (!memberId) return NextResponse.json({ status: "NONE", accountRef: null, ...links });
+  const token = await encoreSessionToken();
+  if (!token) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
   try {
-    const { searchParams } = new URL(req.url);
-    const memberId = searchParams.get("memberId");
-
-    const androidSetting = await db.setting.findUnique({ where: { key: "instapay_android_url" } });
-    const iosSetting = await db.setting.findUnique({ where: { key: "instapay_ios_url" } });
-
-    let status = "NONE";
-    let accountRef: string | null = null;
-    if (memberId) {
-      const member = await db.member.findUnique({ where: { id: memberId } });
-      if (member) {
-        status = member.instapayStatus;
-        accountRef = member.instapayAccountRef;
-      }
-    }
-
-    return NextResponse.json({
-      status,
-      accountRef,
-      androidUrl: androidSetting?.value || "https://play.google.com/store/apps/instapay-gini",
-      iosUrl: iosSetting?.value || "https://apps.apple.com/instapay-gini",
-    });
+    const status = await encoreRequest<{ status: string; accountRef: string | null }>(`/kyc/status/${encodeURIComponent(memberId)}`, {}, token);
+    return NextResponse.json({ ...status, ...links });
   } catch (error) {
-    console.error("[instapay/status] error", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    const status = error instanceof EncoreRequestError ? error.status : 500;
+    return NextResponse.json({ error: "Unable to load verification status from Encore" }, { status });
   }
 }

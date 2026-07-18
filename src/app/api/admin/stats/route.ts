@@ -1,184 +1,127 @@
+// Author: Klaasvaakie ( |╲ )
 import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { EncoreRequestError, encoreRequest, encoreSessionToken } from "@/lib/encore-client";
 
-// GET /api/admin/stats - platform-wide admin overview stats
+type Member = { id: string; createdAt: string; membershipType: string; subscriptionStatus: string; kycStatus: string; instapayStatus: string; profileNumber: string; firstName: string | null; lastName: string | null; companyName: string | null };
+type Share = { quantity: number; totalAmount: number };
+type Order = { amount: number };
+type MallTransaction = { amount: number };
+type Voucher = { value: number; status: string; expiryDate: string };
+type Referral = { status: string; rewardAmount: number };
+type Notification = { daysBefore: number };
+type Phase = { id: string; phaseNumber: number; quantityAvailable: number; pricePerShare: string; status: string };
+type Activity = { id: string; transactionType: string; profileId: string | null; amount: number; description: string; createdAt: string };
+
 export async function GET() {
+  const token = await encoreSessionToken();
+  if (!token) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
   try {
-    const [
-      totalMembers, activeMembers, pendingKyc, totalShares, totalShareValue,
-      pioneerCount, totalSubscriptions, totalTransactions, totalMallTx,
-      totalMarketplaceOrders, poolDistributions, dividendDeclarations,
-      silos, phases, allMembers,
-      totalVouchers, activeVouchers, expiringVouchers, totalVoucherValue,
-      totalReferrals, registeredReferrals, totalReferralRewards,
-      totalNotifications, sent5Days, sent3Days, sent1Day,
-      instapayVerifiedCount, instapayPendingCount,
-    ] = await Promise.all([
-      db.member.count({ where: { isAdmin: false } }),
-      db.member.count({ where: { subscriptionStatus: "ACTIVE", isAdmin: false } }),
-      db.member.count({ where: { kycStatus: "PENDING", isAdmin: false } }),
-      db.share.aggregate({ where: { status: "ACTIVE" }, _sum: { quantity: true, totalAmount: true } }),
-      db.share.aggregate({ where: { status: "ACTIVE" }, _sum: { totalAmount: true } }),
-      db.rootsBankShare.count(),
-      db.subscription.findMany({ where: { status: "PAID" } }),
-      db.transaction.findMany(),
-      db.mallTransaction.findMany(),
-      db.marketplaceOrder.findMany(),
-      db.kasiPoolDistribution.findMany(),
-      db.dividendDeclaration.findMany({ orderBy: { declaredAt: "desc" } }),
-      db.siloConfig.findMany({ orderBy: { sortOrder: "asc" } }),
-      db.sharePhase.findMany({ orderBy: { phase: "asc" } }),
-      db.member.findMany({
-        where: { isAdmin: false },
-        orderBy: { createdAt: "asc" },
-        select: { id: true, createdAt: true, subscriptionStatus: true, kycStatus: true, membershipType: true, monthlyEarnings: true, instapayStatus: true },
-      }),
-      db.voucher.count(),
-      db.voucher.count({ where: { status: "ACTIVE" } }),
-      db.voucher.count({ where: { status: "ACTIVE", expiryDate: { lte: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000) } } }),
-      db.voucher.aggregate({ where: { status: "ACTIVE" }, _sum: { value: true } }),
-      db.referral.count(),
-      db.referral.count({ where: { status: "REGISTERED" } }),
-      db.referral.aggregate({ where: { status: "REGISTERED" }, _sum: { rewardAmount: true } }),
-      db.subscriptionNotification.count(),
-      db.subscriptionNotification.count({ where: { daysBefore: 5 } }),
-      db.subscriptionNotification.count({ where: { daysBefore: 3 } }),
-      db.subscriptionNotification.count({ where: { daysBefore: 1 } }),
-      db.member.count({ where: { instapayStatus: "VERIFIED", isAdmin: false } }),
-      db.member.count({ where: { instapayStatus: "PENDING", isAdmin: false } }),
+    const [memberData, shareData, rootsData, marketData, mallData, poolData, voucherData, referralData, notificationData, phaseData, dividendData, activityData] = await Promise.all([
+      encoreRequest<{ members: Member[] }>("/admin/member-profiles?limit=500", {}, token),
+      encoreRequest<{ shares: Share[] }>("/admin/shares?limit=500", {}, token),
+      encoreRequest<{ pioneers: unknown[] }>("/admin/rootsbank", {}, token),
+      encoreRequest<{ orders: Order[] }>("/admin/marketplace", {}, token),
+      encoreRequest<{ transactions: MallTransaction[]; silos: unknown[] }>("/admin/mall?limit=500", {}, token),
+      encoreRequest<{ totals: { totalPaidOut: number; balance: number; totalIncoming: number } }>("/admin/pool?limit=500", {}, token),
+      encoreRequest<{ vouchers: Voucher[] }>("/admin/vouchers", {}, token),
+      encoreRequest<{ referrals: Referral[] }>("/admin/referrals", {}, token),
+      encoreRequest<{ notifications: Notification[] }>("/admin/subscription-notifications", {}, token),
+      encoreRequest<{ phases: Phase[] }>("/shares/phases", {}, token),
+      encoreRequest<{ dividends: unknown[] }>("/admin/dividends", {}, token),
+      encoreRequest<{ transactions: Activity[] }>("/admin/ledger/transactions", {}, token),
     ]);
-
-    // Revenue calculations
-    const subscriptionRevenue = totalSubscriptions.reduce((s, x) => {
-      if (x.currency === "USD") return s + x.amount * 18.5; // approx ZAR
-      return s + x.amount;
-    }, 0);
-    const shareRevenueUSD = totalShareValue._sum.totalAmount || 0;
-    const shareRevenueZAR = shareRevenueUSD * 18.5;
-    const mallRevenue = totalMallTx.reduce((s, x) => s + x.amount, 0);
-    const marketplaceRevenue = totalMarketplaceOrders.reduce((s, x) => s + x.amount, 0);
-    const poolPaidOut = poolDistributions.reduce((s, x) => s + x.amount, 0);
-    const totalRevenue = subscriptionRevenue + shareRevenueZAR + mallRevenue + marketplaceRevenue;
-
-    // Member growth (last 14 days)
-    const now = new Date();
-    const growthMap = new Map<string, number>();
-    for (let i = 13; i >= 0; i--) {
-      const d = new Date(now);
-      d.setDate(d.getDate() - i);
-      growthMap.set(d.toISOString().slice(0, 10), 0);
-    }
-    for (const m of allMembers) {
-      const key = new Date(m.createdAt).toISOString().slice(0, 10);
-      if (growthMap.has(key)) growthMap.set(key, (growthMap.get(key) || 0) + 1);
-    }
-    const memberGrowth = Array.from(growthMap.entries()).map(([date, count]) => ({ date, count }));
-
-    // Cumulative growth
-    let cumulative = 0;
-    const cumulativeGrowth = memberGrowth.map((g) => {
-      cumulative += g.count;
-      return { date: g.date, count: cumulative };
+    const members = memberData.members;
+    const now = Date.now();
+    const activeVouchers = voucherData.vouchers.filter((voucher) => voucher.status === "ACTIVE" && new Date(voucher.expiryDate).getTime() > now);
+    const registeredReferrals = referralData.referrals.filter((referral) => referral.status === "REGISTERED");
+    const totalShares = shareData.shares.reduce((sum, share) => sum + share.quantity, 0);
+    const shareRevenueUSD = shareData.shares.reduce((sum, share) => sum + share.totalAmount, 0);
+    const mallRevenue = mallData.transactions.reduce((sum, transaction) => sum + transaction.amount, 0);
+    const marketplaceRevenue = marketData.orders.reduce((sum, order) => sum + order.amount, 0);
+    const subscriptionRevenue = 0;
+    const memberGrowth = Array.from({ length: 14 }, (_, index) => {
+      const date = new Date();
+      date.setUTCDate(date.getUTCDate() - (13 - index));
+      const key = date.toISOString().slice(0, 10);
+      return { date: key, count: members.filter((member) => member.createdAt.slice(0, 10) === key).length };
     });
-
-    // Revenue by source (for pie chart)
-    const revenueBySource = [
-      { name: "Subscriptions", value: parseFloat(subscriptionRevenue.toFixed(2)), color: "oklch(0.52 0.13 158)" },
-      { name: "KasiShares", value: parseFloat(shareRevenueZAR.toFixed(2)), color: "oklch(0.75 0.15 80)" },
-      { name: "KasiMall", value: parseFloat(mallRevenue.toFixed(2)), color: "oklch(0.55 0.08 50)" },
-      { name: "Marketplace", value: parseFloat(marketplaceRevenue.toFixed(2)), color: "oklch(0.65 0.18 145)" },
-    ];
-
-    // Membership type breakdown
-    const typeBreakdown = {
-      INDIVIDUAL_ADULT: allMembers.filter((m) => m.membershipType === "INDIVIDUAL_ADULT").length,
-      INDIVIDUAL_KIDS: allMembers.filter((m) => m.membershipType === "INDIVIDUAL_KIDS").length,
-      COMPANY: allMembers.filter((m) => m.membershipType === "COMPANY").length,
-    };
-
-    // Kyc breakdown
-    const kycBreakdown = {
-      VERIFIED: allMembers.filter((m) => m.kycStatus === "VERIFIED").length,
-      PENDING: allMembers.filter((m) => m.kycStatus === "PENDING").length,
-      REJECTED: allMembers.filter((m) => m.kycStatus === "REJECTED").length,
-    };
-
-    // Tax threshold members
-    const taxEligibleMembers = allMembers.filter((m) => m.monthlyEarnings > 7000).length;
-
-    // Pool balance (incoming - paid out)
-    const poolIncoming = totalMallTx.reduce((s, x) => s + x.kasiPool, 0) +
-      totalMarketplaceOrders.reduce((s, x) => s + x.commission, 0);
-    const poolBalance = poolIncoming - poolPaidOut;
-
-    // Recent activity (last 20 transactions across platform)
-    const recentActivity = await db.transaction.findMany({
-      take: 20,
-      orderBy: { createdAt: "desc" },
-      include: { member: { select: { profileNumber: true, firstName: true, lastName: true, companyName: true } } },
+    let cumulative = Math.max(0, members.length - memberGrowth.reduce((sum, entry) => sum + entry.count, 0));
+    const cumulativeGrowth = memberGrowth.map((entry) => ({ date: entry.date, count: cumulative += entry.count }));
+    const phases = phaseData.phases.map((phase) => ({ id: phase.id, phase: phase.phaseNumber, pricePerShare: Number(phase.pricePerShare), totalShares: phase.quantityAvailable, soldShares: 0, status: phase.status === "active" ? "OPEN" : phase.status.toUpperCase(), bonusBuyOneGet: phase.phaseNumber === 1 }));
+    const memberById = new Map(members.map((member) => [member.id, member]));
+    const recentActivity = activityData.transactions.map((transaction) => {
+      const member = transaction.profileId ? memberById.get(transaction.profileId) : undefined;
+      return {
+        id: transaction.id,
+        type: transaction.transactionType,
+        amount: transaction.amount,
+        description: transaction.description,
+        createdAt: transaction.createdAt,
+        member: {
+          profileNumber: member?.profileNumber ?? "SYSTEM",
+          name: member?.companyName ?? ([member?.firstName, member?.lastName].filter(Boolean).join(" ") || "System"),
+        },
+      };
     });
-
     return NextResponse.json({
       totals: {
-        members: totalMembers,
-        activeMembers,
-        pendingKyc,
-        totalShares: totalShares._sum.quantity || 0,
-        shareRevenueUSD: parseFloat(shareRevenueUSD.toFixed(2)),
-        pioneerCount,
+        members: members.length,
+        activeMembers: members.filter((member) => member.subscriptionStatus === "ACTIVE").length,
+        pendingKyc: members.filter((member) => member.kycStatus === "PENDING").length,
+        totalShares,
+        shareRevenueUSD,
+        pioneerCount: rootsData.pioneers.length,
         pioneerTarget: 200,
-        totalRevenue: parseFloat(totalRevenue.toFixed(2)),
-        subscriptionRevenue: parseFloat(subscriptionRevenue.toFixed(2)),
-        mallRevenue: parseFloat(mallRevenue.toFixed(2)),
-        marketplaceRevenue: parseFloat(marketplaceRevenue.toFixed(2)),
-        poolPaidOut: parseFloat(poolPaidOut.toFixed(2)),
-        poolBalance: parseFloat(poolBalance.toFixed(2)),
-        poolIncoming: parseFloat(poolIncoming.toFixed(2)),
-        mallTransactions: totalMallTx.length,
-        marketplaceOrders: totalMarketplaceOrders.length,
-        taxEligibleMembers,
-        // Vouchers
-        totalVouchers,
-        activeVouchers,
-        expiringVouchers,
-        totalVoucherValue: parseFloat((totalVoucherValue._sum.value || 0).toFixed(2)),
-        // Referrals
-        totalReferrals,
-        registeredReferrals,
-        referralConversionRate: totalReferrals > 0 ? parseFloat(((registeredReferrals / totalReferrals) * 100).toFixed(1)) : 0,
-        totalReferralRewards: parseFloat((totalReferralRewards._sum.rewardAmount || 0).toFixed(2)),
-        // Notifications
-        totalNotifications,
-        sent5Days,
-        sent3Days,
-        sent1Day,
-        // InstaPay
-        instapayVerifiedCount,
-        instapayPendingCount,
+        totalRevenue: subscriptionRevenue + shareRevenueUSD * 18.5 + mallRevenue + marketplaceRevenue,
+        subscriptionRevenue,
+        mallRevenue,
+        marketplaceRevenue,
+        poolPaidOut: poolData.totals.totalPaidOut,
+        poolBalance: poolData.totals.balance,
+        poolIncoming: poolData.totals.totalIncoming,
+        mallTransactions: mallData.transactions.length,
+        marketplaceOrders: marketData.orders.length,
+        taxEligibleMembers: 0,
+        totalVouchers: voucherData.vouchers.length,
+        activeVouchers: activeVouchers.length,
+        expiringVouchers: activeVouchers.filter((voucher) => new Date(voucher.expiryDate).getTime() <= now + 5 * 86400000).length,
+        totalVoucherValue: activeVouchers.reduce((sum, voucher) => sum + voucher.value, 0),
+        totalReferrals: referralData.referrals.length,
+        registeredReferrals: registeredReferrals.length,
+        referralConversionRate: referralData.referrals.length ? Number(((registeredReferrals.length / referralData.referrals.length) * 100).toFixed(1)) : 0,
+        totalReferralRewards: registeredReferrals.reduce((sum, referral) => sum + referral.rewardAmount, 0),
+        totalNotifications: notificationData.notifications.length,
+        sent5Days: notificationData.notifications.filter((notification) => notification.daysBefore === 5).length,
+        sent3Days: notificationData.notifications.filter((notification) => notification.daysBefore === 3).length,
+        sent1Day: notificationData.notifications.filter((notification) => notification.daysBefore === 1).length,
+        instapayVerifiedCount: members.filter((member) => member.instapayStatus === "VERIFIED").length,
+        instapayPendingCount: members.filter((member) => member.instapayStatus === "PENDING").length,
       },
       memberGrowth,
       cumulativeGrowth,
-      revenueBySource,
-      typeBreakdown,
-      kycBreakdown,
-      silos: silos.map((s) => ({ ...s, updatedAt: s.updatedAt.toISOString() })),
-      phases: phases.map((p) => ({ ...p, createdAt: p.createdAt.toISOString(), updatedAt: p.updatedAt.toISOString() })),
-      dividends: dividendDeclarations.map((d) => ({
-        ...d,
-        declaredAt: d.declaredAt.toISOString(),
-        paidAt: d.paidAt?.toISOString() || null,
-      })),
-      recentActivity: recentActivity.map((t) => ({
-        ...t,
-        createdAt: t.createdAt.toISOString(),
-        member: {
-          profileNumber: t.member.profileNumber,
-          name: t.member.companyName || `${t.member.firstName} ${t.member.lastName}`,
-        },
-      })),
+      revenueBySource: [
+        { name: "Subscriptions", value: subscriptionRevenue, color: "oklch(0.52 0.13 158)" },
+        { name: "KasiShares", value: shareRevenueUSD * 18.5, color: "oklch(0.75 0.15 80)" },
+        { name: "KasiMall", value: mallRevenue, color: "oklch(0.55 0.08 50)" },
+        { name: "Marketplace", value: marketplaceRevenue, color: "oklch(0.65 0.18 145)" },
+      ],
+      typeBreakdown: {
+        INDIVIDUAL_ADULT: members.filter((member) => member.membershipType === "INDIVIDUAL").length,
+        INDIVIDUAL_KIDS: members.filter((member) => member.membershipType === "MINOR").length,
+        COMPANY: members.filter((member) => member.membershipType === "COMPANY").length,
+      },
+      kycBreakdown: {
+        VERIFIED: members.filter((member) => member.kycStatus === "VERIFIED").length,
+        PENDING: members.filter((member) => member.kycStatus === "PENDING").length,
+        REJECTED: members.filter((member) => member.kycStatus === "REJECTED").length,
+      },
+      silos: mallData.silos,
+      phases,
+      dividends: dividendData.dividends,
+      recentActivity,
     });
   } catch (error) {
-    console.error("[admin/stats] error", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    const status = error instanceof EncoreRequestError ? error.status : 500;
+    return NextResponse.json({ error: "Unable to aggregate Encore administration statistics" }, { status });
   }
 }

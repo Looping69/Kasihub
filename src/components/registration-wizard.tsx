@@ -20,6 +20,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import { BrandLogo } from "@/components/brand-logo";
 import { useKasiStore } from "@/lib/store";
 import type { CitizenshipType, MembershipType } from "@/lib/types";
 
@@ -61,6 +62,8 @@ interface FormData {
   organizationName: string;
   // Common
   email: string;
+  password: string;
+  confirmPassword: string;
   country: string;
   mobile: string;
   addressLine: string;
@@ -93,6 +96,8 @@ const INITIAL: FormData = {
   companyName: "",
   organizationName: "",
   email: "",
+  password: "",
+  confirmPassword: "",
   country: "South Africa",
   mobile: "",
   addressLine: "",
@@ -227,6 +232,14 @@ export function RegistrationWizard() {
       toast.error("Email and mobile are required.");
       return;
     }
+    if (data.password.length < 12) {
+      toast.error("Password must contain at least 12 characters.");
+      return;
+    }
+    if (data.password !== data.confirmPassword) {
+      toast.error("Passwords do not match.");
+      return;
+    }
     setSubmitting(true);
     try {
       const payload: Record<string, unknown> = {
@@ -238,6 +251,7 @@ export function RegistrationWizard() {
         instapayAccountRef: data.instapayAccountRef,
         instapayVerifiedAt: data.instapayVerifiedAt,
         email: data.email,
+        password: data.password,
         country: data.country,
         mobile: data.mobile,
         addressLine: data.addressLine || null,
@@ -303,22 +317,26 @@ export function RegistrationWizard() {
 
   return (
     <Dialog open onOpenChange={(o) => !o && !submitting && closeRegistration()}>
-      <DialogContent className="w-[90vw] max-w-[1100px] max-h-[92vh] overflow-y-auto p-0 gap-0 scrollbar-kasi">
+      <DialogContent
+        showCloseButton={false}
+        className="w-[80vw] max-w-[80vw] sm:max-w-[80vw] max-h-[92vh] overflow-y-auto p-0 gap-0 scrollbar-kasi"
+      >
         <DialogHeader className="px-6 pt-6 pb-0">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="relative w-10 h-10">
-                <div className="absolute inset-0 rounded-xl bg-gradient-to-br from-emerald-500 to-amber-500" />
-                <div className="absolute inset-0.5 rounded-[10px] bg-background flex items-center justify-center">
-                  <span className="text-lg font-black bg-gradient-to-br from-emerald-600 to-amber-500 bg-clip-text text-transparent">K</span>
-                </div>
-              </div>
+              <BrandLogo className="h-14 w-24" />
               <div>
                 <DialogTitle className="text-xl">Join KaSiHUB</DialogTitle>
                 <p className="text-xs text-muted-foreground">Become a member of the Eco-System</p>
               </div>
             </div>
-            <Button variant="ghost" size="icon" onClick={closeRegistration} disabled={submitting}>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Close registration"
+              onClick={closeRegistration}
+              disabled={submitting}
+            >
               <X className="h-4 w-4" />
             </Button>
           </div>
@@ -437,6 +455,7 @@ function canProceed(step: Step, data: FormData): boolean {
   }
   if (step === "details") {
     if (!data.email || !data.mobile) return false;
+    if (data.password.length < 12 || data.password !== data.confirmPassword) return false;
     if (isCompanyType(data.citizenshipType)) {
       return !!data.companyName && !!data.companyRegNo;
     }
@@ -649,13 +668,13 @@ function InstaPayStep({
     }
     setVerifying(true);
     try {
-      // Demo simulation: since there's no memberId yet, accept any value 6+ chars
-      await new Promise((r) => setTimeout(r, 800));
-      const accountRef = `IPG-${identifier.slice(-6).toUpperCase()}-${Math.floor(Math.random() * 1000)}`;
-      update("instapayStatus", "VERIFIED");
-      update("instapayAccountRef", accountRef);
-      update("instapayVerifiedAt", new Date().toISOString());
-      toast.success("InstaPay account verified!");
+      // Author: Klaasvaakie ( |╲ )
+      // Provider verification is submitted only after Encore creates the member identity.
+      update("instapayStatus", "PENDING");
+      update("instapayAccountRef", null);
+      update("instapayVerifiedAt", null);
+      update("instapayOption", "download");
+      toast.success("Details captured. Verification will continue after registration.");
     } catch {
       toast.error("Verification failed. Please try again.");
     } finally {
@@ -1048,6 +1067,8 @@ function DetailsStep({
       <div className="grid gap-4 sm:grid-cols-2 mt-4">
         <Field label="Email address" required type="email" value={data.email} onChange={(v) => update("email", v)} placeholder="you@example.com" />
         <Field label="Mobile number" required value={data.mobile} onChange={(v) => update("mobile", v)} placeholder="+27 82 123 4567" />
+        <Field label="Password" required type="password" value={data.password} onChange={(v) => update("password", v)} placeholder="At least 12 characters" />
+        <Field label="Confirm password" required type="password" value={data.confirmPassword} onChange={(v) => update("confirmPassword", v)} placeholder="Repeat your password" />
         <div>
           <Label>Country</Label>
           <select

@@ -322,10 +322,11 @@ export function AdminMarketplace() {
                   <p className="text-[10px] text-muted-foreground mt-1">Price for free members (usually 15% higher than member price).</p>
                 </div>
               </div>
-              {editing.price > 0 && editing.freePrice > 0 && editing.freePrice !== editing.price && (
+              {(editing.price ?? 0) > 0 && (editing.freePrice ?? 0) > 0 && editing.freePrice !== editing.price && (
                 <div className="rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 p-2.5 text-xs text-amber-800 dark:text-amber-300 flex items-center gap-2">
                   <Sparkles className="h-3.5 w-3.5 shrink-0" />
-                  <span>Free members pay <strong>{fmt(editing.freePrice)}</strong> — that's <strong>{(((editing.freePrice - editing.price) / editing.price) * 100).toFixed(0)}%</strong> more than paid members ({fmt(editing.price)}).</span>
+                  {/* Author: Klaasvaakie ( |╲ ) */}
+                  <span>Free members pay <strong>{fmt(editing.freePrice ?? 0)}</strong> — that's <strong>{(((((editing.freePrice ?? 0) - (editing.price ?? 0)) / (editing.price ?? 1)) * 100)).toFixed(0)}%</strong> more than paid members ({fmt(editing.price ?? 0)}).</span>
                 </div>
               )}
               <div className="grid grid-cols-2 gap-3">

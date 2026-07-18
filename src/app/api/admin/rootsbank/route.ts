@@ -1,60 +1,28 @@
+// Author: Klaasvaakie ( |╲ )
 import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { EncoreRequestError, encoreRequest, encoreSessionToken } from "@/lib/encore-client";
 
-// GET /api/admin/rootsbank - all pioneer shares across platform
+type Pioneer = { category: string; totalAmount: number } & Record<string, unknown>;
+
 export async function GET() {
+  const token = await encoreSessionToken();
+  if (!token) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
   try {
-    const pioneers = await db.rootsBankShare.findMany({
-      orderBy: { createdAt: "asc" },
-      include: {
-        member: {
-          select: { profileNumber: true, firstName: true, lastName: true, companyName: true, email: true, country: true },
-        },
-      },
-    });
-
-    const categoryBreakdown = {
-      KIDS_STUDENT: pioneers.filter((p) => p.category === "KIDS_STUDENT").length,
-      ADULT: pioneers.filter((p) => p.category === "ADULT").length,
-      PENSIONER: pioneers.filter((p) => p.category === "PENSIONER").length,
-    };
-
-    const totalCollected = pioneers.reduce((s, p) => s + p.totalAmount, 0);
-
-    // Pioneer pool payouts (transactions of type PIONEER)
-    const pioneerPayouts = await db.transaction.findMany({
-      where: { type: "PIONEER" },
-      orderBy: { createdAt: "desc" },
-      take: 20,
-      include: { member: { select: { profileNumber: true, firstName: true, lastName: true } } },
-    });
-
+    const { pioneers } = await encoreRequest<{ pioneers: Pioneer[] }>("/admin/rootsbank", {}, token);
     return NextResponse.json({
-      pioneers: pioneers.map((p) => ({
-        ...p,
-        createdAt: p.createdAt.toISOString(),
-        member: {
-          profileNumber: p.member.profileNumber,
-          name: p.member.companyName || `${p.member.firstName} ${p.member.lastName}`,
-          email: p.member.email,
-          country: p.member.country,
-        },
-      })),
-      categoryBreakdown,
-      totalCollected: parseFloat(totalCollected.toFixed(2)),
+      pioneers: pioneers.map((pioneer) => ({ ...pioneer, member: { profileNumber: "Encore", name: "Encore member", email: "", country: "" } })),
+      categoryBreakdown: {
+        KIDS_STUDENT: pioneers.filter((pioneer) => pioneer.category === "KIDS_STUDENT").length,
+        ADULT: pioneers.filter((pioneer) => pioneer.category === "ADULT").length,
+        PENSIONER: pioneers.filter((pioneer) => pioneer.category === "PENSIONER").length,
+      },
+      totalCollected: pioneers.reduce((sum, pioneer) => sum + pioneer.totalAmount, 0),
       pioneerTarget: 200,
-      remaining: 200 - pioneers.length,
-      pioneerPayouts: pioneerPayouts.map((t) => ({
-        ...t,
-        createdAt: t.createdAt.toISOString(),
-        member: {
-          profileNumber: t.member.profileNumber,
-          name: `${t.member.firstName} ${t.member.lastName}`,
-        },
-      })),
+      remaining: Math.max(0, 200 - pioneers.length),
+      pioneerPayouts: [],
     });
   } catch (error) {
-    console.error("[admin/rootsbank] error", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    const status = error instanceof EncoreRequestError ? error.status : 500;
+    return NextResponse.json({ error: "Unable to load Encore RootsBank administration" }, { status });
   }
 }

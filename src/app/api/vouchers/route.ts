@@ -1,46 +1,28 @@
+// Author: Klaasvaakie ( |╲ )
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { EncoreRequestError, encoreRequest, encoreSessionToken } from "@/lib/encore-client";
 
-// GET /api/vouchers?memberId=xxx - get member's vouchers
+type Voucher = { value: number; status: string; expiryDate: string } & Record<string, unknown>;
+
 export async function GET(req: NextRequest) {
+  const memberId = req.nextUrl.searchParams.get("memberId");
+  const token = await encoreSessionToken();
+  if (!memberId) return NextResponse.json({ error: "memberId is required" }, { status: 400 });
+  if (!token) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
   try {
-    const { searchParams } = new URL(req.url);
-    const memberId = searchParams.get("memberId");
-    if (!memberId) {
-      return NextResponse.json({ error: "memberId is required" }, { status: 400 });
-    }
-
-    const vouchers = await db.voucher.findMany({
-      where: { memberId },
-      orderBy: { expiryDate: "asc" },
-    });
-
-    const now = new Date();
-    const active = vouchers.filter((v) => v.status === "ACTIVE" && new Date(v.expiryDate) > now);
-    const expiringSoon = active.filter((v) => {
-      const days = Math.ceil((new Date(v.expiryDate).getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-      return days <= 5;
-    });
-    const expired = vouchers.filter((v) => v.status === "EXPIRED" || new Date(v.expiryDate) <= now);
-
-    const totalValue = active.reduce((s, v) => s + v.value, 0);
-
-    return NextResponse.json({
-      vouchers: vouchers.map((v) => ({
-        ...v,
-        issueDate: v.issueDate.toISOString(),
-        expiryDate: v.expiryDate.toISOString(),
-        anniversaryDate: v.anniversaryDate?.toISOString() || null,
-        createdAt: v.createdAt.toISOString(),
-        daysToExpiry: Math.ceil((new Date(v.expiryDate).getTime() - now.getTime()) / (1000 * 60 * 60 * 24)),
-      })),
-      active: active.length,
-      expiringSoon: expiringSoon.length,
-      expired: expired.length,
-      totalValue: parseFloat(totalValue.toFixed(2)),
-    });
+    const { vouchers } = await encoreRequest<{ vouchers: Voucher[] }>(`/vouchers/${encodeURIComponent(memberId)}`, {}, token);
+    const now = Date.now();
+    const decorated = vouchers.map((voucher) => ({
+      ...voucher,
+      daysToExpiry: Math.ceil((new Date(voucher.expiryDate).getTime() - now) / 86400000),
+      daysToAnniversary: typeof voucher.anniversaryDate === "string"
+        ? Math.ceil((new Date(voucher.anniversaryDate).getTime() - now) / 86400000)
+        : null,
+    }));
+    const active = decorated.filter((voucher) => voucher.status === "ACTIVE" && new Date(voucher.expiryDate).getTime() > now);
+    return NextResponse.json({ vouchers: decorated, active: active.length, expiringSoon: active.filter((voucher) => voucher.daysToAnniversary !== null && voucher.daysToAnniversary > 0 && voucher.daysToAnniversary <= 5).length, expired: decorated.length - active.length, totalValue: active.reduce((sum, voucher) => sum + voucher.value, 0) });
   } catch (error) {
-    console.error("[vouchers] error", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    const status = error instanceof EncoreRequestError ? error.status : 500;
+    return NextResponse.json({ error: "Unable to load Encore vouchers" }, { status });
   }
 }

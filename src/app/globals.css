@@ -16,6 +16,7 @@
   --color-sidebar-primary: var(--sidebar-primary);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar: var(--sidebar);
+  --color-role-page: var(--role-page);
   --color-chart-5: var(--chart-5);
   --color-chart-4: var(--chart-4);
   --color-chart-3: var(--chart-3);
@@ -76,14 +77,16 @@
   --chart-3: oklch(0.55 0.08 50);
   --chart-4: oklch(0.65 0.18 145);
   --chart-5: oklch(0.7 0.12 95);
-  --sidebar: oklch(0.17 0.02 155);
-  --sidebar-foreground: oklch(0.95 0.01 150);
-  --sidebar-primary: oklch(0.52 0.13 158);
-  --sidebar-primary-foreground: oklch(0.99 0.005 95);
-  --sidebar-accent: oklch(0.25 0.03 155);
-  --sidebar-accent-foreground: oklch(0.95 0.01 150);
-  --sidebar-border: oklch(0.3 0.02 155);
-  --sidebar-ring: oklch(0.52 0.13 158);
+  /* Canonical logo shell palette: Hub blue, Kasi orange. Klaasvaakie ( |╲ ) */
+  --role-page: #eef6fc;
+  --sidebar: #0569bd;
+  --sidebar-foreground: #ffffff;
+  --sidebar-primary: #f58220;
+  --sidebar-primary-foreground: #17233c;
+  --sidebar-accent: #075aa0;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: #2c7fc2;
+  --sidebar-ring: #f58220;
 }
 
 .dark {
@@ -113,14 +116,15 @@
   --chart-3: oklch(0.6 0.1 50);
   --chart-4: oklch(0.7 0.18 145);
   --chart-5: oklch(0.75 0.12 95);
-  --sidebar: oklch(0.11 0.02 155);
-  --sidebar-foreground: oklch(0.96 0.01 150);
-  --sidebar-primary: oklch(0.68 0.15 158);
-  --sidebar-primary-foreground: oklch(0.14 0.02 155);
-  --sidebar-accent: oklch(0.22 0.03 155);
-  --sidebar-accent-foreground: oklch(0.96 0.01 150);
-  --sidebar-border: oklch(0.3 0.02 155);
-  --sidebar-ring: oklch(0.68 0.15 158);
+  --role-page: #071a2f;
+  --sidebar: #034d8c;
+  --sidebar-foreground: #ffffff;
+  --sidebar-primary: #f58220;
+  --sidebar-primary-foreground: #17233c;
+  --sidebar-accent: #063d70;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: #1767a8;
+  --sidebar-ring: #f58220;
 }
 
 @layer base {

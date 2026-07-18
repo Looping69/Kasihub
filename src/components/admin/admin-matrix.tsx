@@ -34,9 +34,11 @@ export function AdminMatrix() {
         const res = await fetch("/api/admin/members?limit=1000", { cache: "no-store" });
         if (res.ok) {
           const data = await res.json();
-          // Approximate level distribution based on creation order (matches forced matrix fill)
+          // Author: Klaasvaakie ( |╲ )
+          // Approximate level distribution based on creation order (matches Eco-System fill)
           const totalNodes = data.total;
-          const levels = [];
+          // Author: Klaasvaakie ( |╲ )
+          const levels: MatrixStats["levels"] = [];
           let cumulative = 0;
           let level = 0;
           while (level < 6) {
@@ -93,7 +95,7 @@ export function AdminMatrix() {
           <Network className="h-5 w-5 text-emerald-600" />
           <h2 className="text-2xl font-black tracking-tight">Matrix overview</h2>
         </div>
-        <p className="text-sm text-muted-foreground">5×6 forced ecosystem · fills top-left to bottom-right · no recruitment required.</p>
+        <p className="text-sm text-muted-foreground">5×6 Eco-System · fills top-left to bottom-right · no recruitment required.</p>
       </div>
 
       {/* Top stats */}
@@ -185,7 +187,7 @@ export function AdminMatrix() {
         <div className="flex items-start gap-3">
           <div className="w-10 h-10 rounded-lg bg-emerald-100 dark:bg-emerald-950/40 flex items-center justify-center flex-shrink-0"><GitBranch className="h-5 w-5 text-emerald-600" /></div>
           <div className="text-sm">
-            <p className="font-semibold mb-1">How the forced matrix fills</p>
+            <p className="font-semibold mb-1">How the Eco-System fills</p>
             <ul className="space-y-1 text-xs text-muted-foreground list-disc list-inside">
               <li>New members are placed in the first open spot, filling top-left to bottom-right.</li>
               <li>R47 of every R140 subscription is paid up 6 levels. Commission per level is configurable in Settings.</li>

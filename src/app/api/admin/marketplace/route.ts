@@ -1,149 +1,72 @@
+// Author: Klaasvaakie ( |╲ )
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { EncoreRequestError, encoreRequest, encoreSessionToken } from "@/lib/encore-client";
 
-// GET /api/admin/marketplace - all products + recent orders
+type Product = { id: string; category: string; price: number; freePrice: number; createdAt: string };
+type Order = { id: string; productId: string; productName: string; amount: number; commission: number; pricingTier: string; status: string; createdAt: string };
+
 export async function GET() {
+  const token = await encoreSessionToken();
+  if (!token) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
   try {
-    const [products, orders] = await Promise.all([
-      db.marketplaceProduct.findMany({ orderBy: { popular: "desc" } }),
-      db.marketplaceOrder.findMany({
-        orderBy: { createdAt: "desc" },
-        take: 50,
-        include: { member: { select: { profileNumber: true, firstName: true, lastName: true, companyName: true } } },
-      }),
-    ]);
-
-    // Revenue by category
-    const categoryRevenueMap = new Map<string, { revenue: number; commission: number; count: number; freeOrders: number; paidOrders: number }>();
-    for (const o of orders) {
-      const p = products.find((x) => x.name === o.productName);
-      const cat = p?.category || "OTHER";
-      const cur = categoryRevenueMap.get(cat) || { revenue: 0, commission: 0, count: 0, freeOrders: 0, paidOrders: 0 };
-      cur.revenue += o.amount;
-      cur.commission += o.commission;
-      cur.count += 1;
-      if (o.pricingTier === "FREE") cur.freeOrders++;
-      else cur.paidOrders++;
-      categoryRevenueMap.set(cat, cur);
+    const data = await encoreRequest<{ products: Product[]; orders: Order[] }>("/admin/marketplace", {}, token);
+    const categoryMap = new Map<string, { revenue: number; commission: number; orderCount: number; freeOrders: number; paidOrders: number }>();
+    for (const order of data.orders) {
+      const category = data.products.find((product) => product.id === order.productId)?.category ?? "OTHER";
+      const stats = categoryMap.get(category) ?? { revenue: 0, commission: 0, orderCount: 0, freeOrders: 0, paidOrders: 0 };
+      stats.revenue += order.amount;
+      stats.commission += order.commission;
+      stats.orderCount++;
+      if (order.pricingTier === "FREE") stats.freeOrders++; else stats.paidOrders++;
+      categoryMap.set(category, stats);
     }
-    const categoryStats = Array.from(categoryRevenueMap.entries()).map(([category, stats]) => ({
-      category,
-      revenue: parseFloat(stats.revenue.toFixed(2)),
-      commission: parseFloat(stats.commission.toFixed(2)),
-      orderCount: stats.count,
-      freeOrders: stats.freeOrders,
-      paidOrders: stats.paidOrders,
-    }));
-
-    const totalRevenue = orders.reduce((s, o) => s + o.amount, 0);
-    const totalCommission = orders.reduce((s, o) => s + o.commission, 0);
-    const freeMemberOrders = orders.filter((o) => o.pricingTier === "FREE").length;
-    const paidMemberOrders = orders.filter((o) => o.pricingTier === "PAID").length;
-
     return NextResponse.json({
-      products: products.map((p) => ({
-        ...p,
-        createdAt: p.createdAt.toISOString(),
-        freePriceDelta: p.freePrice > 0 ? parseFloat((((p.freePrice - p.price) / p.price) * 100).toFixed(1)) : 0,
-      })),
-      orders: orders.map((o) => ({
-        ...o,
-        createdAt: o.createdAt.toISOString(),
-        member: {
-          profileNumber: o.member.profileNumber,
-          name: o.member.companyName || `${o.member.firstName} ${o.member.lastName}`,
-        },
-      })),
-      categoryStats,
-      totalRevenue: parseFloat(totalRevenue.toFixed(2)),
-      totalCommission: parseFloat(totalCommission.toFixed(2)),
-      totalOrders: orders.length,
-      freeMemberOrders,
-      paidMemberOrders,
+      products: data.products.map((product) => ({ ...product, freePriceDelta: product.price > 0 ? Number((((product.freePrice - product.price) / product.price) * 100).toFixed(1)) : 0 })),
+      orders: data.orders.map((order) => ({ ...order, member: { profileNumber: "Encore", name: "Encore member" } })),
+      categoryStats: Array.from(categoryMap, ([category, stats]) => ({ category, ...stats })),
+      totalRevenue: data.orders.reduce((sum, order) => sum + order.amount, 0),
+      totalCommission: data.orders.reduce((sum, order) => sum + order.commission, 0),
+      totalOrders: data.orders.length,
+      freeMemberOrders: data.orders.filter((order) => order.pricingTier === "FREE").length,
+      paidMemberOrders: data.orders.filter((order) => order.pricingTier === "PAID").length,
     });
   } catch (error) {
-    console.error("[admin/marketplace] error", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return encoreError(error, "Unable to load Encore marketplace administration");
   }
 }
 
-// POST /api/admin/marketplace - create a new product
 export async function POST(req: NextRequest) {
-  try {
-    const body = await req.json();
-    const { name, description, category, provider, price, freePrice, commissionPct, imageColor, rating, popular } = body;
-
-    if (!name || !description || !category || !provider || price === undefined) {
-      return NextResponse.json({ error: "name, description, category, provider, price are required" }, { status: 400 });
-    }
-
-    const product = await db.marketplaceProduct.create({
-      data: {
-        name,
-        description,
-        category,
-        provider,
-        price: parseFloat(price),
-        freePrice: freePrice ? parseFloat(freePrice) : Math.round(parseFloat(price) * 1.15),
-        commissionPct: commissionPct ? parseFloat(commissionPct) : 0,
-        imageColor: imageColor || "emerald",
-        rating: rating ? parseFloat(rating) : 4.5,
-        popular: popular || false,
-        currency: "ZAR",
-      },
-    });
-
-    return NextResponse.json({ product }, { status: 201 });
-  } catch (error) {
-    console.error("[admin/marketplace/create] error", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
-  }
+  return mutate(req, "/admin/marketplace/products", "POST");
 }
 
-// PATCH /api/admin/marketplace - update a product
 export async function PATCH(req: NextRequest) {
+  const body = await req.json();
+  if (!body.productId) return NextResponse.json({ error: "productId is required" }, { status: 400 });
+  return mutateBody(`/admin/marketplace/products/${encodeURIComponent(body.productId)}`, "PATCH", body);
+}
+
+export async function DELETE(req: NextRequest) {
+  const productId = req.nextUrl.searchParams.get("productId");
+  if (!productId) return NextResponse.json({ error: "productId is required" }, { status: 400 });
+  return mutateBody(`/admin/marketplace/products/${encodeURIComponent(productId)}`, "DELETE", undefined);
+}
+
+async function mutate(req: NextRequest, path: string, method: string) {
+  return mutateBody(path, method, await req.json());
+}
+
+async function mutateBody(path: string, method: string, body: unknown) {
+  const token = await encoreSessionToken();
+  if (!token) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
   try {
-    const body = await req.json();
-    const { productId, ...updates } = body;
-
-    if (!productId) {
-      return NextResponse.json({ error: "productId is required" }, { status: 400 });
-    }
-
-    const data: Record<string, unknown> = {};
-    for (const k of ["name", "description", "category", "provider", "imageColor"]) {
-      if (updates[k] !== undefined) data[k] = updates[k];
-    }
-    if (updates.price !== undefined) data.price = parseFloat(updates.price);
-    if (updates.freePrice !== undefined) data.freePrice = parseFloat(updates.freePrice);
-    if (updates.commissionPct !== undefined) data.commissionPct = parseFloat(updates.commissionPct);
-    if (updates.rating !== undefined) data.rating = parseFloat(updates.rating);
-    if (updates.popular !== undefined) data.popular = updates.popular;
-
-    const product = await db.marketplaceProduct.update({
-      where: { id: productId },
-      data,
-    });
-
-    return NextResponse.json({ product });
+    const data = await encoreRequest(path, { method, body: body === undefined ? undefined : JSON.stringify(body) }, token);
+    return NextResponse.json(data, { status: method === "POST" ? 201 : 200 });
   } catch (error) {
-    console.error("[admin/marketplace/update] error", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return encoreError(error, "Encore marketplace mutation failed");
   }
 }
 
-// DELETE /api/admin/marketplace - delete a product
-export async function DELETE(req: NextRequest) {
-  try {
-    const { searchParams } = new URL(req.url);
-    const productId = searchParams.get("productId");
-    if (!productId) {
-      return NextResponse.json({ error: "productId is required" }, { status: 400 });
-    }
-    await db.marketplaceProduct.delete({ where: { id: productId } });
-    return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error("[admin/marketplace/delete] error", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
-  }
+function encoreError(error: unknown, message: string) {
+  const status = error instanceof EncoreRequestError ? error.status : 500;
+  return NextResponse.json({ error: message }, { status });
 }

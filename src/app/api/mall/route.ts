@@ -1,68 +1,38 @@
+// Author: Klaasvaakie ( |╲ )
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { EncoreRequestError, encoreRequest, encoreSessionToken } from "@/lib/encore-client";
 
-// GET /api/mall?memberId=xxx - get mall transactions + silo config + member NFC tag
+type MallTransaction = { amount: number; costOfSale: number; vat: number; sharePool: number; kasiPool: number } & Record<string, unknown>;
+type Silo = { name: string; percentage: number; color: string; description: string | null };
+
 export async function GET(req: NextRequest) {
+  const memberId = req.nextUrl.searchParams.get("memberId");
+  const token = await encoreSessionToken();
+  if (!memberId) return NextResponse.json({ error: "memberId is required" }, { status: 400 });
+  if (!token) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
   try {
-    const { searchParams } = new URL(req.url);
-    const memberId = searchParams.get("memberId");
-
-    let nfcTagId: string | null = null;
-    if (memberId) {
-      const member = await db.member.findUnique({ where: { id: memberId } });
-      nfcTagId = member?.nfcTagId ?? null;
-    }
-
-    const where = nfcTagId ? { nfcTagId } : {};
-    const transactions = await db.mallTransaction.findMany({
-      where,
-      orderBy: { createdAt: "desc" },
-      take: 20,
-    });
-
-    // Aggregate totals
-    const allTx = await db.mallTransaction.findMany({ where });
-    const totals = allTx.reduce(
-      (acc, t) => {
-        acc.amount += t.amount;
-        acc.costOfSale += t.costOfSale;
-        acc.vat += t.vat;
-        acc.sharePool += t.sharePool;
-        acc.kasiPool += t.kasiPool;
-        return acc;
-      },
-      { amount: 0, costOfSale: 0, vat: 0, sharePool: 0, kasiPool: 0 }
-    );
-
-    // Silo split percentages (editable by Exco in production)
-    const silos = [
-      { name: "Cost of Sale (Suppliers)", pct: 65, color: "oklch(0.55 0.08 50)", description: "Paid to suppliers for goods sold at KasiMall stores" },
-      { name: "VAT", pct: 15, color: "oklch(0.65 0.18 145)", description: "Value Added Tax remitted to SARS" },
-      { name: "KasiShare Pool", pct: 10, color: "oklch(0.75 0.15 80)", description: "Distributed daily to KasiShare holders" },
-      { name: "KasiPool", pct: 10, color: "oklch(0.52 0.13 158)", description: "Shared equally among eligible Hub members, paid nightly" },
-    ];
-
-    // Mall progress: 5000 members needed per area to build a mall
-    const memberCount = await db.member.count();
-    const mallProgress = Math.min((memberCount / 5000) * 100, 100);
-
+    const data = await encoreRequest<{ transactions: MallTransaction[]; silos: Silo[]; memberCount: number }>(`/mall/${encodeURIComponent(memberId)}`, {}, token);
     return NextResponse.json({
-      nfcTagId,
-      transactions: transactions.map((t) => ({ ...t, createdAt: t.createdAt.toISOString() })),
-      totals: {
-        amount: parseFloat(totals.amount.toFixed(2)),
-        costOfSale: parseFloat(totals.costOfSale.toFixed(2)),
-        vat: parseFloat(totals.vat.toFixed(2)),
-        sharePool: parseFloat(totals.sharePool.toFixed(2)),
-        kasiPool: parseFloat(totals.kasiPool.toFixed(2)),
-      },
-      silos,
-      mallProgress: parseFloat(mallProgress.toFixed(1)),
-      memberCount,
+      nfcTagId: `NFC-${memberId.slice(0, 12).toUpperCase()}`,
+      transactions: data.transactions,
+      totals: totals(data.transactions),
+      silos: data.silos.map((silo) => ({ name: silo.name, pct: silo.percentage, color: silo.color, description: silo.description })),
+      mallProgress: Number((Math.min(data.memberCount / 5000, 1) * 100).toFixed(1)),
+      memberCount: data.memberCount,
       mallThreshold: 5000,
     });
   } catch (error) {
-    console.error("[mall] error", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    const status = error instanceof EncoreRequestError ? error.status : 500;
+    return NextResponse.json({ error: "Unable to load mall from Encore" }, { status });
   }
+}
+
+function totals(transactions: MallTransaction[]) {
+  return transactions.reduce((result, transaction) => ({
+    amount: result.amount + transaction.amount,
+    costOfSale: result.costOfSale + transaction.costOfSale,
+    vat: result.vat + transaction.vat,
+    sharePool: result.sharePool + transaction.sharePool,
+    kasiPool: result.kasiPool + transaction.kasiPool,
+  }), { amount: 0, costOfSale: 0, vat: 0, sharePool: 0, kasiPool: 0 });
 }

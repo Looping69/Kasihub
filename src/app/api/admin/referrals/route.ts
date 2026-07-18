@@ -1,59 +1,25 @@
+// Author: Klaasvaakie ( |╲ )
 import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { EncoreRequestError, encoreRequest, encoreSessionToken } from "@/lib/encore-client";
 
-// GET /api/admin/referrals - all referrals across the platform
+type Referral = { referrerId: string; status: string; rewardAmount: number } & Record<string, unknown>;
+
 export async function GET() {
+  const token = await encoreSessionToken();
+  if (!token) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
   try {
-    const referrals = await db.referral.findMany({
-      orderBy: { createdAt: "desc" },
-      include: {
-        referrer: {
-          select: { profileNumber: true, firstName: true, lastName: true, companyName: true },
-        },
-      },
-    });
-
-    const registered = referrals.filter((r) => r.status === "REGISTERED");
-    const pending = referrals.filter((r) => r.status === "PENDING");
-    const totalRewards = registered.reduce((s, r) => s + r.rewardAmount, 0);
-
-    // Top referrers
-    const referrerMap = new Map<string, { name: string; profileNumber: string; count: number; rewards: number }>();
-    for (const r of referrals) {
-      if (r.status === "REGISTERED") {
-        const key = r.referrerId;
-        const name = r.referrer.companyName || `${r.referrer.firstName} ${r.referrer.lastName}`;
-        const cur = referrerMap.get(key) || { name, profileNumber: r.referrer.profileNumber, count: 0, rewards: 0 };
-        cur.count++;
-        cur.rewards += r.rewardAmount;
-        referrerMap.set(key, cur);
-      }
+    const { referrals } = await encoreRequest<{ referrals: Referral[] }>("/admin/referrals", {}, token);
+    const registered = referrals.filter((referral) => referral.status === "REGISTERED");
+    const referrers = new Map<string, { name: string; profileNumber: string; count: number; rewards: number }>();
+    for (const referral of registered) {
+      const entry = referrers.get(referral.referrerId) ?? { name: "Encore member", profileNumber: `KSI-${referral.referrerId.slice(0, 8).toUpperCase()}`, count: 0, rewards: 0 };
+      entry.count++;
+      entry.rewards += referral.rewardAmount;
+      referrers.set(referral.referrerId, entry);
     }
-    const topReferrers = Array.from(referrerMap.values())
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 10);
-
-    return NextResponse.json({
-      referrals: referrals.map((r) => ({
-        ...r,
-        createdAt: r.createdAt.toISOString(),
-        convertedAt: r.convertedAt?.toISOString() || null,
-        referrer: {
-          profileNumber: r.referrer.profileNumber,
-          name: r.referrer.companyName || `${r.referrer.firstName} ${r.referrer.lastName}`,
-        },
-      })),
-      stats: {
-        total: referrals.length,
-        registered: registered.length,
-        pending: pending.length,
-        conversionRate: referrals.length > 0 ? parseFloat(((registered.length / referrals.length) * 100).toFixed(1)) : 0,
-        totalRewards: parseFloat(totalRewards.toFixed(2)),
-      },
-      topReferrers,
-    });
+    return NextResponse.json({ referrals: referrals.map((referral) => ({ ...referral, referrer: { profileNumber: `KSI-${referral.referrerId.slice(0, 8).toUpperCase()}`, name: "Encore member" } })), stats: { total: referrals.length, registered: registered.length, pending: referrals.length - registered.length, conversionRate: referrals.length ? Number(((registered.length / referrals.length) * 100).toFixed(1)) : 0, totalRewards: registered.reduce((sum, referral) => sum + referral.rewardAmount, 0) }, topReferrers: Array.from(referrers.values()).sort((left, right) => right.count - left.count).slice(0, 10) });
   } catch (error) {
-    console.error("[admin/referrals] error", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    const status = error instanceof EncoreRequestError ? error.status : 500;
+    return NextResponse.json({ error: "Unable to load Encore referrals" }, { status });
   }
 }

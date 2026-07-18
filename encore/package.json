@@ -1,0 +1,10 @@
+{
+  "name": "kasihub-encore-backend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "dependencies": {
+    "encore.dev": "1.57.11",
+    "zod": "^4.0.2"
+  }
+}

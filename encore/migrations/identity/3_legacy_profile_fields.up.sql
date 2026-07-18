@@ -1,0 +1,21 @@
+-- Author: Klaasvaakie ( |╲ )
+ALTER TABLE profiles ADD COLUMN membership_type TEXT;
+ALTER TABLE profiles ADD COLUMN citizenship_type TEXT;
+ALTER TABLE profiles ADD COLUMN address_line TEXT;
+ALTER TABLE profiles ADD COLUMN city TEXT;
+ALTER TABLE profiles ADD COLUMN postal_code TEXT;
+ALTER TABLE profiles ADD COLUMN beneficiary_name TEXT;
+ALTER TABLE profiles ADD COLUMN beneficiary_id TEXT;
+ALTER TABLE profiles ADD COLUMN guardian_name TEXT;
+ALTER TABLE profiles ADD COLUMN kyc_verified_at TIMESTAMPTZ;
+ALTER TABLE profiles ADD COLUMN tax_threshold BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE profiles ADD COLUMN monthly_earnings NUMERIC(14, 2) NOT NULL DEFAULT 0;
+ALTER TABLE profiles ADD COLUMN nfc_tag_id TEXT;
+ALTER TABLE profiles ADD COLUMN visa_card_last4 TEXT;
+ALTER TABLE profiles ADD COLUMN roots_bank_account TEXT;
+ALTER TABLE profiles ADD COLUMN instapay_status TEXT NOT NULL DEFAULT 'NONE';
+ALTER TABLE profiles ADD COLUMN instapay_verified_at TIMESTAMPTZ;
+ALTER TABLE profiles ADD COLUMN instapay_account_ref TEXT;
+ALTER TABLE profiles ADD COLUMN upline_profile_number TEXT;
+ALTER TABLE profiles ADD COLUMN upline_confirmed BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE profiles ADD COLUMN updated_at TIMESTAMPTZ NOT NULL DEFAULT now();

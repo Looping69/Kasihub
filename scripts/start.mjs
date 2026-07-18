@@ -1,16 +1,13 @@
-// ( |╲ ) Author: Klaasvaakie
+// Author: Klaasvaakie ( |╲ )
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
-import { resolve } from "node:path";
 
-const localDatabase = resolve("db/custom.db");
-const databaseUrl = process.env.DATABASE_URL ?? (
-  existsSync(localDatabase) ? `file:${localDatabase.replaceAll("\\", "/")}` : undefined
-);
+if (!process.env.ENCORE_API_URL) {
+  console.error("ENCORE_API_URL is required to start KaSiHUB.");
+  process.exit(1);
+}
 
 const server = spawn(process.execPath, [".next/standalone/server.js"], {
-  // ( |╲ ) Author: Klaasvaakie — explicit deployment URLs win; local starts use the repo DB.
-  env: { ...process.env, NODE_ENV: "production", ...(databaseUrl ? { DATABASE_URL: databaseUrl } : {}) },
+  env: { ...process.env, NODE_ENV: "production" },
   stdio: "inherit",
 });
 

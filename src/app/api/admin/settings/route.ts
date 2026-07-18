@@ -1,45 +1,39 @@
+// Author: Klaasvaakie ( |╲ )
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { EncoreRequestError, encoreRequest, encoreSessionToken } from "@/lib/encore-client";
 
-// GET /api/admin/settings - all settings grouped by category
+type Version = { config_key: string; version: number; config: Record<string, unknown>; effective_from: string };
+
 export async function GET() {
+  const token = await encoreSessionToken();
+  if (!token) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
   try {
-    const settings = await db.setting.findMany({ orderBy: { category: "asc" } });
-    const grouped: Record<string, { key: string; value: string }[]> = {};
-    for (const s of settings) {
-      if (!grouped[s.category]) grouped[s.category] = [];
-      grouped[s.category].push({ key: s.key, value: s.value });
-    }
-    return NextResponse.json({ settings: grouped, raw: settings });
+    const { versions } = await encoreRequest<{ versions: Version[] }>("/admin/config", {}, token);
+    const latest = new Map<string, Version>();
+    for (const version of versions) if (!latest.has(version.config_key)) latest.set(version.config_key, version);
+    const raw = Array.from(latest.values()).map((version) => ({ id: `${version.config_key}-${version.version}`, key: version.config_key, value: String(version.config.value ?? JSON.stringify(version.config)), category: version.config_key.includes("_") ? version.config_key.split("_")[0] : "general", updatedAt: version.effective_from }));
+    const settings: Record<string, { key: string; value: string }[]> = {};
+    for (const setting of raw) (settings[setting.category] ??= []).push({ key: setting.key, value: setting.value });
+    return NextResponse.json({ settings, raw });
   } catch (error) {
-    console.error("[admin/settings] error", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return failure(error);
   }
 }
 
-// PUT /api/admin/settings - update a setting value
 export async function PUT(req: NextRequest) {
+  const token = await encoreSessionToken();
+  if (!token) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
+  const body = await req.json();
+  if (!body.key || body.value === undefined) return NextResponse.json({ error: "key and value are required" }, { status: 400 });
   try {
-    const body = await req.json();
-    const { key, value } = body;
-
-    if (!key || value === undefined) {
-      return NextResponse.json({ error: "key and value are required" }, { status: 400 });
-    }
-
-    const existing = await db.setting.findUnique({ where: { key } });
-    if (!existing) {
-      return NextResponse.json({ error: "Setting not found" }, { status: 404 });
-    }
-
-    const updated = await db.setting.update({
-      where: { key },
-      data: { value: String(value) },
-    });
-
-    return NextResponse.json({ setting: { ...updated, updatedAt: updated.updatedAt.toISOString() } });
+    await encoreRequest(`/admin/config/${encodeURIComponent(body.key)}/version`, { method: "POST", body: JSON.stringify({ config: { value: String(body.value) } }) }, token);
+    return NextResponse.json({ setting: { key: body.key, value: String(body.value), updatedAt: new Date().toISOString() } });
   } catch (error) {
-    console.error("[admin/settings/update] error", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return failure(error);
   }
+}
+
+function failure(error: unknown) {
+  const status = error instanceof EncoreRequestError ? error.status : 500;
+  return NextResponse.json({ error: "Encore setting operation failed" }, { status });
 }

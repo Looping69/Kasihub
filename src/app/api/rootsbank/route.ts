@@ -1,82 +1,30 @@
+// Author: Klaasvaakie ( |╲ )
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { EncoreRequestError, encoreRequest, encoreSessionToken } from "@/lib/encore-client";
 
-// GET /api/rootsbank?memberId=xxx - get roots bank pioneer info
+const categories = [
+  { key: "KIDS_STUDENT", label: "Kids & Students (16-18)", sharePrice: 500, membershipFee: 50, total: 550, description: "Ages 16-18 and students who can prove they are studying.", documents: ["Proof of studies"] },
+  { key: "ADULT", label: "Adults (18-65)", sharePrice: 500, membershipFee: 200, total: 700, description: "Adults purchase one pioneer share and bank membership.", documents: ["South African ID or Passport"] },
+  { key: "PENSIONER", label: "Pensioners", sharePrice: 500, membershipFee: 50, total: 550, description: "Pensioner pioneer membership.", documents: ["South African ID", "SASSA proof where applicable"] },
+];
+
 export async function GET(req: NextRequest) {
+  const memberId = req.nextUrl.searchParams.get("memberId");
+  const token = await encoreSessionToken();
+  if (!memberId) return NextResponse.json({ error: "memberId is required" }, { status: 400 });
+  if (!token) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
   try {
-    const { searchParams } = new URL(req.url);
-    const memberId = searchParams.get("memberId");
-
-    // Bank details (constant)
-    const bankDetails = {
-      bankName: "Solidus Holdings (Pty) Ltd",
-      bank: "FNB",
-      accountType: "Gold Business Account",
-      accountNumber: "63212306319",
-      branchCode: "210835",
-      reference: memberId ? `KSH-${memberId.slice(-6).toUpperCase()}` : "KSH-MEMBER",
-    };
-
-    // Count pioneer registrations
-    const pioneerCount = await db.rootsBankShare.count();
-    const pioneerTarget = 200;
-    const pioneerProgress = (pioneerCount / pioneerTarget) * 100;
-
-    // Cost breakdown categories
-    const categories = [
-      {
-        key: "KIDS_STUDENT",
-        label: "Kids & Students (16-18)",
-        sharePrice: 500,
-        membershipFee: 50,
-        total: 550,
-        description: "Ages 16-18 and students who can prove they are studying. 1 share @ R500 + R50 bank membership fee.",
-        documents: ["Proof of studies (letter from institution or student card)"],
-      },
-      {
-        key: "ADULT",
-        label: "Adults (18-65)",
-        sharePrice: 500,
-        membershipFee: 200,
-        total: 700,
-        description: "Ages 18 to 65. 1 share @ R500 + R200 bank membership fee to the Co-Op Bank.",
-        documents: ["South African ID or Passport"],
-      },
-      {
-        key: "PENSIONER",
-        label: "Pensioners (over 65, or 60+ on SASSA)",
-        sharePrice: 500,
-        membershipFee: 50,
-        total: 550,
-        description: "Over 65, or 60+ who can prove they are on SASSA. 1 share @ R500 + R50 bank membership fee.",
-        documents: ["South African ID", "SASSA proof (if 60-65)"],
-      },
-    ];
-
-    let myShare = null;
-    if (memberId) {
-      const found = await db.rootsBankShare.findFirst({
-        where: { memberId },
-        orderBy: { createdAt: "desc" },
-      });
-      if (found) {
-        myShare = {
-          ...found,
-          createdAt: found.createdAt.toISOString(),
-        };
-      }
-    }
-
+    const data = await encoreRequest<{ pioneerCount: number; myShare: unknown }>(`/rootsbank/${encodeURIComponent(memberId)}`, {}, token);
     return NextResponse.json({
-      bankDetails,
-      pioneerCount,
-      pioneerTarget,
-      pioneerProgress: parseFloat(pioneerProgress.toFixed(1)),
+      bankDetails: { bankName: "Solidus Holdings (Pty) Ltd", bank: "FNB", accountType: "Gold Business Account", accountNumber: "63212306319", branchCode: "210835", reference: `KSH-${memberId.slice(-6).toUpperCase()}` },
+      pioneerCount: data.pioneerCount,
+      pioneerTarget: 200,
+      pioneerProgress: Number(((data.pioneerCount / 200) * 100).toFixed(1)),
       categories,
-      myShare,
+      myShare: data.myShare,
     });
   } catch (error) {
-    console.error("[rootsbank] error", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    const status = error instanceof EncoreRequestError ? error.status : 500;
+    return NextResponse.json({ error: "Unable to load RootsBank from Encore" }, { status });
   }
 }

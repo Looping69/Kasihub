@@ -11,15 +11,20 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { BrandLogo } from "@/components/brand-logo";
 import { useKasiStore } from "@/lib/store";
 
+// Author: Klaasvaakie ( |╲ )
 const PILLARS = [
   {
     icon: Network,
     title: "KasiHub Membership",
-    desc: "Join the hybrid ecosystem with a R140/mo subscription. Get placed in a forced 5×6 matrix — no recruitment required to earn.",
+    desc: "Join the hybrid ecosystem with a R140/mo subscription. Get placed in a 5×6 Eco-System — no recruitment required to earn.",
     color: "from-emerald-500 to-emerald-600",
-    points: ["5×6 forced matrix", "R140/mo individual / R300 business", "R47 paid up 6 levels", "Unique profile number"],
+    points: ["5×6 Eco-System", "R140/mo individual / R300 business", "R47 paid up 6 levels", "Unique profile number"],
   },
   {
     icon: Landmark,
@@ -69,6 +74,11 @@ const FLOW = [
 export function Landing() {
   const { openRegistration, login } = useKasiStore();
   const [mobileMenu, setMobileMenu] = useState(false);
+  const [loginOpen, setLoginOpen] = useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loginError, setLoginError] = useState("");
+  const [signingIn, setSigningIn] = useState(false);
 
   async function handleEnter() {
     try {
@@ -94,19 +104,38 @@ export function Landing() {
     }
   }
 
+  async function handleAccountLogin(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSigningIn(true);
+    setLoginError("");
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.member) {
+        setLoginError(data.error || "Unable to sign in");
+        return;
+      }
+      login(data.member.id, data.member);
+      setLoginOpen(false);
+      setPassword("");
+    } catch {
+      setLoginError("The Encore service is unavailable.");
+    } finally {
+      setSigningIn(false);
+    }
+  }
+
   return (
     <div className="min-h-screen flex flex-col bg-background">
       {/* Header */}
       <header className="sticky top-0 z-40 w-full border-b border-border/40 bg-background/80 backdrop-blur-xl">
         <div className="container mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="flex h-16 items-center justify-between">
-            <div className="flex items-center gap-3">
-              <Logo />
-              <div className="hidden sm:block">
-                <p className="font-black text-lg leading-none tracking-tight">KaSiHUB</p>
-                <p className="text-[10px] text-muted-foreground leading-none mt-0.5">Hybrid Ecosystem</p>
-              </div>
-            </div>
+            <BrandLogo className="h-14 w-auto max-w-32" priority />
 
             <nav className="hidden md:flex items-center gap-1">
               <a href="#pillars" className="px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">Ecosystem</a>
@@ -119,8 +148,8 @@ export function Landing() {
               <Button variant="ghost" size="sm" onClick={handleAdminLogin} className="hidden sm:inline-flex text-amber-700 hover:text-amber-800 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-950/30">
                 <ShieldCheck className="h-4 w-4 mr-1" /> Admin
               </Button>
-              <Button variant="ghost" size="sm" onClick={handleEnter} className="hidden sm:inline-flex">
-                Enter demo
+              <Button variant="ghost" size="sm" onClick={() => setLoginOpen(true)} className="hidden sm:inline-flex">
+                Sign in
               </Button>
               <Button size="sm" onClick={openRegistration} className="bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-700 hover:to-emerald-600">
                 Join KaSiHUB <ArrowRight className="ml-1.5 h-4 w-4" />
@@ -166,7 +195,7 @@ export function Landing() {
               </span>
             </h1>
             <p className="mt-6 text-lg sm:text-xl text-muted-foreground max-w-2xl mx-auto leading-relaxed">
-              KaSiHUB is the central point connecting members to a 5×6 forced matrix, KasiShares,
+              KaSiHUB is the central point connecting members to a 5×6 Eco-System, KasiShares,
               the KasiMarketPlace, KasiMall, and the Roots CO-OP Bank — all in one app.
             </p>
             <div className="mt-10 flex flex-col sm:flex-row gap-3 justify-center">
@@ -393,13 +422,7 @@ export function Landing() {
         <div className="container mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-12">
           <div className="grid gap-8 md:grid-cols-4">
             <div className="md:col-span-2">
-              <div className="flex items-center gap-3 mb-4">
-                <Logo light />
-                <div>
-                  <p className="font-black text-lg leading-none">KaSiHUB</p>
-                  <p className="text-[10px] text-sidebar-foreground/60 leading-none mt-0.5">Hybrid Ecosystem</p>
-                </div>
-              </div>
+              <BrandLogo className="h-24 w-auto max-w-48 mb-4" />
               <p className="text-sm text-sidebar-foreground/70 max-w-md leading-relaxed">
                 The central point of a hybrid ecosystem connecting members, shares, marketplace,
                 mall and the Roots CO-OP Bank. Operated by Solidus Holdings (Pty) Ltd.
@@ -436,17 +459,27 @@ export function Landing() {
           </div>
         </div>
       </footer>
-    </div>
-  );
-}
-
-function Logo({ light = false }: { light?: boolean }) {
-  return (
-    <div className="relative w-10 h-10 flex-shrink-0">
-      <div className="absolute inset-0 rounded-xl bg-gradient-to-br from-emerald-500 to-amber-500" />
-      <div className={`absolute inset-0.5 rounded-[10px] ${light ? "bg-sidebar" : "bg-background"} flex items-center justify-center`}>
-        <span className="text-xl font-black bg-gradient-to-br from-emerald-600 to-amber-500 bg-clip-text text-transparent">K</span>
-      </div>
+      <Dialog open={loginOpen} onOpenChange={setLoginOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Sign in to KaSiHUB</DialogTitle>
+          </DialogHeader>
+          <form className="space-y-4" onSubmit={handleAccountLogin}>
+            <div className="space-y-2">
+              <Label htmlFor="login-email">Email</Label>
+              <Input id="login-email" type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="login-password">Password</Label>
+              <Input id="login-password" type="password" autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.target.value)} />
+            </div>
+            {loginError && <p className="text-sm text-destructive">{loginError}</p>}
+            <Button type="submit" className="w-full" disabled={signingIn}>
+              {signingIn ? "Signing in…" : "Sign in"}
+            </Button>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
