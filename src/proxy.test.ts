@@ -17,6 +17,20 @@ describe("API CSRF boundary", () => {
     expect(response.status).toBe(200);
   });
 
+  test("allows same-origin mutations behind the production reverse proxy", () => {
+    const response = proxy(new NextRequest("http://kasihub-live:3000/api/auth/login", {
+      method: "POST",
+      headers: {
+        Host: "kasihub-live:3000",
+        Origin: "https://forge.smartunitednetwork.com",
+        "Sec-Fetch-Site": "same-origin",
+        "X-Forwarded-Host": "forge.smartunitednetwork.com",
+        "X-Forwarded-Proto": "https",
+      },
+    }));
+    expect(response.status).toBe(200);
+  });
+
   test("rejects cross-site and originless mutations", async () => {
     const crossSite = proxy(new NextRequest("https://kasihub.test/api/auth/login", {
       method: "POST",
