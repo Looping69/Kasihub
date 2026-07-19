@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import {
   Landmark, Loader2, Sparkles, Award, Users, Banknote, Copy,
@@ -60,6 +60,8 @@ export function RootsBankView() {
   const [buyOpen, setBuyOpen] = useState(false);
   const [selectedCat, setSelectedCat] = useState("ADULT");
   const [buying, setBuying] = useState(false);
+  // Author: Klaasvaakie ( |╲ )
+  const purchaseAttempt = useRef<{ category: string; key: string } | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
 
   async function load() {
@@ -76,17 +78,19 @@ export function RootsBankView() {
 
   async function handleBuy() {
     if (!currentMember) return;
+    if (purchaseAttempt.current?.category !== selectedCat) purchaseAttempt.current = { category: selectedCat, key: crypto.randomUUID() };
     setBuying(true);
     try {
       const res = await fetch("/api/rootsbank/purchase", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Idempotency-Key": purchaseAttempt.current.key },
         body: JSON.stringify({ memberId: currentMember.id, category: selectedCat }),
       });
       const result = await res.json();
       if (!res.ok) {
         toast.error(result.error || "Purchase failed");
       } else {
+        purchaseAttempt.current = null;
         toast.success(`Pioneer share secured! ${result.pioneerRemaining} spots remaining.`);
         setBuyOpen(false);
         await load();

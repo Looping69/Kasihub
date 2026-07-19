@@ -76,7 +76,7 @@ export function AdminShares() {
     try {
       const res = await fetch("/api/admin/phases", {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() },
         body: JSON.stringify({
           phaseId: editing.id,
           pricePerShare: editing.pricePerShare,

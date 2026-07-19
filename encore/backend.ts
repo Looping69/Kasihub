@@ -1,40 +1,45 @@
 // Author: Klaasvaakie ( |â•² )
 import { api, APIError } from "encore.dev/api";
-import { currentRequest } from "encore.dev";
-import { SQLDatabase } from "encore.dev/storage/sqldb";
-import { Bucket } from "encore.dev/storage/objects";
 import { CronJob } from "encore.dev/cron";
 import { z } from "zod";
-import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
-
-const identityDb = new SQLDatabase("identity", {
-  migrations: { path: "migrations/identity" },
-});
-const membershipDb = new SQLDatabase("membership", {
-  migrations: { path: "migrations/membership" },
-});
-const networkDb = new SQLDatabase("network", {
-  migrations: { path: "migrations/network" },
-});
-const financeDb = new SQLDatabase("finance", {
-  migrations: { path: "migrations/finance" },
-});
-const kycDb = new SQLDatabase("kyc", {
-  migrations: { path: "migrations/kyc" },
-});
-const sharesDb = new SQLDatabase("shares", {
-  migrations: { path: "migrations/shares" },
-});
-const commerceDb = new SQLDatabase("commerce", {
-  migrations: { path: "migrations/commerce" },
-});
-const engagementDb = new SQLDatabase("engagement", {
-  migrations: { path: "migrations/engagement" },
-});
-const auditDb = new SQLDatabase("audit", {
-  migrations: { path: "migrations/audit" },
-});
-const documentsBucket = new Bucket("documents", { public: false });
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import {
+  auditDb,
+  commerceDb,
+  documentsBucket,
+  engagementDb,
+  financeDb,
+  identityDb,
+  kycDb,
+  membershipDb,
+  networkDb,
+  sharesDb,
+} from "./infrastructure/resources";
+import {
+  bearerToken,
+  hashSessionToken,
+  requireAdminAccess,
+  requireProfileAccess,
+  sessionFromBearer,
+} from "./domains/auth/access";
+import { hashPassword, verifyPassword } from "./domains/auth/password";
+import {
+  beginOperation,
+  captureWalletHold,
+  completeOperation,
+  creditDistribution as creditWorkflowDistribution,
+  ensureAuthoritativeWallet,
+  failOperation,
+  placeWalletHold,
+  recordStep,
+  releaseWalletHold,
+  requireIdempotencyKey,
+  requestHash,
+} from "./domains/workflows/core";
+import "./domains/admin/operations";
+import { allocateEvenCents, allocateWeightedCents } from "./domains/finance/allocation";
+import { ensureMembershipPlan } from "./domains/membership/plans";
+import { placeMatrixNode } from "./domains/network/placement";
 
 interface RegisterRequest {
   email: string;
@@ -50,6 +55,30 @@ interface RegisterRequest {
   country?: string;
 }
 
+interface RegistrationWorkflowRequest extends RegisterRequest {
+  membershipPlanCode: string;
+  createKyc?: boolean;
+  membershipType?: string;
+  citizenshipType?: string;
+  addressLine?: string;
+  city?: string;
+  postalCode?: string;
+  beneficiaryName?: string;
+  beneficiaryId?: string;
+  guardianName?: string;
+  instapayAccountRef?: string;
+  instapayVerifiedAt?: string;
+  uplineProfileNumber?: string;
+  uplineConfirmed?: boolean;
+}
+
+interface RegistrationWorkflowResponse {
+  registrationId: string;
+  status: string;
+  nextAction: "payment" | "retry";
+  user: { id: string; email: string; profileId: string; profileNumber: string };
+}
+
 const registerRequest = z.object({
   email: z.string().email(),
   password: z.string().min(12).max(128),
@@ -62,6 +91,23 @@ const registerRequest = z.object({
   idOrPassportNumber: z.string().optional(),
   sarsNumber: z.string().optional(),
   country: z.string().optional(),
+});
+
+const registrationWorkflowRequest = registerRequest.extend({
+  membershipPlanCode: z.string().min(3).max(100),
+  createKyc: z.boolean().optional(),
+  membershipType: z.string().max(100).optional(),
+  citizenshipType: z.string().max(100).optional(),
+  addressLine: z.string().max(500).optional(),
+  city: z.string().max(200).optional(),
+  postalCode: z.string().max(30).optional(),
+  beneficiaryName: z.string().max(300).optional(),
+  beneficiaryId: z.string().max(100).optional(),
+  guardianName: z.string().max(300).optional(),
+  instapayAccountRef: z.string().max(200).optional(),
+  instapayVerifiedAt: z.string().datetime().optional(),
+  uplineProfileNumber: z.string().max(100).optional(),
+  uplineConfirmed: z.boolean().optional(),
 });
 
 const ledgerEntry = z.object({
@@ -99,6 +145,7 @@ interface SubscribeResponse {
   subscriptionId: string;
   paymentId: string;
   status: string;
+  operationId?: string;
 }
 
 interface MatrixNodeResponse {
@@ -145,6 +192,7 @@ interface SharePurchaseResponse {
   totalAmount: string;
   bonusQuantity: number;
   certificateNumber: string;
+  operationId: string;
 }
 
 const configVersion = z.object({
@@ -277,6 +325,114 @@ export const register = api<RegisterRequest, RegisterResponse>(
   },
 );
 
+// Durable registration coordinator — Author: Klaasvaakie ( |╲ )
+export const startRegistration = api<RegistrationWorkflowRequest, RegistrationWorkflowResponse>(
+  { method: "POST", path: "/registration/start", expose: true },
+  async (req) => {
+    const payload = registrationWorkflowRequest.parse(req);
+    const normalizedEmail = payload.email.trim().toLowerCase();
+    const payloadHash = requestHash({ ...payload, email: normalizedEmail });
+    let workflow = await identityDb.rawQueryRow<{
+      id: string; request_hash: string; user_id: string | null; profile_id: string | null; state: string;
+    }>("SELECT id, request_hash, user_id, profile_id, state FROM registration_workflows WHERE email = $1", normalizedEmail);
+    if (workflow && workflow.request_hash !== payloadHash) {
+      throw APIError.alreadyExists("A registration already exists for this email with different details");
+    }
+    if (!workflow) {
+      const workflowId = crypto.randomUUID();
+      try {
+        await identityDb.rawExec(`INSERT INTO registration_workflows
+          (id, email, request_hash, membership_plan_code, create_kyc)
+          VALUES ($1, $2, $3, $4, $5)`, workflowId, normalizedEmail, payloadHash, payload.membershipPlanCode, Boolean(payload.createKyc));
+      } catch {
+        // A concurrent identical request won the unique email constraint.
+      }
+      workflow = await identityDb.rawQueryRow<{
+        id: string; request_hash: string; user_id: string | null; profile_id: string | null; state: string;
+      }>("SELECT id, request_hash, user_id, profile_id, state FROM registration_workflows WHERE email = $1", normalizedEmail);
+      if (!workflow || workflow.request_hash !== payloadHash) throw APIError.alreadyExists("A registration already exists for this email");
+    }
+
+    try {
+      if (!workflow.user_id || !workflow.profile_id) {
+        const tx = await identityDb.begin();
+        try {
+          const existingUser = await tx.rawQueryRow<{ id: string }>("SELECT id FROM users WHERE email = $1", normalizedEmail);
+          if (existingUser) throw APIError.alreadyExists("An account already exists for this email");
+          const userId = crypto.randomUUID();
+          const profileId = crypto.randomUUID();
+          const profileNumber = `KSI-${crypto.randomUUID().replaceAll("-", "").slice(0, 10).toUpperCase()}`;
+          await tx.rawExec("INSERT INTO users (id, email, phone, password_hash) VALUES ($1, $2, $3, $4)",
+            userId, normalizedEmail, payload.phone ?? null, hashPassword(payload.password));
+          await tx.rawExec(`INSERT INTO profiles (
+              id, user_id, profile_type, unique_profile_number, first_name, surname,
+              company_name, company_registration_number, id_or_passport_number, sars_number, country, status,
+              membership_type, citizenship_type, address_line, city, postal_code, beneficiary_name, beneficiary_id,
+              guardian_name, instapay_status, instapay_verified_at, instapay_account_ref, upline_profile_number, upline_confirmed
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'pending',$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)`,
+            profileId, userId, payload.profileType, profileNumber, payload.firstName ?? null, payload.surname ?? null,
+            payload.companyName ?? null, payload.companyRegistrationNumber ?? null, payload.idOrPassportNumber ?? null,
+            payload.sarsNumber ?? null, payload.country ?? "ZA", payload.membershipType ?? null, payload.citizenshipType ?? null,
+            payload.addressLine ?? null, payload.city ?? null, payload.postalCode ?? null, payload.beneficiaryName ?? null,
+            payload.beneficiaryId ?? null, payload.guardianName ?? null, payload.createKyc ? "PENDING" : "NONE",
+            payload.instapayVerifiedAt ?? null, payload.instapayAccountRef ?? null, payload.uplineProfileNumber ?? null,
+            Boolean(payload.uplineConfirmed));
+          await tx.rawExec(`INSERT INTO user_roles (user_id, role_id)
+             SELECT $1, id FROM roles WHERE name = 'member' ON CONFLICT (user_id, role_id) DO NOTHING`, userId);
+          await tx.rawExec(`UPDATE registration_workflows SET user_id = $2, profile_id = $3,
+             state = 'identity_created', last_error = NULL, updated_at = now() WHERE id = $1`, workflow.id, userId, profileId);
+          await tx.commit();
+          workflow.user_id = userId;
+          workflow.profile_id = profileId;
+          workflow.state = "identity_created";
+        } catch (error) { await tx.rollback(); throw error; }
+      }
+
+      const plan = await membershipDb.rawQueryRow<{ id: string; code: string; amount: string; currency: string }>(
+        "SELECT id, code, amount::text AS amount, currency FROM membership_plans WHERE code = $1 AND active = true", payload.membershipPlanCode);
+      const materializedPlan = plan ?? await ensureMembershipPlan(payload.membershipPlanCode);
+      const subscriptionId = crypto.randomUUID();
+      const paymentId = crypto.randomUUID();
+      await membershipDb.rawExec(`INSERT INTO subscriptions (id, profile_id, plan_id, status, registration_id, starts_at)
+         VALUES ($1, $2, $3, 'pending', $4, now())
+         ON CONFLICT (registration_id) WHERE registration_id IS NOT NULL DO NOTHING`,
+        subscriptionId, workflow.profile_id, materializedPlan.id, workflow.id);
+      const subscription = await membershipDb.rawQueryRow<{ id: string }>("SELECT id FROM subscriptions WHERE registration_id = $1", workflow.id);
+      if (!subscription) throw new Error("registration_subscription_not_created");
+      await membershipDb.rawExec(`INSERT INTO payments
+         (id, profile_id, subscription_id, provider, provider_reference, amount, currency, status, metadata)
+         VALUES ($1, $2, $3, 'admin_confirmation', $4, $5::numeric, $6, 'pending', $7::jsonb)
+         ON CONFLICT (provider_reference) DO NOTHING`, paymentId, workflow.profile_id, subscription.id,
+        `registration-${workflow.id}`, materializedPlan.amount, materializedPlan.currency,
+        JSON.stringify({ registrationId: workflow.id, planCode: materializedPlan.code }));
+      await identityDb.rawExec("UPDATE registration_workflows SET state = 'membership_pending', last_error = NULL, updated_at = now() WHERE id = $1", workflow.id);
+
+      if (payload.createKyc) {
+        await kycDb.rawExec(`INSERT INTO kyc_cases (profile_id, provider, status, registration_id)
+           VALUES ($1, 'instapay', 'pending', $2)
+           ON CONFLICT (registration_id) WHERE registration_id IS NOT NULL DO NOTHING`, workflow.profile_id, workflow.id);
+        await identityDb.rawExec("UPDATE registration_workflows SET state = 'kyc_pending', updated_at = now() WHERE id = $1", workflow.id);
+      }
+
+      await identityDb.rawExec(`UPDATE registration_workflows SET state = 'completed', last_error = NULL,
+         completed_at = now(), updated_at = now() WHERE id = $1`, workflow.id);
+      const profile = await identityDb.rawQueryRow<{ unique_profile_number: string }>("SELECT unique_profile_number FROM profiles WHERE id = $1", workflow.profile_id);
+      if (!profile || !workflow.user_id || !workflow.profile_id) throw new Error("registration_identity_not_found");
+      return {
+        registrationId: workflow.id,
+        status: "awaiting_payment",
+        nextAction: "payment",
+        user: { id: workflow.user_id, email: normalizedEmail, profileId: workflow.profile_id, profileNumber: profile.unique_profile_number },
+      };
+    } catch (error) {
+      await identityDb.rawExec(`UPDATE registration_workflows SET state = 'failed', last_error = $2,
+         retry_count = retry_count + 1, updated_at = now() WHERE id = $1`, workflow.id,
+        (error instanceof Error ? error.message : String(error)).slice(0, 1000));
+      throw error;
+    }
+  },
+);
+
 export const login = api<{ email: string; password: string }, LoginResponse>(
   { method: "POST", path: "/auth/login", expose: true },
   async (req) => {
@@ -343,11 +499,20 @@ export const myProfile = api<void, { member: FrontendMember }>(
       status: string;
       phone: string | null;
       created_at: string;
+      membership_type: string | null; citizenship_type: string | null; address_line: string | null; city: string | null;
+      postal_code: string | null; beneficiary_name: string | null; beneficiary_id: string | null; guardian_name: string | null;
+      kyc_verified_at: string | null; tax_threshold: boolean; monthly_earnings: string; nfc_tag_id: string | null;
+      visa_card_last4: string | null; roots_bank_account: string | null; instapay_status: string;
+      instapay_verified_at: string | null; instapay_account_ref: string | null; upline_profile_number: string | null; upline_confirmed: boolean;
     }>(
       `SELECT p.id, p.unique_profile_number, p.profile_type, p.first_name, p.surname,
               p.company_name, p.company_registration_number, p.id_or_passport_number,
-              p.sars_number, p.country, p.profile_picture_url, p.status, u.phone,
-              p.created_at
+              p.sars_number, p.country, p.profile_picture_url, p.status, u.phone, p.created_at,
+              p.membership_type, p.citizenship_type, p.address_line, p.city, p.postal_code,
+              p.beneficiary_name, p.beneficiary_id, p.guardian_name, p.kyc_verified_at,
+              p.tax_threshold, p.monthly_earnings::text AS monthly_earnings, p.nfc_tag_id,
+              p.visa_card_last4, p.roots_bank_account, p.instapay_status, p.instapay_verified_at,
+              p.instapay_account_ref, p.upline_profile_number, p.upline_confirmed
        FROM profiles p
        JOIN users u ON u.id = p.user_id
        WHERE p.id = $1`,
@@ -378,7 +543,7 @@ export const myProfile = api<void, { member: FrontendMember }>(
       member: {
         id: profile.id,
         profileNumber: profile.unique_profile_number,
-        membershipType: profile.profile_type.toUpperCase(),
+        membershipType: profile.membership_type ?? profile.profile_type.toUpperCase(),
         firstName: profile.first_name,
         lastName: profile.surname,
         companyName: profile.company_name,
@@ -388,30 +553,30 @@ export const myProfile = api<void, { member: FrontendMember }>(
         email: session.user.email,
         country: profile.country ?? "ZA",
         mobile: profile.phone ?? "",
-        addressLine: null,
-        city: null,
-        postalCode: null,
+        addressLine: profile.address_line,
+        city: profile.city,
+        postalCode: profile.postal_code,
         profilePicture: profile.profile_picture_url,
-        beneficiaryName: null,
-        beneficiaryId: null,
-        guardianName: null,
+        beneficiaryName: profile.beneficiary_name,
+        beneficiaryId: profile.beneficiary_id,
+        guardianName: profile.guardian_name,
         kycStatus: profile.status === "active" ? "VERIFIED" : "PENDING",
-        kycVerifiedAt: null,
+        kycVerifiedAt: profile.kyc_verified_at,
         subscriptionStatus: subscription?.status.toUpperCase() ?? "PENDING",
         subscriptionAmount: Number(subscription?.amount ?? 0),
         subscriptionCurrency: subscription?.currency ?? "ZAR",
         paymentMethod: subscription?.provider?.toUpperCase() ?? null,
-        taxThreshold: false,
-        monthlyEarnings: 0,
-        nfcTagId: null,
-        visaCardLast4: null,
-        rootsBankAccount: null,
-        citizenshipType: null,
-        instapayStatus: "NONE",
-        instapayVerifiedAt: null,
-        instapayAccountRef: null,
-        uplineProfileNumber: null,
-        uplineConfirmed: false,
+        taxThreshold: profile.tax_threshold,
+        monthlyEarnings: Number(profile.monthly_earnings),
+        nfcTagId: profile.nfc_tag_id,
+        visaCardLast4: profile.visa_card_last4,
+        rootsBankAccount: profile.roots_bank_account,
+        citizenshipType: profile.citizenship_type,
+        instapayStatus: profile.instapay_status,
+        instapayVerifiedAt: profile.instapay_verified_at,
+        instapayAccountRef: profile.instapay_account_ref,
+        uplineProfileNumber: profile.upline_profile_number,
+        uplineConfirmed: profile.upline_confirmed,
         isAdmin: Boolean(adminRole),
         createdAt: profile.created_at,
       },
@@ -510,10 +675,12 @@ export const walletMe = api<
   { method: "GET", path: "/wallets/me/:profileId", expose: true },
   async (req) => {
     await requireProfileAccess(req.profileId);
-    const wallet = await networkDb.rawQueryRow<{
-      cached_balance: string;
-      currency: string;
-    }>("SELECT cached_balance::text AS cached_balance, currency FROM wallets WHERE profile_id = $1 ORDER BY created_at DESC LIMIT 1", req.profileId);
+    const legacyWallet = await networkDb.rawQueryRow<{ currency: string }>(
+      "SELECT currency FROM wallets WHERE profile_id = $1 ORDER BY created_at DESC LIMIT 1", req.profileId);
+    await ensureAuthoritativeWallet(req.profileId, legacyWallet?.currency ?? "ZAR");
+    const wallet = await financeDb.rawQueryRow<{ available_balance: string; currency: string }>(
+      "SELECT available_balance::text AS available_balance, currency FROM wallet_balances WHERE profile_id = $1 AND currency = $2",
+      req.profileId, legacyWallet?.currency ?? "ZAR");
     const transactions = await financeDb.rawQueryAll<{
       id: string;
       transaction_type: string;
@@ -533,7 +700,7 @@ export const walletMe = api<
       req.profileId,
     );
     return {
-      balance: wallet?.cached_balance ?? "0.00",
+      balance: wallet?.available_balance ?? "0.00",
       currency: wallet?.currency ?? "ZAR",
       transactions: transactions.map((transaction) => ({
         id: transaction.id,
@@ -551,7 +718,14 @@ export const subscribeMembership = api<SubscribeRequest, SubscribeResponse>(
   { method: "POST", path: "/membership/subscribe", expose: true },
   async (req) => {
     const payload = subscribeRequest.parse(req);
-    await requireProfileAccess(payload.profileId);
+    const session = await requireProfileAccess(payload.profileId);
+    const idempotencyKey = requireIdempotencyKey();
+    const started = await beginOperation<SubscribeResponse>({
+      operationType: "membership_subscription", actorUserId: session.user.id,
+      profileId: payload.profileId, idempotencyKey, payload,
+    });
+    if (started.operation.state === "completed" && started.operation.result) return started.operation.result;
+    const operation = started.operation;
     const plan = await membershipDb.rawQueryRow<{
       id: string;
       code: string;
@@ -560,25 +734,25 @@ export const subscribeMembership = api<SubscribeRequest, SubscribeResponse>(
     }>("SELECT id, code, amount::text AS amount, currency FROM membership_plans WHERE code = $1 AND active = true", payload.planCode);
     const materializedPlan = plan ?? (await ensureMembershipPlan(payload.planCode));
 
-    const subscriptionId = crypto.randomUUID();
-    const paymentId = crypto.randomUUID();
-    await membershipDb.rawExec(`INSERT INTO subscriptions (id, profile_id, plan_id, status, starts_at)
-       VALUES ($1, $2, $3, 'pending', now())`,
-      subscriptionId,
-      payload.profileId,
-      materializedPlan.id,
-    );
-    await membershipDb.rawExec(`INSERT INTO payments (id, profile_id, subscription_id, provider, provider_reference, amount, currency, status, metadata)
-       VALUES ($1, $2, $3, 'manual', $4, $5::numeric, $6, 'pending', $7::jsonb)`,
-      paymentId,
-      payload.profileId,
-      subscriptionId,
-      `manual-${paymentId}`,
-      materializedPlan.amount,
-      materializedPlan.currency,
-      JSON.stringify({ planCode: materializedPlan.code }),
-    );
-    return { subscriptionId, paymentId, status: "pending" };
+    try {
+      let subscription = await membershipDb.rawQueryRow<{ id: string }>("SELECT id FROM subscriptions WHERE operation_id = $1", operation.id);
+      if (!subscription) {
+        subscription = await membershipDb.rawQueryRow(`INSERT INTO subscriptions (id, profile_id, plan_id, status, operation_id, starts_at)
+          VALUES ($1, $2, $3, 'pending', $4, now()) RETURNING id`,
+          crypto.randomUUID(), payload.profileId, materializedPlan.id, operation.id);
+      }
+      if (!subscription) throw new Error("subscription_not_created");
+      const paymentRef = `subscription-${operation.id}`;
+      await membershipDb.rawExec(`INSERT INTO payments (id, profile_id, subscription_id, provider, provider_reference, amount, currency, status, metadata)
+         VALUES ($1, $2, $3, 'admin_confirmation', $4, $5::numeric, $6, 'pending', $7::jsonb)
+         ON CONFLICT (provider_reference) DO NOTHING`,
+        crypto.randomUUID(), payload.profileId, subscription.id, paymentRef, materializedPlan.amount, materializedPlan.currency,
+        JSON.stringify({ planCode: materializedPlan.code, operationId: operation.id }));
+      const payment = await membershipDb.rawQueryRow<{ id: string }>("SELECT id FROM payments WHERE provider_reference = $1", paymentRef);
+      if (!payment) throw new Error("subscription_payment_not_created");
+      await recordStep(operation, "create_pending_subscription", "completed", { subscriptionId: subscription.id, paymentId: payment.id });
+      return completeOperation(operation, { subscriptionId: subscription.id, paymentId: payment.id, status: "pending", operationId: operation.id });
+    } catch (error) { return failOperation(operation, error); }
   },
 );
 
@@ -608,12 +782,16 @@ export const activateSubscription = api<
   { paymentId: string },
   {
     ok: true;
+    operationId: string;
+    status: string;
     wallet: { profile_id: string; currency: string; cached_balance: string } | null;
     matrixNode: MatrixNodeResponse | null;
   }
 >(
   { method: "POST", path: "/payments/activate", expose: true },
   async (req) => {
+    const admin = await requireAdminAccess();
+    const idempotencyKey = requireIdempotencyKey();
     const payment = await membershipDb.rawQueryRow<{
       id: string;
       profile_id: string;
@@ -624,71 +802,61 @@ export const activateSubscription = api<
     if (!payment || !payment.subscription_id) {
       throw new Error("payment_not_found");
     }
-    await requireProfileAccess(payment.profile_id);
+    const started = await beginOperation<{
+      ok: true; operationId: string; status: string;
+      wallet: { profile_id: string; currency: string; cached_balance: string } | null;
+      matrixNode: MatrixNodeResponse | null;
+    }>({ operationType: "subscription_activation", actorUserId: admin.user.id, profileId: payment.profile_id, idempotencyKey, payload: req });
+    if (started.operation.state === "completed" && started.operation.result) return started.operation.result;
+    const operation = started.operation;
+    try {
+      const membershipTx = await membershipDb.begin();
+      try {
+        await membershipTx.rawExec("UPDATE payments SET status = 'paid' WHERE id = $1 AND status <> 'paid'", req.paymentId);
+        await membershipTx.rawExec("UPDATE subscriptions SET status = 'active' WHERE id = $1", payment.subscription_id);
+        await membershipTx.commit();
+      } catch (error) { await membershipTx.rollback(); throw error; }
+      await recordStep(operation, "activate_membership", "completed", { paymentId: payment.id, subscriptionId: payment.subscription_id });
 
-    await membershipDb.rawExec(`UPDATE payments SET status = 'paid' WHERE id = $1`, req.paymentId);
-    await membershipDb.rawExec(`UPDATE subscriptions SET status = 'active' WHERE id = $1`, payment.subscription_id);
+      const existingLedger = await financeDb.rawQueryRow<{ id: string }>(
+        "SELECT id FROM ledger_transactions WHERE reference_type = 'payment' AND reference_id = $1 LIMIT 1", payment.id);
+      if (!existingLedger) {
+        const cashAccountId = await ensureLedgerAccount("system", "00000000-0000-0000-0000-000000000000", "cash", payment.currency);
+        const revenueAccountId = await ensureLedgerAccount("profile", payment.profile_id, "membership_revenue", payment.currency);
+        const ledgerTransactionId = crypto.randomUUID();
+        const tx = await financeDb.begin();
+        try {
+          await tx.rawExec(`INSERT INTO ledger_transactions (id, transaction_type, reference_type, reference_id, description, created_by)
+             VALUES ($1, 'membership_payment', 'payment', $2, 'Administrator-confirmed membership payment', $3)`,
+            ledgerTransactionId, payment.id, admin.user.id);
+          await tx.rawExec(`INSERT INTO ledger_entries (transaction_id, account_id, direction, amount, currency)
+             VALUES ($1, $2, 'debit', $3::numeric, $4), ($1, $5, 'credit', $3::numeric, $4)`,
+            ledgerTransactionId, cashAccountId, payment.amount, payment.currency, revenueAccountId);
+          await tx.commit();
+        } catch (error) { await tx.rollback(); throw error; }
+      }
+      await recordStep(operation, "record_membership_payment", "completed", { paymentId: payment.id, amount: payment.amount, currency: payment.currency });
 
-    const ledgerTransactionId = crypto.randomUUID();
-    const cashAccountId = await ensureLedgerAccount(
-      "system",
-      "00000000-0000-0000-0000-000000000000",
-      "cash",
-      payment.currency,
-    );
-    const memberRevenueAccountId = await ensureLedgerAccount(
-      "profile",
-      payment.profile_id,
-      "membership_revenue",
-      payment.currency,
-    );
-    await financeDb.rawExec(`INSERT INTO ledger_transactions (id, transaction_type, reference_type, reference_id, description)
-       VALUES ($1, 'membership_payment', 'payment', $2, 'Membership payment activation')`,
-      ledgerTransactionId,
-      payment.id,
-    );
-    await financeDb.rawExec(`INSERT INTO ledger_entries (transaction_id, account_id, direction, amount, currency)
-       VALUES ($1, $2, 'debit', $3::numeric, $4)`,
-      ledgerTransactionId,
-      cashAccountId,
-      payment.amount,
-      payment.currency,
-    );
-    await financeDb.rawExec(`INSERT INTO ledger_entries (transaction_id, account_id, direction, amount, currency)
-       VALUES ($1, $2, 'credit', $3::numeric, $4)`,
-      ledgerTransactionId,
-      memberRevenueAccountId,
-      payment.amount,
-      payment.currency,
-    );
-
-    await networkDb.rawExec(`UPDATE wallets SET cached_balance = cached_balance + $3::numeric, currency = $2 WHERE profile_id = $1`,
-      payment.profile_id,
-      payment.currency,
-      payment.amount,
-    );
-    await networkDb.rawExec(`INSERT INTO wallets (profile_id, currency, status, cached_balance)
-       SELECT $1, $2, 'active', $3::numeric
-       WHERE NOT EXISTS (SELECT 1 FROM wallets WHERE profile_id = $1)`,
-      payment.profile_id,
-      payment.currency,
-      payment.amount,
-    );
-
-    const node = await placeMatrixNode(payment.profile_id, null);
-    await auditDb.rawExec(`INSERT INTO audit_logs (action, entity_type, entity_id, after)
-       VALUES ($1, $2, $3, $4::jsonb)`,
-      "matrix.place",
-      "matrix_nodes",
-      node.id,
-      JSON.stringify({ profileId: payment.profile_id, path: node.path }),
-    );
-    const wallet = await networkDb.rawQueryRow<{
-      profile_id: string;
-      currency: string;
-      cached_balance: string;
-    }>("SELECT profile_id, currency, cached_balance::text AS cached_balance FROM wallets WHERE profile_id = $1", payment.profile_id);
-    return { ok: true, wallet, matrixNode: node };
+      const profilePlacement = await identityDb.rawQueryRow<{ upline_profile_number: string | null }>(
+        "SELECT upline_profile_number FROM profiles WHERE id = $1", payment.profile_id);
+      const sponsor = profilePlacement?.upline_profile_number
+        ? await identityDb.rawQueryRow<{ id: string }>("SELECT id FROM profiles WHERE unique_profile_number = $1", profilePlacement.upline_profile_number)
+        : null;
+      const node = await placeMatrixNode(payment.profile_id, sponsor?.id ?? null);
+      await recordStep(operation, "place_network_node", "completed", { nodeId: node.id, path: node.path });
+      const priorAudit = await auditDb.rawQueryRow<{ id: string }>(
+        "SELECT id FROM audit_logs WHERE action = 'payments.activate' AND entity_id = $1 LIMIT 1", payment.id);
+      if (!priorAudit) {
+        await auditDb.rawExec(`INSERT INTO audit_logs (actor_user_id, action, entity_type, entity_id, after)
+           VALUES ($1, 'payments.activate', 'payments', $2, $3::jsonb)`,
+          admin.user.id, payment.id, JSON.stringify({ operationId: operation.id, profileId: payment.profile_id, subscriptionId: payment.subscription_id, amount: payment.amount, currency: payment.currency }));
+      }
+      const wallet = await networkDb.rawQueryRow<{ profile_id: string; currency: string; cached_balance: string }>(
+        "SELECT profile_id, currency, cached_balance::text AS cached_balance FROM wallets WHERE profile_id = $1", payment.profile_id);
+      return completeOperation(operation, { ok: true, operationId: operation.id, status: "completed", wallet, matrixNode: node });
+    } catch (error) {
+      return failOperation(operation, error);
+    }
   },
 );
 
@@ -1234,61 +1402,134 @@ export const purchaseShares = api<SharePurchaseRequest, SharePurchaseResponse>(
   { method: "POST", path: "/shares/purchase", expose: true },
   async (req) => {
     const payload = sharePurchaseRequest.parse(req);
-    await requireProfileAccess(payload.profileId);
-    const phase = await sharesDb.rawQueryRow<{
-      id: string;
-      quantity_available: number;
-      price_per_share: string;
-      currency: string;
-      status: string;
-    }>("SELECT id, quantity_available, price_per_share::text AS price_per_share, currency, status FROM share_phases WHERE phase_number = $1", payload.phaseNumber);
-    if (!phase || phase.status !== "active" || phase.quantity_available < payload.quantity) {
-      throw new Error("share_phase_not_available");
+    const session = await requireProfileAccess(payload.profileId);
+    const idempotencyKey = requireIdempotencyKey();
+    const started = await beginOperation<SharePurchaseResponse>({
+      operationType: "share_purchase",
+      actorUserId: session.user.id,
+      profileId: payload.profileId,
+      idempotencyKey,
+      payload,
+    });
+    if (started.operation.state === "completed" && started.operation.result) return started.operation.result;
+
+    const operation = started.operation;
+    let reservationCreated = false;
+    try {
+      let purchase = await sharesDb.rawQueryRow<{
+        id: string; phase_id: string; quantity: number; bonus_quantity: number; total_amount: string; status: string; certificate_id: string | null;
+      }>(`SELECT id, phase_id, quantity, bonus_quantity, total_amount::text AS total_amount, status, certificate_id
+          FROM share_purchases WHERE operation_id = $1`, operation.id);
+
+      if (!purchase) {
+        const tx = await sharesDb.begin();
+        try {
+          const phase = await tx.rawQueryRow<{ id: string; price_per_share: string; currency: string; bonus_buy_one_get: boolean }>(
+            `UPDATE share_phases SET quantity_available = quantity_available - $2, updated_at = now()
+             WHERE phase_number = $1 AND status = 'active' AND quantity_available >= $2
+             RETURNING id, price_per_share::text AS price_per_share, currency, bonus_buy_one_get`,
+            payload.phaseNumber, payload.quantity,
+          );
+          if (!phase) throw APIError.failedPrecondition("Share phase is closed or does not have enough inventory");
+          const bonusQuantity = phase.bonus_buy_one_get ? payload.quantity : 0;
+          const totalAmount = (Number(phase.price_per_share) * payload.quantity).toFixed(2);
+          const purchaseId = crypto.randomUUID();
+          await tx.rawExec(`INSERT INTO share_purchases
+             (id, profile_id, phase_id, quantity, bonus_quantity, total_amount, status, operation_id, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6::numeric, 'reserved', $7, now())`,
+            purchaseId, payload.profileId, phase.id, payload.quantity, bonusQuantity, totalAmount, operation.id);
+          await tx.commit();
+          reservationCreated = true;
+          purchase = { id: purchaseId, phase_id: phase.id, quantity: payload.quantity, bonus_quantity: bonusQuantity, total_amount: totalAmount, status: "reserved", certificate_id: null };
+          await recordStep(operation, "reserve_inventory", "completed", { purchaseId, phaseNumber: payload.phaseNumber, quantity: payload.quantity });
+        } catch (error) { await tx.rollback(); throw error; }
+      } else if (purchase.status === "failed") {
+        const tx = await sharesDb.begin();
+        try {
+          const restored = await tx.rawQueryRow<{ id: string }>(`UPDATE share_phases
+            SET quantity_available = quantity_available - $2, updated_at = now()
+            WHERE id = $1 AND status = 'active' AND quantity_available >= $2 RETURNING id`,
+            purchase.phase_id, purchase.quantity);
+          if (!restored) throw APIError.failedPrecondition("Share phase is closed or does not have enough inventory");
+          await tx.rawExec("UPDATE share_purchases SET status = 'reserved' WHERE id = $1", purchase.id);
+          await tx.commit();
+          purchase.status = "reserved";
+          reservationCreated = true;
+          await recordStep(operation, "reserve_inventory", "completed", { purchaseId: purchase.id, restored: true, quantity: purchase.quantity });
+        } catch (error) { await tx.rollback(); throw error; }
+      }
+
+      const phaseCurrency = await sharesDb.rawQueryRow<{ currency: string }>("SELECT currency FROM share_phases WHERE id = $1", purchase.phase_id);
+      if (!phaseCurrency) throw new Error("share_phase_not_found");
+      await placeWalletHold(operation, payload.profileId, phaseCurrency.currency, purchase.total_amount);
+      await recordStep(operation, "hold_wallet_funds", "completed", { amount: purchase.total_amount, currency: phaseCurrency.currency });
+
+      await captureWalletHold(operation, "share_revenue", "Wallet-funded share purchase");
+      await recordStep(operation, "capture_wallet_funds", "completed", { amount: purchase.total_amount, currency: phaseCurrency.currency });
+
+      let certificate = purchase.certificate_id
+        ? await sharesDb.rawQueryRow<{ id: string; certificate_number: string }>("SELECT id, certificate_number FROM share_certificates WHERE id = $1", purchase.certificate_id)
+        : null;
+      if (!certificate) {
+        const tx = await sharesDb.begin();
+        try {
+          const locked = await tx.rawQueryRow<{ certificate_id: string | null; status: string }>(
+            "SELECT certificate_id, status FROM share_purchases WHERE id = $1 FOR UPDATE", purchase.id);
+          if (!locked) throw new Error("share_purchase_not_found");
+          if (locked.certificate_id) {
+            certificate = await tx.rawQueryRow<{ id: string; certificate_number: string }>(
+              "SELECT id, certificate_number FROM share_certificates WHERE id = $1", locked.certificate_id);
+          } else {
+            const certificateId = crypto.randomUUID();
+            const certificateNumber = `CERT-${crypto.randomUUID().toUpperCase()}`;
+            await tx.rawExec(`INSERT INTO share_certificates (id, profile_id, certificate_number, total_shares, status, issued_at)
+               VALUES ($1, $2, $3, $4, 'issued', now())`,
+              certificateId, payload.profileId, certificateNumber, purchase.quantity + purchase.bonus_quantity);
+            await tx.rawExec("UPDATE share_purchases SET certificate_id = $2, status = 'paid' WHERE id = $1", purchase.id, certificateId);
+            certificate = { id: certificateId, certificate_number: certificateNumber };
+          }
+          await tx.commit();
+        } catch (error) { await tx.rollback(); throw error; }
+      }
+      if (!certificate) throw new Error("share_certificate_not_created");
+      await recordStep(operation, "issue_certificate", "completed", { purchaseId: purchase.id, certificateNumber: certificate.certificate_number });
+
+      const priorAudit = await auditDb.rawQueryRow<{ id: string }>(
+        "SELECT id FROM audit_logs WHERE action = 'shares.purchase' AND entity_id = $1 LIMIT 1", purchase.id);
+      if (!priorAudit) {
+        await auditDb.rawExec(`INSERT INTO audit_logs (action, entity_type, entity_id, actor_user_id, after)
+           VALUES ('shares.purchase', 'share_purchases', $1, $2, $3::jsonb)`,
+          purchase.id, session.user.id, JSON.stringify({ operationId: operation.id, profileId: payload.profileId, phaseNumber: payload.phaseNumber, quantity: purchase.quantity, bonusQuantity: purchase.bonus_quantity, totalAmount: purchase.total_amount }));
+      }
+      await recordStep(operation, "audit", "completed", { purchaseId: purchase.id });
+
+      const result: SharePurchaseResponse = {
+        operationId: operation.id,
+        purchaseId: purchase.id,
+        status: "completed",
+        totalAmount: purchase.total_amount,
+        bonusQuantity: purchase.bonus_quantity,
+        certificateNumber: certificate.certificate_number,
+      };
+      return await completeOperation(operation, result);
+    } catch (error) {
+      if (reservationCreated) {
+        const hold = await financeDb.rawQueryRow<{ state: string }>("SELECT state FROM wallet_holds WHERE operation_id = $1", operation.id);
+        if (!hold) {
+          const tx = await sharesDb.begin();
+          try {
+            const reservation = await tx.rawQueryRow<{ phase_id: string; quantity: number; status: string }>(
+              "SELECT phase_id, quantity, status FROM share_purchases WHERE operation_id = $1 FOR UPDATE", operation.id);
+            if (reservation?.status === "reserved") {
+              await tx.rawExec("UPDATE share_phases SET quantity_available = quantity_available + $2, updated_at = now() WHERE id = $1", reservation.phase_id, reservation.quantity);
+              await tx.rawExec("UPDATE share_purchases SET status = 'failed' WHERE operation_id = $1", operation.id);
+            }
+            await tx.commit();
+          } catch (compensationError) { await tx.rollback(); await recordStep(operation, "release_inventory", "failed", {}, compensationError); }
+        }
+      }
+      return failOperation(operation, error, true);
     }
-    const bonusQuantity = payload.phaseNumber === 1 ? payload.quantity : 0;
-    const totalAmount = (Number(phase.price_per_share) * payload.quantity).toFixed(2);
-    const purchaseId = crypto.randomUUID();
-    const paymentId = crypto.randomUUID();
-    const providerReference = `share-${purchaseId}`;
-    const certificateNumber = `CERT-${crypto.randomUUID().toUpperCase()}`;
-    await membershipDb.rawExec(`INSERT INTO payments (id, profile_id, provider, provider_reference, amount, currency, status, metadata)
-       VALUES ($1, $2, 'manual', $3, $4::numeric, $5, 'paid', $6::jsonb)`,
-      paymentId,
-      payload.profileId,
-      providerReference,
-      totalAmount,
-      phase.currency,
-      JSON.stringify({ type: "share_purchase", phaseNumber: payload.phaseNumber }),
-    );
-    await sharesDb.rawExec(`INSERT INTO share_purchases (id, profile_id, phase_id, quantity, bonus_quantity, total_amount, status, payment_id, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6::numeric, 'paid', $7, now())`,
-      purchaseId,
-      payload.profileId,
-      phase.id,
-      payload.quantity,
-      bonusQuantity,
-      totalAmount,
-      paymentId,
-    );
-    await sharesDb.rawExec(`INSERT INTO share_certificates (profile_id, certificate_number, total_shares, status, issued_at)
-       VALUES ($1, $2, $3, 'issued', now())`,
-      payload.profileId,
-      certificateNumber,
-      payload.quantity + bonusQuantity,
-    );
-    await sharesDb.rawExec(
-      "UPDATE share_phases SET quantity_available = quantity_available - $2 WHERE id = $1",
-      phase.id,
-      payload.quantity,
-    );
-    await auditDb.rawExec(`INSERT INTO audit_logs (action, entity_type, entity_id, after)
-       VALUES ($1, $2, $3, $4::jsonb)`,
-      "shares.purchase",
-      "share_purchases",
-      purchaseId,
-      JSON.stringify({ profileId: payload.profileId, phaseNumber: payload.phaseNumber, quantity: payload.quantity, bonusQuantity, totalAmount }),
-    );
-    return { purchaseId, status: "paid", totalAmount, bonusQuantity, certificateNumber };
   },
 );
 
@@ -1460,11 +1701,12 @@ export const marketplace = api<
 
 export const placeMarketplaceOrder = api<
   { profileId: string; productId: string },
-  { order: MarketplaceOrderResponse; price: number; pricingTier: string; commission: number; poolBenefit: number }
+  { order: MarketplaceOrderResponse; price: number; pricingTier: string; commission: number; poolBenefit: number; operationId: string; status: string }
 >(
   { method: "POST", path: "/marketplace/orders", expose: true },
   async (req) => {
-    await requireProfileAccess(req.profileId);
+    const session = await requireProfileAccess(req.profileId);
+    const idempotencyKey = requireIdempotencyKey();
     const product = await commerceDb.rawQueryRow<MarketplaceProductRow>(
       `SELECT id, name, description, category, provider, price::text AS price,
               free_price::text AS free_price, currency, commission_pct::text AS commission_pct,
@@ -1481,62 +1723,42 @@ export const placeMarketplaceOrder = api<
     const price = Number(isFreeMember ? product.free_price : product.price);
     const pricingTier = isFreeMember ? "FREE" : "PAID";
     const commission = Number((price * Number(product.commission_pct) / 100).toFixed(2));
-    const debited = await networkDb.rawQueryRow<{ cached_balance: string }>(
-      `UPDATE wallets SET cached_balance = cached_balance - $2::numeric
-       WHERE profile_id = $1 AND cached_balance >= $2::numeric
-       RETURNING cached_balance::text AS cached_balance`,
-      req.profileId,
-      price.toFixed(2),
-    );
-    if (!debited) throw new Error("insufficient_funds");
-    const orderId = crypto.randomUUID();
+    const started = await beginOperation<{
+      order: MarketplaceOrderResponse; price: number; pricingTier: string; commission: number; poolBenefit: number; operationId: string; status: string;
+    }>({ operationType: "marketplace_order", actorUserId: session.user.id, profileId: req.profileId, idempotencyKey, payload: req });
+    if (started.operation.state === "completed" && started.operation.result) return started.operation.result;
+    const operation = started.operation;
     try {
-      await commerceDb.rawExec(
-        `INSERT INTO marketplace_orders (id, profile_id, product_id, product_name, amount, pricing_tier, commission, status)
-         VALUES ($1, $2, $3, $4, $5::numeric, $6, $7::numeric, 'COMPLETED')`,
-        orderId,
-        req.profileId,
-        product.id,
-        product.name,
-        price.toFixed(2),
-        pricingTier,
-        commission.toFixed(2),
-      );
+      let order = await commerceDb.rawQueryRow<{
+        id: string; created_at: string; status: string; amount: string; commission: string; pricing_tier: string; currency: string;
+      }>(`SELECT id, created_at, status, amount::text AS amount, commission::text AS commission, pricing_tier, currency
+          FROM marketplace_orders WHERE operation_id = $1`, operation.id);
+      if (!order) {
+        order = await commerceDb.rawQueryRow(`INSERT INTO marketplace_orders
+          (id, profile_id, product_id, product_name, amount, pricing_tier, commission, status, operation_id, currency)
+          VALUES ($1, $2, $3, $4, $5::numeric, $6, $7::numeric, 'PROCESSING', $8, $9)
+          RETURNING id, created_at, status, amount::text AS amount, commission::text AS commission, pricing_tier, currency`,
+          crypto.randomUUID(), req.profileId, product.id, product.name, price.toFixed(2), pricingTier, commission.toFixed(2), operation.id, product.currency);
+      }
+      if (!order) throw new Error("marketplace_order_not_created");
+      await recordStep(operation, "create_order", "completed", { orderId: order.id });
+      await placeWalletHold(operation, req.profileId, order.currency, order.amount);
+      await recordStep(operation, "hold_wallet_funds", "completed", { amount: order.amount, currency: order.currency });
+      await captureWalletHold(operation, "marketplace_revenue", `${product.name} - ${product.provider}`);
+      await recordStep(operation, "capture_wallet_funds", "completed", { orderId: order.id });
+      await commerceDb.rawExec("UPDATE marketplace_orders SET status = 'COMPLETED' WHERE id = $1", order.id);
+      const orderPrice = Number(order.amount);
+      const orderCommission = Number(order.commission);
+      const result = {
+        order: { id: order.id, productId: product.id, productName: product.name, amount: orderPrice, commission: orderCommission, pricingTier: order.pricing_tier, status: "COMPLETED", createdAt: order.created_at },
+        price: orderPrice, pricingTier: order.pricing_tier, commission: orderCommission,
+        poolBenefit: Number((orderCommission * 0.05).toFixed(2)), operationId: operation.id, status: "completed",
+      };
+      return completeOperation(operation, result);
     } catch (error) {
-      await networkDb.rawExec(
-        "UPDATE wallets SET cached_balance = cached_balance + $2::numeric WHERE profile_id = $1",
-        req.profileId,
-        price.toFixed(2),
-      );
-      throw error;
+      try { await releaseWalletHold(operation.id); } catch { /* captured funds require reconciliation, not release */ }
+      return failOperation(operation, error);
     }
-    const transactionId = crypto.randomUUID();
-    const memberAccount = await ensureLedgerAccount("profile", req.profileId, "wallet", product.currency);
-    const commerceAccount = await ensureLedgerAccount("system", "00000000-0000-0000-0000-000000000000", "marketplace_revenue", product.currency);
-    await financeDb.rawExec(
-      `INSERT INTO ledger_transactions (id, transaction_type, reference_type, reference_id, description)
-       VALUES ($1, 'marketplace', 'marketplace_order', $2, $3)`,
-      transactionId,
-      orderId,
-      `${product.name} - ${product.provider}`,
-    );
-    await financeDb.rawExec(
-      `INSERT INTO ledger_entries (transaction_id, account_id, direction, amount, currency)
-       VALUES ($1, $2, 'debit', $3::numeric, $4), ($1, $5, 'credit', $3::numeric, $4)`,
-      transactionId,
-      memberAccount,
-      price.toFixed(2),
-      product.currency,
-      commerceAccount,
-    );
-    const createdAt = new Date().toISOString();
-    return {
-      order: { id: orderId, productId: product.id, productName: product.name, amount: price, commission, pricingTier, status: "COMPLETED", createdAt },
-      price,
-      pricingTier,
-      commission,
-      poolBenefit: Number((commission * 0.05).toFixed(2)),
-    };
   },
 );
 
@@ -1663,57 +1885,55 @@ export const rootsBank = api<
 
 export const purchaseRootsBankShare = api<
   { profileId: string; category: "KIDS_STUDENT" | "ADULT" | "PENSIONER"; paymentRef?: string },
-  { rootsBankShare: RootsBankShareResponse; pioneerCount: number; pioneerRemaining: number }
+  { rootsBankShare: RootsBankShareResponse; pioneerCount: number; pioneerRemaining: number; operationId: string; status: string }
 >(
   { method: "POST", path: "/rootsbank/purchase", expose: true },
   async (req) => {
-    await requireProfileAccess(req.profileId);
+    const session = await requireProfileAccess(req.profileId);
+    const idempotencyKey = requireIdempotencyKey();
     const membershipFee = req.category === "ADULT" ? 200 : 50;
     const sharePrice = 500;
     const totalAmount = sharePrice + membershipFee;
-    const debited = await networkDb.rawQueryRow<{ cached_balance: string }>(
-      `UPDATE wallets SET cached_balance = cached_balance - $2::numeric
-       WHERE profile_id = $1 AND cached_balance >= $2::numeric
-       RETURNING cached_balance::text AS cached_balance`,
-      req.profileId,
-      totalAmount.toFixed(2),
-    );
-    if (!debited) throw new Error("insufficient_funds");
-    const id = crypto.randomUUID();
-    const paymentRef = req.paymentRef ?? `RBS-${crypto.randomUUID().toUpperCase()}`;
-    let row: {
-      id: string; profile_id: string; category: string; share_price: string; membership_fee: string;
-      total_amount: string; payment_ref: string; pioneer_pool: boolean; status: string; created_at: string;
-    } | null = null;
+    const started = await beginOperation<{
+      rootsBankShare: RootsBankShareResponse; pioneerCount: number; pioneerRemaining: number; operationId: string; status: string;
+    }>({ operationType: "roots_bank_purchase", actorUserId: session.user.id, profileId: req.profileId, idempotencyKey, payload: req });
+    if (started.operation.state === "completed" && started.operation.result) return started.operation.result;
+    const operation = started.operation;
     try {
-      row = await commerceDb.rawQueryRow(
-        `INSERT INTO roots_bank_shares (id, profile_id, category, share_price, membership_fee, total_amount, payment_ref)
-         VALUES ($1, $2, $3, $4::numeric, $5::numeric, $6::numeric, $7)
-         RETURNING id, profile_id, category, share_price::text AS share_price, membership_fee::text AS membership_fee,
-                   total_amount::text AS total_amount, payment_ref, pioneer_pool, status, created_at`,
-        id, req.profileId, req.category, sharePrice.toFixed(2), membershipFee.toFixed(2), totalAmount.toFixed(2), paymentRef,
-      );
+      const existingOwner = await commerceDb.rawQueryRow<{ id: string; operation_id: string | null }>(
+        "SELECT id, operation_id FROM roots_bank_shares WHERE profile_id = $1", req.profileId);
+      if (existingOwner && existingOwner.operation_id !== operation.id) throw APIError.alreadyExists("Member already owns a Roots Bank pioneer share");
+      await placeWalletHold(operation, req.profileId, "ZAR", totalAmount.toFixed(2));
+      await recordStep(operation, "hold_wallet_funds", "completed", { amount: totalAmount, currency: "ZAR" });
+      let row = await commerceDb.rawQueryRow<{
+        id: string; profile_id: string; category: string; share_price: string; membership_fee: string;
+        total_amount: string; payment_ref: string; pioneer_pool: boolean; status: string; created_at: string;
+      }>(`SELECT id, profile_id, category, share_price::text AS share_price, membership_fee::text AS membership_fee,
+              total_amount::text AS total_amount, payment_ref, pioneer_pool, status, created_at
+          FROM roots_bank_shares WHERE operation_id = $1`, operation.id);
+      if (!row) {
+        const id = crypto.randomUUID();
+        const paymentRef = req.paymentRef ?? `RBS-${crypto.randomUUID().toUpperCase()}`;
+        row = await commerceDb.rawQueryRow(`INSERT INTO roots_bank_shares
+          (id, profile_id, category, share_price, membership_fee, total_amount, payment_ref, status, operation_id)
+          VALUES ($1, $2, $3, $4::numeric, $5::numeric, $6::numeric, $7, 'PROCESSING', $8)
+          RETURNING id, profile_id, category, share_price::text AS share_price, membership_fee::text AS membership_fee,
+                    total_amount::text AS total_amount, payment_ref, pioneer_pool, status, created_at`,
+          id, req.profileId, req.category, sharePrice.toFixed(2), membershipFee.toFixed(2), totalAmount.toFixed(2), paymentRef, operation.id);
+      }
+      if (!row) throw new Error("roots_bank_purchase_failed");
+      await recordStep(operation, "create_pioneer_share", "completed", { rootsBankShareId: row.id });
+      await captureWalletHold(operation, "roots_bank", "Roots Bank pioneer share");
+      await commerceDb.rawExec("UPDATE roots_bank_shares SET status = 'REGISTERED' WHERE id = $1", row.id);
+      row.status = "REGISTERED";
+      await recordStep(operation, "capture_wallet_funds", "completed", { rootsBankShareId: row.id });
+      const count = await commerceDb.rawQueryRow<{ count: string }>("SELECT COUNT(*)::text AS count FROM roots_bank_shares WHERE status = 'REGISTERED'");
+      const pioneerCount = Number(count?.count ?? 0);
+      return completeOperation(operation, { rootsBankShare: rootsBankShare(row), pioneerCount, pioneerRemaining: Math.max(0, 200 - pioneerCount), operationId: operation.id, status: "completed" });
     } catch (error) {
-      await networkDb.rawExec("UPDATE wallets SET cached_balance = cached_balance + $2::numeric WHERE profile_id = $1", req.profileId, totalAmount.toFixed(2));
-      throw error;
+      try { await releaseWalletHold(operation.id); } catch { /* captured funds require reconciliation, not release */ }
+      return failOperation(operation, error);
     }
-    if (!row) throw new Error("roots_bank_purchase_failed");
-    const transactionId = crypto.randomUUID();
-    const memberAccount = await ensureLedgerAccount("profile", req.profileId, "wallet", "ZAR");
-    const rootsAccount = await ensureLedgerAccount("system", "00000000-0000-0000-0000-000000000000", "roots_bank", "ZAR");
-    await financeDb.rawExec(
-      `INSERT INTO ledger_transactions (id, transaction_type, reference_type, reference_id, description)
-       VALUES ($1, 'pioneer', 'roots_bank_share', $2, 'Roots Bank pioneer share')`,
-      transactionId, id,
-    );
-    await financeDb.rawExec(
-      `INSERT INTO ledger_entries (transaction_id, account_id, direction, amount, currency)
-       VALUES ($1, $2, 'debit', $3::numeric, 'ZAR'), ($1, $4, 'credit', $3::numeric, 'ZAR')`,
-      transactionId, memberAccount, totalAmount.toFixed(2), rootsAccount,
-    );
-    const count = await commerceDb.rawQueryRow<{ count: string }>("SELECT COUNT(*)::text AS count FROM roots_bank_shares");
-    const pioneerCount = Number(count?.count ?? 0);
-    return { rootsBankShare: rootsBankShare(row), pioneerCount, pioneerRemaining: Math.max(0, 200 - pioneerCount) };
   },
 );
 
@@ -2252,38 +2472,73 @@ type PoolDistributionResponse = { id: string; memberId: string; amount: number; 
 
 export const declareDividend = api<
   { amount: number },
-  { declaration: { id: string; amount: number; totalShares: number; perShareAmount: number; status: string; declaredAt: string; paidAt: string | null }; distributedTo: number; totalShares: number; perShareAmount: number }
+  { declaration: { id: string; amount: number; totalShares: number; perShareAmount: number; status: string; declaredAt: string; paidAt: string | null }; distributedTo: number; totalShares: number; perShareAmount: number; operationId: string; status: string }
 >(
   { method: "POST", path: "/admin/dividends", expose: true },
   async (req) => {
-    await requireAdminAccess();
+    const admin = await requireAdminAccess();
+    const idempotencyKey = requireIdempotencyKey();
     if (!(req.amount > 0)) throw new Error("positive_amount_required");
-    const holdings = await sharesDb.rawQueryAll<{ profile_id: string; total_shares: string }>(
-      `SELECT profile_id, SUM(total_shares)::text AS total_shares FROM share_certificates
-       WHERE status <> 'revoked' GROUP BY profile_id`,
-    );
-    const eligible: { profileId: string; shares: number }[] = [];
-    for (const holding of holdings) {
-      const subscription = await membershipDb.rawQueryRow<{ status: string }>(
-        "SELECT status FROM subscriptions WHERE profile_id = $1 ORDER BY starts_at DESC LIMIT 1", holding.profile_id,
-      );
-      if (subscription?.status === "active") eligible.push({ profileId: holding.profile_id, shares: Number(holding.total_shares) });
-    }
-    const totalShares = eligible.reduce((sum, holding) => sum + holding.shares, 0);
-    if (totalShares === 0) throw new Error("no_eligible_shares");
-    const perShareAmount = Number((req.amount / totalShares).toFixed(4));
-    const declarationId = crypto.randomUUID();
-    await financeDb.rawExec(
-      `INSERT INTO dividend_declarations (id, amount, total_shares, per_share_amount)
-       VALUES ($1, $2::numeric, $3, $4::numeric)`,
-      declarationId, req.amount.toFixed(2), totalShares, perShareAmount.toFixed(4),
-    );
-    for (const holding of eligible) {
-      await creditDistribution(declarationId, holding.profileId, Number((holding.shares * perShareAmount).toFixed(2)), "DIVIDEND", "SHAREHOLDERS");
-    }
-    await financeDb.rawExec("UPDATE dividend_declarations SET status = 'paid', paid_at = now() WHERE id = $1", declarationId);
-    const now = new Date().toISOString();
-    return { declaration: { id: declarationId, amount: req.amount, totalShares, perShareAmount, status: "PAID", declaredAt: now, paidAt: now }, distributedTo: eligible.length, totalShares, perShareAmount };
+    const started = await beginOperation<{
+      declaration: { id: string; amount: number; totalShares: number; perShareAmount: number; status: string; declaredAt: string; paidAt: string | null };
+      distributedTo: number; totalShares: number; perShareAmount: number; operationId: string; status: string;
+    }>({ operationType: "dividend_distribution", actorUserId: admin.user.id, idempotencyKey, payload: req });
+    if (started.operation.state === "completed" && started.operation.result) return started.operation.result;
+    const operation = started.operation;
+    try {
+      let allocations = await financeDb.rawQueryAll<{ profile_id: string; amount: string; weight: string }>(
+        "SELECT profile_id, amount::text AS amount, weight::text AS weight FROM distribution_allocations WHERE operation_id = $1 ORDER BY profile_id", operation.id);
+      let declaration = await financeDb.rawQueryRow<{ id: string; amount: string; total_shares: number; per_share_amount: string; declared_at: string; paid_at: string | null }>(
+        "SELECT id, amount::text AS amount, total_shares, per_share_amount::text AS per_share_amount, declared_at, paid_at FROM dividend_declarations WHERE operation_id = $1", operation.id);
+      if (!declaration || allocations.length === 0) {
+        const holdings = await sharesDb.rawQueryAll<{ profile_id: string; total_shares: string }>(
+          `SELECT profile_id, SUM(total_shares)::text AS total_shares FROM share_certificates
+           WHERE status <> 'revoked' GROUP BY profile_id ORDER BY profile_id`);
+        const eligible: { profileId: string; weight: number }[] = [];
+        for (const holding of holdings) {
+          const subscription = await membershipDb.rawQueryRow<{ status: string }>(
+            "SELECT status FROM subscriptions WHERE profile_id = $1 ORDER BY starts_at DESC LIMIT 1", holding.profile_id);
+          if (subscription?.status === "active") eligible.push({ profileId: holding.profile_id, weight: Number(holding.total_shares) });
+        }
+        const totalShares = eligible.reduce((sum, item) => sum + item.weight, 0);
+        if (totalShares <= 0) throw APIError.failedPrecondition("No active members hold eligible shares");
+        const calculated = allocateWeightedCents(Math.round(req.amount * 100), eligible);
+        const declarationId = crypto.randomUUID();
+        const perShareAmount = req.amount / totalShares;
+        const tx = await financeDb.begin();
+        try {
+          await tx.rawExec(`INSERT INTO dividend_declarations (id, amount, total_shares, per_share_amount, operation_id)
+             VALUES ($1, $2::numeric, $3, $4::numeric, $5) ON CONFLICT (operation_id) WHERE operation_id IS NOT NULL DO NOTHING`,
+            declarationId, req.amount.toFixed(2), totalShares, perShareAmount.toFixed(4), operation.id);
+          for (const item of calculated) {
+            await tx.rawExec(`INSERT INTO distribution_allocations (operation_id, profile_id, amount, weight)
+               VALUES ($1, $2, $3::numeric, $4::numeric) ON CONFLICT (operation_id, profile_id) DO NOTHING`,
+              operation.id, item.profileId, (item.cents / 100).toFixed(2), item.weight.toFixed(4));
+          }
+          await tx.commit();
+        } catch (error) { await tx.rollback(); throw error; }
+        allocations = await financeDb.rawQueryAll("SELECT profile_id, amount::text AS amount, weight::text AS weight FROM distribution_allocations WHERE operation_id = $1 ORDER BY profile_id", operation.id);
+        declaration = await financeDb.rawQueryRow("SELECT id, amount::text AS amount, total_shares, per_share_amount::text AS per_share_amount, declared_at, paid_at FROM dividend_declarations WHERE operation_id = $1", operation.id);
+      }
+      if (!declaration) throw new Error("dividend_declaration_not_created");
+      await recordStep(operation, "snapshot_allocations", "completed", { recipients: allocations.length, totalShares: declaration.total_shares });
+      for (const allocation of allocations) {
+        if (Number(allocation.amount) <= 0) continue;
+        await creditWorkflowDistribution({ operation, profileId: allocation.profile_id, amount: allocation.amount, source: "DIVIDEND", poolType: "SHAREHOLDERS" });
+      }
+      await financeDb.rawExec("UPDATE dividend_declarations SET status = 'paid', paid_at = COALESCE(paid_at, now()) WHERE id = $1", declaration.id);
+      await recordStep(operation, "credit_recipients", "completed", { recipients: allocations.length });
+      const paidAt = new Date().toISOString();
+      const result = {
+        declaration: { id: declaration.id, amount: Number(declaration.amount), totalShares: declaration.total_shares, perShareAmount: Number(declaration.per_share_amount), status: "PAID", declaredAt: declaration.declared_at, paidAt },
+        distributedTo: allocations.filter((item) => Number(item.amount) > 0).length,
+        totalShares: declaration.total_shares,
+        perShareAmount: Number(declaration.per_share_amount),
+        operationId: operation.id,
+        status: "completed",
+      };
+      return completeOperation(operation, result);
+    } catch (error) { return failOperation(operation, error); }
   },
 );
 
@@ -2327,50 +2582,55 @@ export const poolOverview = api<{ limit?: number }, {
 
 export const distributePool = api<
   { totalAmount: number; source?: string },
-  { distributed: number; perMember: number; totalDistributed: number }
+  { distributed: number; perMember: number; totalDistributed: number; operationId: string; status: string }
 >(
   { method: "POST", path: "/admin/pool/distributions", expose: true },
   async (req) => {
-    await requireAdminAccess();
+    const admin = await requireAdminAccess();
+    const idempotencyKey = requireIdempotencyKey();
     if (!(req.totalAmount > 0)) throw new Error("positive_amount_required");
-    const profiles = await membershipDb.rawQueryAll<{ profile_id: string }>("SELECT DISTINCT profile_id FROM subscriptions WHERE status = 'active'");
-    if (profiles.length === 0) throw new Error("no_eligible_members");
-    const perMember = Number((req.totalAmount / profiles.length).toFixed(2));
-    const batchId = crypto.randomUUID();
-    for (const profile of profiles) await creditDistribution(batchId, profile.profile_id, perMember, req.source ?? "MANUAL", "SHAREHOLDERS");
-    return { distributed: profiles.length, perMember, totalDistributed: Number((perMember * profiles.length).toFixed(2)) };
+    const started = await beginOperation<{
+      distributed: number; perMember: number; totalDistributed: number; operationId: string; status: string;
+    }>({ operationType: "pool_distribution", actorUserId: admin.user.id, idempotencyKey, payload: req });
+    if (started.operation.state === "completed" && started.operation.result) return started.operation.result;
+    const operation = started.operation;
+    try {
+      let allocations = await financeDb.rawQueryAll<{ profile_id: string; amount: string }>(
+        "SELECT profile_id, amount::text AS amount FROM distribution_allocations WHERE operation_id = $1 ORDER BY profile_id", operation.id);
+      if (allocations.length === 0) {
+        const profiles = await membershipDb.rawQueryAll<{ profile_id: string }>(
+          "SELECT DISTINCT profile_id FROM subscriptions WHERE status = 'active' ORDER BY profile_id");
+        if (profiles.length === 0) throw APIError.failedPrecondition("No active members are eligible for distribution");
+        const calculated = allocateEvenCents(Math.round(req.totalAmount * 100), profiles.map((item) => item.profile_id));
+        const tx = await financeDb.begin();
+        try {
+          for (const item of calculated) {
+            await tx.rawExec(`INSERT INTO distribution_allocations (operation_id, profile_id, amount)
+               VALUES ($1, $2, $3::numeric) ON CONFLICT (operation_id, profile_id) DO NOTHING`,
+              operation.id, item.profileId, (item.cents / 100).toFixed(2));
+          }
+          await tx.commit();
+        } catch (error) { await tx.rollback(); throw error; }
+        allocations = await financeDb.rawQueryAll("SELECT profile_id, amount::text AS amount FROM distribution_allocations WHERE operation_id = $1 ORDER BY profile_id", operation.id);
+      }
+      await recordStep(operation, "snapshot_allocations", "completed", { recipients: allocations.length, totalAmount: req.totalAmount });
+      for (const allocation of allocations) {
+        if (Number(allocation.amount) <= 0) continue;
+        await creditWorkflowDistribution({ operation, profileId: allocation.profile_id, amount: allocation.amount, source: req.source ?? "MANUAL", poolType: "SHAREHOLDERS" });
+      }
+      await recordStep(operation, "credit_recipients", "completed", { recipients: allocations.length });
+      const totalDistributed = Number(allocations.reduce((sum, item) => sum + Number(item.amount), 0).toFixed(2));
+      return completeOperation(operation, {
+        distributed: allocations.filter((item) => Number(item.amount) > 0).length,
+        perMember: Number((req.totalAmount / allocations.length).toFixed(2)),
+        totalDistributed,
+        operationId: operation.id,
+        status: "completed",
+      });
+    } catch (error) { return failOperation(operation, error); }
   },
 );
 
-async function creditDistribution(batchId: string, profileId: string, amount: number, source: string, poolType: string) {
-  const distributionId = crypto.randomUUID();
-  const pending = await financeDb.rawQueryRow<{ id: string }>(
-    `INSERT INTO pool_distributions (id, batch_id, profile_id, amount, source, pool_type, status)
-     VALUES ($1, $2, $3, $4::numeric, $5, $6, 'pending')
-     ON CONFLICT (batch_id, profile_id) DO UPDATE SET source = EXCLUDED.source
-     RETURNING id`, distributionId, batchId, profileId, amount.toFixed(2), source, poolType,
-  );
-  if (!pending) return;
-  await networkDb.rawExec(
-    `INSERT INTO wallets (profile_id, currency, cached_balance, status)
-     VALUES ($1, 'ZAR', $2::numeric, 'active')
-     ON CONFLICT (profile_id) DO UPDATE SET cached_balance = wallets.cached_balance + EXCLUDED.cached_balance`,
-    profileId, amount.toFixed(2),
-  );
-  const memberAccount = await ensureLedgerAccount("profile", profileId, "wallet", "ZAR");
-  const poolAccount = await ensureLedgerAccount("system", "00000000-0000-0000-0000-000000000000", source === "DIVIDEND" ? "dividend_expense" : "pool_expense", "ZAR");
-  const transactionId = crypto.randomUUID();
-  await financeDb.rawExec(
-    `INSERT INTO ledger_transactions (id, transaction_type, reference_type, reference_id, description)
-     VALUES ($1, $2, 'pool_distribution', $3, $4)`, transactionId, source === "DIVIDEND" ? "dividend" : "pool_payout", pending.id, `${source} distribution`,
-  );
-  await financeDb.rawExec(
-    `INSERT INTO ledger_entries (transaction_id, account_id, direction, amount, currency)
-     VALUES ($1, $2, 'debit', $3::numeric, 'ZAR'), ($1, $4, 'credit', $3::numeric, 'ZAR')`,
-    transactionId, poolAccount, amount.toFixed(2), memberAccount,
-  );
-  await financeDb.rawExec("UPDATE pool_distributions SET status = 'paid' WHERE id = $1", pending.id);
-}
 
 function poolDistributionResponse(row: { id: string; profile_id: string; amount: string; source: string; pool_type: string; status: string; payout_date: string }): PoolDistributionResponse {
   return { id: row.id, memberId: row.profile_id, amount: Number(row.amount), source: row.source, poolType: row.pool_type, status: row.status.toUpperCase(), payoutDate: row.payout_date };
@@ -2631,12 +2891,12 @@ export const matrixTree = api<
   },
 );
 
-async function placeMatrixNode(profileId: string, sponsorProfileId: string | null) {
-  const existing = await networkDb.rawQueryRow<{ id: string }>("SELECT id FROM matrix_nodes WHERE profile_id = $1",
-    profileId,
-  );
-  if (existing) {
-    const row = await networkDb.rawQueryRow<{
+async function legacyPlaceMatrixNode(profileId: string, sponsorProfileId: string | null) {
+  // Serialized breadth-first placement preserves the five-child, six-level contract. Klaasvaakie ( |╲ )
+  const tx = await networkDb.begin();
+  try {
+    await tx.rawExec("SELECT pg_advisory_xact_lock(hashtext('kasihub-matrix-placement'))");
+    const existing = await tx.rawQueryRow<{
       id: string;
       profile_id: string;
       parent_node_id: string | null;
@@ -2645,81 +2905,35 @@ async function placeMatrixNode(profileId: string, sponsorProfileId: string | nul
       depth: number;
       path: string;
     }>("SELECT id, profile_id, parent_node_id, sponsor_profile_id, position_index, depth, path FROM matrix_nodes WHERE profile_id = $1", profileId);
-    if (!row) throw new Error("matrix_node_missing");
-    return {
-      id: row.id,
-      profileId: row.profile_id,
-      parentNodeId: row.parent_node_id,
-      sponsorProfileId: row.sponsor_profile_id,
-      positionIndex: row.position_index,
-      depth: row.depth,
-      path: row.path,
-    };
-  }
+    if (existing) {
+      await tx.commit();
+      return { id: existing.id, profileId: existing.profile_id, parentNodeId: existing.parent_node_id,
+        sponsorProfileId: existing.sponsor_profile_id, positionIndex: existing.position_index, depth: existing.depth, path: existing.path };
+    }
 
-  const parent = await networkDb.rawQueryRow<{
-    id: string;
-    depth: number;
-    path: string;
-    position_index: number;
-  }>("SELECT id, depth, path, position_index FROM matrix_nodes ORDER BY depth, position_index, created_at LIMIT 1");
+    const count = await tx.rawQueryRow<{ count: string }>("SELECT COUNT(*)::text AS count FROM matrix_nodes");
+    const parent = Number(count?.count ?? 0) === 0 ? null : await tx.rawQueryRow<{
+      id: string; depth: number; path: string; child_count: number;
+    }>(`SELECT n.id, n.depth, n.path, COUNT(c.id)::int AS child_count
+        FROM matrix_nodes n LEFT JOIN matrix_nodes c ON c.parent_node_id = n.id
+        WHERE n.depth < 5
+        GROUP BY n.id, n.depth, n.path, n.profile_id, n.created_at
+        HAVING COUNT(c.id) < 5
+        ORDER BY CASE WHEN n.profile_id = $1 THEN 0 ELSE 1 END, n.depth, n.path, n.created_at
+        LIMIT 1`, sponsorProfileId);
+    if (Number(count?.count ?? 0) > 0 && !parent) throw APIError.resourceExhausted("The current 5x6 ecosystem is full");
 
-  const nodeId = crypto.randomUUID();
-  const depth = parent ? parent.depth + 1 : 0;
-  const positionIndex = parent ? parent.position_index + 1 : 0;
-  const path = parent ? `${parent.path}.${positionIndex}` : "0";
-
-  await networkDb.rawExec(`INSERT INTO matrix_nodes (
+    const nodeId = crypto.randomUUID();
+    const depth = parent ? parent.depth + 1 : 0;
+    const positionIndex = parent?.child_count ?? 0;
+    const path = parent ? `${parent.path}.${positionIndex}` : "0";
+    await tx.rawExec(`INSERT INTO matrix_nodes (
       id, profile_id, parent_node_id, sponsor_profile_id, position_index, depth, path
     ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-    nodeId,
-    profileId,
-    parent?.id ?? null,
-    sponsorProfileId,
-    positionIndex,
-    depth,
-    path,
-  );
-
-  return {
-    id: nodeId,
-    profileId,
-    parentNodeId: parent?.id ?? null,
-    sponsorProfileId,
-    positionIndex,
-    depth,
-    path,
-  };
-}
-
-async function ensureMembershipPlan(code: string) {
-  const defaults: Record<string, { name: string; memberType: string; currency: string; amount: string }> = {
-    INDIVIDUAL_LOCAL: { name: "Individual Local", memberType: "individual", currency: "ZAR", amount: "140.00" },
-    INDIVIDUAL_INTERNATIONAL: { name: "Individual International", memberType: "individual", currency: "USD", amount: "20.00" },
-    COMPANY_LOCAL: { name: "Company Local", memberType: "company", currency: "ZAR", amount: "300.00" },
-    COMPANY_INTERNATIONAL: { name: "Company International", memberType: "company", currency: "USD", amount: "50.00" },
-  };
-  const plan = defaults[code] ?? defaults.INDIVIDUAL_LOCAL;
-  const existing = await membershipDb.rawQueryRow<{
-    id: string;
-    code: string;
-    amount: string;
-    currency: string;
-  }>("SELECT id, code, amount::text AS amount, currency FROM membership_plans WHERE code = $1", code);
-  if (existing) {
-    return existing;
-  }
-  const id = crypto.randomUUID();
-  await membershipDb.rawExec(`INSERT INTO membership_plans (id, code, name, member_type, currency, amount, billing_period, active)
-     VALUES ($1, $2, $3, $4, $5, $6::numeric, 'monthly', true)`,
-    id,
-    code,
-    plan.name,
-    plan.memberType,
-    plan.currency,
-    plan.amount,
-  );
-  return { id, code, amount: plan.amount, currency: plan.currency };
+      nodeId, profileId, parent?.id ?? null, sponsorProfileId, positionIndex, depth, path);
+    await tx.commit();
+    return { id: nodeId, profileId, parentNodeId: parent?.id ?? null, sponsorProfileId, positionIndex, depth, path };
+  } catch (error) { await tx.rollback(); throw error; }
 }
 
 async function ensureLedgerAccount(
@@ -2747,90 +2961,6 @@ async function ensureLedgerAccount(
     currency,
   );
   return id;
-}
-
-async function requireAdminAccess() {
-  const session = await sessionFromBearer();
-  if (!session) throw new Error("unauthenticated");
-  const role = await identityDb.rawQueryRow<{ name: string }>(
-    `SELECT r.name
-     FROM user_roles ur
-     JOIN roles r ON r.id = ur.role_id
-     WHERE ur.user_id = $1 AND r.name = 'admin'
-     LIMIT 1`,
-    session.user.id,
-  );
-  if (!role) throw new Error("permission_denied");
-}
-
-async function requireProfileAccess(profileId: string) {
-  const session = await sessionFromBearer();
-  if (!session) throw new Error("unauthenticated");
-  if (session.profile.id === profileId) return;
-  const role = await identityDb.rawQueryRow<{ name: string }>(
-    `SELECT r.name
-     FROM user_roles ur
-     JOIN roles r ON r.id = ur.role_id
-     WHERE ur.user_id = $1 AND r.name = 'admin'
-     LIMIT 1`,
-    session.user.id,
-  );
-  if (!role) throw new Error("permission_denied");
-}
-
-function headerValue(value: string | string[] | undefined): string {
-  return Array.isArray(value) ? (value[0] ?? "") : (value ?? "");
-}
-
-function bearerToken(): string {
-  const request = currentRequest();
-  const auth = request && "headers" in request
-    ? headerValue(request.headers?.["authorization"])
-    : "";
-  return auth.startsWith("Bearer ") ? auth.slice(7) : "";
-}
-
-function hashPassword(password: string): string {
-  const salt = randomBytes(16);
-  const derived = scryptSync(password, salt, 64);
-  return `scrypt:${salt.toString("hex")}:${derived.toString("hex")}`;
-}
-
-function verifyPassword(password: string, stored: string): boolean {
-  const [algorithm, saltHex, hashHex] = stored.split(":");
-  if (algorithm !== "scrypt" || !saltHex || !hashHex) return false;
-  const expected = Buffer.from(hashHex, "hex");
-  const actual = scryptSync(password, Buffer.from(saltHex, "hex"), expected.length);
-  return expected.length === actual.length && timingSafeEqual(expected, actual);
-}
-
-function hashSessionToken(token: string): string {
-  return createHash("sha256").update(token).digest("hex");
-}
-
-async function sessionFromBearer() {
-  const token = bearerToken();
-  if (!token) return null;
-  const row = await identityDb.rawQueryRow<{
-    token: string;
-    user_id: string;
-    email: string;
-    profile_id: string;
-    unique_profile_number: string;
-  }>(`SELECT s.token, u.id AS user_id, u.email, p.id AS profile_id, p.unique_profile_number
-     FROM sessions s
-     JOIN users u ON u.id = s.user_id
-     JOIN profiles p ON p.user_id = u.id
-     WHERE s.token = $1 AND s.revoked_at IS NULL AND s.expires_at > now()
-     ORDER BY p.created_at DESC LIMIT 1`,
-    hashSessionToken(token),
-  );
-  if (!row) return null;
-  return {
-    token: row.token,
-    user: { id: row.user_id, email: row.email },
-    profile: { id: row.profile_id, unique_profile_number: row.unique_profile_number },
-  };
 }
 
 export const listLedgerTransactions = api<

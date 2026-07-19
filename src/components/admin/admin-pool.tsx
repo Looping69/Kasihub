@@ -64,7 +64,7 @@ export function AdminPool() {
     try {
       const res = await fetch("/api/admin/pool", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() },
         body: JSON.stringify({ totalAmount: parseFloat(triggerAmount), source: triggerSource }),
       });
       const result = await res.json();

@@ -39,6 +39,7 @@ interface KasiState {
   setMember: (member: Member | null) => void;
   login: (memberId: string, member: Member) => void;
   logout: () => void;
+  clearSession: () => void;
   setView: (view: ViewKey) => void;
   setAdminView: (view: AdminViewKey) => void;
   setSidebarOpen: (open: boolean) => void;
@@ -89,6 +90,16 @@ export const useKasiStore = create<KasiState>()(
           adminMode: false,
         });
       },
+
+      // Author: Klaasvaakie ( |╲ )
+      clearSession: () => set({
+        currentMemberId: null,
+        currentMember: null,
+        isAuthenticated: false,
+        activeView: "dashboard",
+        adminView: "overview",
+        adminMode: false,
+      }),
 
       setView: (view) =>
         set({ activeView: view, sidebarOpen: false }),

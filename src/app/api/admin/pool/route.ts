@@ -18,8 +18,10 @@ export async function POST(req: NextRequest) {
   const token = await encoreSessionToken();
   if (!token) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
   const body = await req.json();
+  const idempotencyKey = req.headers.get("idempotency-key");
   if (!(Number(body.totalAmount) > 0)) return NextResponse.json({ error: "A positive totalAmount is required" }, { status: 400 });
-  try { return NextResponse.json(await encoreRequest("/admin/pool/distributions", { method: "POST", body: JSON.stringify({ totalAmount: Number(body.totalAmount), source: body.source }) }, token)); }
+  if (!idempotencyKey) return NextResponse.json({ error: "Idempotency-Key is required" }, { status: 400 });
+  try { return NextResponse.json(await encoreRequest("/admin/pool/distributions", { method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: JSON.stringify({ totalAmount: Number(body.totalAmount), source: body.source }) }, token)); }
   catch (error) { return failure(error); }
 }
 

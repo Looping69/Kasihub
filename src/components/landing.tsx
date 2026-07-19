@@ -82,7 +82,11 @@ export function Landing() {
 
   async function handleEnter() {
     try {
-      const res = await fetch("/api/auth/login", { cache: "no-store" });
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ demoRole: "member" }),
+      });
       if (res.ok) {
         const data = await res.json();
         if (data.member) login(data.member.id, data.member);
@@ -94,7 +98,11 @@ export function Landing() {
 
   async function handleAdminLogin() {
     try {
-      const res = await fetch("/api/auth/login?role=admin", { cache: "no-store" });
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ demoRole: "admin" }),
+      });
       if (res.ok) {
         const data = await res.json();
         if (data.member) login(data.member.id, data.member);

@@ -9,6 +9,11 @@ yarn-debug.log*
 yarn-error.log*
 *.tsbuildinfo
 coverage
+db
+prisma
+output
+tmp
+tool-results
 test
 prompt
 skills

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import {
   ShoppingBag, Loader2, Search, Star, Wallet, TrendingUp,
@@ -56,6 +56,8 @@ export function MarketplaceView() {
   const [search, setSearch] = useState("");
   const [buyProduct, setBuyProduct] = useState<MarketplaceProduct | null>(null);
   const [buying, setBuying] = useState(false);
+  // Author: Klaasvaakie ( |╲ )
+  const orderAttempt = useRef<{ productId: string; key: string } | null>(null);
 
   async function load() {
     if (!currentMember) return;
@@ -82,17 +84,19 @@ export function MarketplaceView() {
 
   async function handleBuy() {
     if (!currentMember || !buyProduct) return;
+    if (orderAttempt.current?.productId !== buyProduct.id) orderAttempt.current = { productId: buyProduct.id, key: crypto.randomUUID() };
     setBuying(true);
     try {
       const res = await fetch("/api/marketplace/order", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Idempotency-Key": orderAttempt.current.key },
         body: JSON.stringify({ memberId: currentMember.id, productId: buyProduct.id }),
       });
       const result = await res.json();
       if (!res.ok) {
         toast.error(result.error || "Order failed");
       } else {
+        orderAttempt.current = null;
         toast.success(`Order placed! ${buyProduct.name} — R${buyProduct.price}. Commission of R${result.commission.toFixed(2)} sent to KasiPool.`);
         setBuyProduct(null);
         await load();

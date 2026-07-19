@@ -3,8 +3,14 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "scripts": {
+    "test": "vitest run"
+  },
   "dependencies": {
     "encore.dev": "1.57.11",
     "zod": "^4.0.2"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
   }
 }

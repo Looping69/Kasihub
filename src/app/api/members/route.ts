@@ -8,7 +8,12 @@ import {
 } from "@/lib/encore-client";
 import type { Member } from "@/lib/types";
 
-type RegisterResponse = { user: { profileId: string; profileNumber: string } };
+type RegisterResponse = {
+  registrationId: string;
+  status: string;
+  nextAction: string;
+  user: { profileId: string; profileNumber: string };
+};
 type LoginResponse = { token: string };
 type ProfileResponse = { member: Member };
 
@@ -24,7 +29,7 @@ export async function POST(req: NextRequest) {
     const profileType = body.membershipType === "COMPANY" || body.membershipType === "SOLE_PROPRIETOR" || body.membershipType === "NPO_NGO"
       ? "company"
       : body.membershipType === "INDIVIDUAL_KIDS" ? "minor" : "individual";
-    const registered = await encoreRequest<RegisterResponse>("/auth/register", {
+    const registered = await encoreRequest<RegisterResponse>("/registration/start", {
       method: "POST",
       body: JSON.stringify({
         email: body.email,
@@ -38,33 +43,35 @@ export async function POST(req: NextRequest) {
         idOrPassportNumber: body.idPassport,
         sarsNumber: body.sarsNumber,
         country: body.country,
+        membershipPlanCode: membershipPlanCode(body.membershipType, body.citizenshipType),
+        createKyc: body.instapayStatus === "PENDING",
+        membershipType: body.membershipType,
+        citizenshipType: body.citizenshipType,
+        addressLine: body.addressLine,
+        city: body.city,
+        postalCode: body.postalCode,
+        beneficiaryName: body.beneficiaryName,
+        beneficiaryId: body.beneficiaryId,
+        guardianName: body.guardianName,
+        instapayAccountRef: body.instapayAccountRef,
+        instapayVerifiedAt: body.instapayVerifiedAt,
+        uplineProfileNumber: body.uplineProfileNumber,
+        uplineConfirmed: Boolean(body.uplineConfirmed),
       }),
     });
     const login = await encoreRequest<LoginResponse>("/auth/login", {
       method: "POST",
       body: JSON.stringify({ email: body.email, password: body.password }),
     });
-    await encoreRequest(
-      "/membership/subscribe",
-      {
-        method: "POST",
-        body: JSON.stringify({
-          profileId: registered.user.profileId,
-          planCode: membershipPlanCode(body.membershipType, body.citizenshipType),
-        }),
-      },
-      login.token,
-    );
-    if (body.instapayStatus === "PENDING") {
-      await encoreRequest(
-        "/kyc/cases",
-        { method: "POST", body: JSON.stringify({ profileId: registered.user.profileId, provider: "instapay" }) },
-        login.token,
-      );
-    }
     const profile = await encoreRequest<ProfileResponse>("/profiles/me", {}, login.token);
     const response = NextResponse.json(
-      { member: profile.member, profileNumber: registered.user.profileNumber },
+      {
+        member: profile.member,
+        profileNumber: registered.user.profileNumber,
+        registrationId: registered.registrationId,
+        status: registered.status,
+        nextAction: registered.nextAction,
+      },
       { status: 201 },
     );
     setSessionCookie(response, login.token);

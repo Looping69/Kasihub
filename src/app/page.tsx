@@ -13,11 +13,21 @@ export default function Home() {
   const [booted, setBooted] = useState(false);
 
   // Author: Klaasvaakie ( |╲ )
-  // Always begin on the landing page. Demo and admin sessions start only when
-  // the visitor explicitly selects their entry point from the landing page.
+  // Restore a valid server session before choosing the landing or application shell.
   useEffect(() => {
-    useKasiStore.getState().logout();
-    queueMicrotask(() => setBooted(true));
+    // Author: Klaasvaakie ( |╲ )
+    // Persisted browser state is presentation state; Encore proves the session.
+    let active = true;
+    void fetch("/api/auth/session", { cache: "no-store" })
+      .then(async (response) => response.ok ? response.json() : { authenticated: false, member: null })
+      .then((session) => {
+        if (!active) return;
+        if (session.authenticated && session.member) useKasiStore.getState().login(session.member.id, session.member);
+        else useKasiStore.getState().clearSession();
+      })
+      .catch(() => { if (active) useKasiStore.getState().clearSession(); })
+      .finally(() => { if (active) setBooted(true); });
+    return () => { active = false; };
   }, []);
 
   if (!booted) {

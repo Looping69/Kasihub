@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import {
   Coins, TrendingUp, Award, FileText, Loader2, Sparkles, DollarSign,
@@ -255,6 +255,8 @@ export function SharesView() {
   const [selectedPhase, setSelectedPhase] = useState<number>(1);
   const [quantity, setQuantity] = useState(10);
   const [buying, setBuying] = useState(false);
+  // Author: Klaasvaakie ( |╲ )
+  const purchaseKey = useRef<string | null>(null);
 
   async function load() {
     if (!currentMember) return;
@@ -272,14 +274,16 @@ export function SharesView() {
 
   async function handleBuy() {
     if (!currentMember) return;
+    purchaseKey.current ??= crypto.randomUUID();
     setBuying(true);
     try {
       const res = await fetch("/api/shares/buy", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Idempotency-Key": purchaseKey.current },
         body: JSON.stringify({ memberId: currentMember.id, phase: selectedPhase, quantity }),
       });
       const result = await res.json();
+      purchaseKey.current = null;
       if (!res.ok) {
         toast.error(result.error || "Purchase failed");
       } else {
