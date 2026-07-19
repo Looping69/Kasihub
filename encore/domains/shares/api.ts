@@ -311,6 +311,7 @@ export const purchaseShares = api<SharePurchaseRequest, SharePurchaseResponse>(
       };
       return await completeOperation(operation, result);
     } catch (error) {
+      let compensationRequired = false;
       if (reservationCreated) {
         const hold = await financeDb.rawQueryRow<{ state: string }>("SELECT state FROM wallet_holds WHERE operation_id = $1", operation.id);
         if (!hold) {
@@ -327,10 +328,16 @@ export const purchaseShares = api<SharePurchaseRequest, SharePurchaseResponse>(
               await tx.rawExec("UPDATE share_purchases SET status = 'failed' WHERE operation_id = $1", operation.id);
             }
             await tx.commit();
-          } catch (compensationError) { await tx.rollback(); await recordStep(operation, "release_inventory", "failed", {}, compensationError); }
+          } catch (compensationError) {
+            compensationRequired = true;
+            await tx.rollback();
+            await recordStep(operation, "release_inventory", "failed", {}, compensationError);
+          }
+        } else {
+          compensationRequired = true;
         }
       }
-      return failOperation(operation, error, true);
+      return failOperation(operation, error, compensationRequired);
     }
   },
 );
@@ -400,5 +407,4 @@ export const adminShareCertificates = api<
     return { shares: rows.map((row) => ({ id: row.id, profileId: row.profile_id, phase: row.phase_number, pricePerShare: Number(row.price_per_share), quantity: row.total_shares, totalAmount: Number(row.total_amount), certificateNo: row.certificate_number, status: row.status.toUpperCase(), createdAt: row.issued_at })) };
   },
 );
-
 
