@@ -100,6 +100,19 @@ describe("database financial contracts", () => {
     expect(replayedAccount).toBe(account);
   });
 
+  test("matrix placement fills a child position beneath an existing root", async () => {
+    const rootProfileId = crypto.randomUUID();
+    const childProfileId = crypto.randomUUID();
+    const root = await placeMatrixNode(rootProfileId, null);
+    const child = await placeMatrixNode(childProfileId, rootProfileId);
+
+    expect(child.parentNodeId).not.toBeNull();
+    expect(child.parentNodeId).not.toBe(child.id);
+    expect(child.depth).toBeGreaterThan(root.depth);
+    expect(child.path).not.toBe("0");
+    expect(child.sponsorProfileId).toBe(rootProfileId);
+  });
+
   test("wallet hold lifecycle is atomic, replayable, and ledger backed", async () => {
     const profileId = crypto.randomUUID();
     const actorUserId = crypto.randomUUID();
@@ -187,6 +200,84 @@ describe("database financial contracts", () => {
     expect(state?.state).toBe("failed");
   });
 
+  test("wallet compatibility rejects currency drift and preserves legacy deficits", async () => {
+    const mismatchProfileId = crypto.randomUUID();
+    await networkDb.rawExec(
+      "INSERT INTO wallets (profile_id, currency, cached_balance) VALUES ($1, 'USD', 25.00)",
+      mismatchProfileId,
+    );
+    const mismatchOperation = (await beginOperation({
+      operationType: "contract_currency_mismatch",
+      actorUserId: crypto.randomUUID(),
+      profileId: mismatchProfileId,
+      idempotencyKey: crypto.randomUUID(),
+      payload: { amount: "1.00", currency: "ZAR" },
+    })).operation;
+    await expect(placeWalletHold(mismatchOperation, mismatchProfileId, "ZAR", "1.00"))
+      .rejects.toThrow("Wallet currency does not match transaction currency");
+
+    const deficitProfileId = crypto.randomUUID();
+    await networkDb.rawExec(
+      "INSERT INTO wallets (profile_id, currency, cached_balance) VALUES ($1, 'ZAR', -25.00)",
+      deficitProfileId,
+    );
+    const deficitOperation = (await beginOperation({
+      operationType: "contract_legacy_deficit",
+      actorUserId: crypto.randomUUID(),
+      profileId: deficitProfileId,
+      idempotencyKey: crypto.randomUUID(),
+      payload: { amount: "0.00" },
+    })).operation;
+    const holdId = await placeWalletHold(deficitOperation, deficitProfileId, "ZAR", "0.00");
+    expect(holdId).toBeTruthy();
+    const authoritative = await financeDb.rawQueryRow<{ available: string }>(
+      "SELECT available_balance::text AS available FROM wallet_balances WHERE profile_id = $1 AND currency = 'ZAR'",
+      deficitProfileId,
+    );
+    const projection = await networkDb.rawQueryRow<{ balance: string }>(
+      "SELECT cached_balance::text AS balance FROM wallets WHERE profile_id = $1",
+      deficitProfileId,
+    );
+    expect(authoritative?.available).toBe("0.00");
+    expect(projection?.balance).toBe("0.00");
+  });
+
+  test("captured holds cannot be released and missing releases are harmless", async () => {
+    await expect(releaseWalletHold(crypto.randomUUID())).resolves.toBeUndefined();
+
+    const profileId = crypto.randomUUID();
+    await networkDb.rawExec(
+      "INSERT INTO wallets (profile_id, currency, cached_balance) VALUES ($1, 'ZAR', 15.00)",
+      profileId,
+    );
+    const operation = (await beginOperation({
+      operationType: "contract_captured_release",
+      actorUserId: crypto.randomUUID(),
+      profileId,
+      idempotencyKey: crypto.randomUUID(),
+      payload: { amount: "5.00" },
+    })).operation;
+    await placeWalletHold(operation, profileId, "ZAR", "5.00");
+    await captureWalletHold(operation, "contract_revenue", "Captured release contract");
+    await expect(releaseWalletHold(operation.id)).rejects.toThrow("Captured funds cannot be released");
+  });
+
+  test("step failures and compensating operations retain retry state", async () => {
+    const operation = (await beginOperation({
+      operationType: "contract_compensation",
+      actorUserId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
+      payload: { reason: "contract" },
+    })).operation;
+    await recordStep(operation, "compensate", "failed", {}, "rollback required");
+    await expect(failOperation(operation, "rollback required", true)).rejects.toBe("rollback required");
+    const state = await financeDb.rawQueryRow<{ state: string; retry_count: number }>(
+      "SELECT state, retry_count FROM financial_operations WHERE id = $1",
+      operation.id,
+    );
+    expect(state).toEqual({ state: "compensating", retry_count: 1 });
+  });
+
   test("recipient credits are unique per operation and update the wallet projection", async () => {
     const profileId = crypto.randomUUID();
     const operation = (await beginOperation({
@@ -202,5 +293,27 @@ describe("database financial contracts", () => {
     const payouts = await financeDb.rawQueryRow<{ count: string }>(
       "SELECT COUNT(*)::text AS count FROM pool_distributions WHERE operation_id = $1 AND profile_id = $2", operation.id, profileId);
     expect(payouts?.count).toBe("1");
+  });
+
+  test("non-dividend distributions use the pool payout ledger path", async () => {
+    const profileId = crypto.randomUUID();
+    const operation = (await beginOperation({
+      operationType: "contract_pool_distribution",
+      actorUserId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
+      payload: { amount: "7.89" },
+    })).operation;
+    const distributionId = await creditDistribution({
+      operation,
+      profileId,
+      amount: "7.89",
+      source: "POOL",
+      poolType: "COMMUNITY",
+    });
+    const transaction = await financeDb.rawQueryRow<{ transaction_type: string }>(
+      "SELECT transaction_type FROM ledger_transactions WHERE reference_type = 'pool_distribution' AND reference_id = $1",
+      distributionId,
+    );
+    expect(transaction?.transaction_type).toBe("pool_payout");
   });
 });
