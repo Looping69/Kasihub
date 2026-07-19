@@ -1,0 +1,33 @@
+# Author: Klaasvaakie ( |╲ )
+name: Diagnose Encore staging
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  auth-canary:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install Encore CLI
+        run: curl -L https://encore.dev/install.sh | bash
+      - name: Authenticate Encore diagnostics
+        env:
+          ENCORE_AUTH_KEY: ${{ secrets.ENCORE_AUTH_KEY }}
+        run: |
+          echo "$HOME/.encore/bin" >> "$GITHUB_PATH"
+          "$HOME/.encore/bin/encore" auth login --auth-key "$ENCORE_AUTH_KEY"
+      - name: Capture sanitized auth failure
+        run: |
+          timeout 20s encore logs --env staging --json --quiet \
+            | jq -c '{level: .level, message: .message, error: (.error.message // .error // null)}' &
+          logs_pid=$!
+          sleep 2
+          curl --silent --output /dev/null --request POST \
+            --header 'Content-Type: application/json' \
+            --data '{"email":"canary-invalid@kasihub.invalid","password":"invalid-canary-password"}' \
+            https://staging-kasihub-ygb2.encr.app/auth/login || true
+          wait "$logs_pid" || test "$?" -eq 124
