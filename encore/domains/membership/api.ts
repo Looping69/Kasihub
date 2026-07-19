@@ -26,6 +26,16 @@ interface SubscribeResponse {
   operationId?: string;
 }
 
+interface MatrixNodeResponse {
+  id: string;
+  profileId: string;
+  parentNodeId: string | null;
+  sponsorProfileId: string | null;
+  positionIndex: number;
+  depth: number;
+  path: string;
+}
+
 const subscribeRequest = z.object({
   profileId: z.string().min(1),
   planCode: z.string().min(1),
@@ -234,5 +244,4 @@ export const activateSubscription = api<
     }
   },
 );
-
 
