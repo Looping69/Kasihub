@@ -26,7 +26,12 @@ jobs:
       - name: Capture sanitized auth failure
         run: |
           timeout 20s encore logs --env staging --json --quiet \
-            | jq -c '{level: .level, message: .message, error: (.error.message // .error // null)}' &
+            | jq -c 'select(type == "object") | {
+                level: .level,
+                diagnostics: [paths(scalars) as $path
+                  | select(($path | map(tostring) | join(".")) | test("error|message|stack|code"; "i"))
+                  | {path: $path, value: getpath($path)}]
+              }' &
           logs_pid=$!
           sleep 2
           curl --silent --output /dev/null --request POST \
