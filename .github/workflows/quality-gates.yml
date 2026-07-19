@@ -58,7 +58,7 @@ jobs:
           test -n "$ENCORE_AUTH_KEY"
           encore auth login --auth-key "$ENCORE_AUTH_KEY"
       - run: encore check
-      - run: encore test -- --coverage
+      - run: encore test
       - name: Upload Encore core coverage
         if: always()
         uses: actions/upload-artifact@v4
