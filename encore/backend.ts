@@ -40,6 +40,7 @@ import "./domains/admin/operations";
 import { allocateEvenCents, allocateWeightedCents } from "./domains/finance/allocation";
 import { ensureMembershipPlan } from "./domains/membership/plans";
 import { placeMatrixNode } from "./domains/network/placement";
+import { ensureLedgerAccount as ensureDomainLedgerAccount } from "./domains/wallets/ledger";
 
 interface RegisterRequest {
   email: string;
@@ -821,8 +822,8 @@ export const activateSubscription = api<
       const existingLedger = await financeDb.rawQueryRow<{ id: string }>(
         "SELECT id FROM ledger_transactions WHERE reference_type = 'payment' AND reference_id = $1 LIMIT 1", payment.id);
       if (!existingLedger) {
-        const cashAccountId = await ensureLedgerAccount("system", "00000000-0000-0000-0000-000000000000", "cash", payment.currency);
-        const revenueAccountId = await ensureLedgerAccount("profile", payment.profile_id, "membership_revenue", payment.currency);
+        const cashAccountId = await ensureDomainLedgerAccount("system", "00000000-0000-0000-0000-000000000000", "cash", payment.currency);
+        const revenueAccountId = await ensureDomainLedgerAccount("profile", payment.profile_id, "membership_revenue", payment.currency);
         const ledgerTransactionId = crypto.randomUUID();
         const tx = await financeDb.begin();
         try {
@@ -1425,8 +1426,11 @@ export const purchaseShares = api<SharePurchaseRequest, SharePurchaseResponse>(
         const tx = await sharesDb.begin();
         try {
           const phase = await tx.rawQueryRow<{ id: string; price_per_share: string; currency: string; bonus_buy_one_get: boolean }>(
-            `UPDATE share_phases SET quantity_available = quantity_available - $2, updated_at = now()
-             WHERE phase_number = $1 AND status = 'active' AND quantity_available >= $2
+            `UPDATE share_phases
+             SET quantity_available = quantity_available - CASE WHEN bonus_buy_one_get THEN $2 * 2 ELSE $2 END,
+                 updated_at = now()
+             WHERE phase_number = $1 AND status = 'active'
+               AND quantity_available >= CASE WHEN bonus_buy_one_get THEN $2 * 2 ELSE $2 END
              RETURNING id, price_per_share::text AS price_per_share, currency, bonus_buy_one_get`,
             payload.phaseNumber, payload.quantity,
           );
@@ -1441,7 +1445,13 @@ export const purchaseShares = api<SharePurchaseRequest, SharePurchaseResponse>(
           await tx.commit();
           reservationCreated = true;
           purchase = { id: purchaseId, phase_id: phase.id, quantity: payload.quantity, bonus_quantity: bonusQuantity, total_amount: totalAmount, status: "reserved", certificate_id: null };
-          await recordStep(operation, "reserve_inventory", "completed", { purchaseId, phaseNumber: payload.phaseNumber, quantity: payload.quantity });
+          await recordStep(operation, "reserve_inventory", "completed", {
+            purchaseId,
+            phaseNumber: payload.phaseNumber,
+            purchasedQuantity: payload.quantity,
+            bonusQuantity,
+            reservedQuantity: payload.quantity + bonusQuantity,
+          });
         } catch (error) { await tx.rollback(); throw error; }
       } else if (purchase.status === "failed") {
         const tx = await sharesDb.begin();
@@ -1449,13 +1459,19 @@ export const purchaseShares = api<SharePurchaseRequest, SharePurchaseResponse>(
           const restored = await tx.rawQueryRow<{ id: string }>(`UPDATE share_phases
             SET quantity_available = quantity_available - $2, updated_at = now()
             WHERE id = $1 AND status = 'active' AND quantity_available >= $2 RETURNING id`,
-            purchase.phase_id, purchase.quantity);
+            purchase.phase_id, purchase.quantity + purchase.bonus_quantity);
           if (!restored) throw APIError.failedPrecondition("Share phase is closed or does not have enough inventory");
           await tx.rawExec("UPDATE share_purchases SET status = 'reserved' WHERE id = $1", purchase.id);
           await tx.commit();
           purchase.status = "reserved";
           reservationCreated = true;
-          await recordStep(operation, "reserve_inventory", "completed", { purchaseId: purchase.id, restored: true, quantity: purchase.quantity });
+          await recordStep(operation, "reserve_inventory", "completed", {
+            purchaseId: purchase.id,
+            restored: true,
+            purchasedQuantity: purchase.quantity,
+            bonusQuantity: purchase.bonus_quantity,
+            reservedQuantity: purchase.quantity + purchase.bonus_quantity,
+          });
         } catch (error) { await tx.rollback(); throw error; }
       }
 
@@ -1518,10 +1534,14 @@ export const purchaseShares = api<SharePurchaseRequest, SharePurchaseResponse>(
         if (!hold) {
           const tx = await sharesDb.begin();
           try {
-            const reservation = await tx.rawQueryRow<{ phase_id: string; quantity: number; status: string }>(
-              "SELECT phase_id, quantity, status FROM share_purchases WHERE operation_id = $1 FOR UPDATE", operation.id);
+            const reservation = await tx.rawQueryRow<{ phase_id: string; quantity: number; bonus_quantity: number; status: string }>(
+              "SELECT phase_id, quantity, bonus_quantity, status FROM share_purchases WHERE operation_id = $1 FOR UPDATE", operation.id);
             if (reservation?.status === "reserved") {
-              await tx.rawExec("UPDATE share_phases SET quantity_available = quantity_available + $2, updated_at = now() WHERE id = $1", reservation.phase_id, reservation.quantity);
+              await tx.rawExec(
+                "UPDATE share_phases SET quantity_available = quantity_available + $2, updated_at = now() WHERE id = $1",
+                reservation.phase_id,
+                reservation.quantity + reservation.bonus_quantity,
+              );
               await tx.rawExec("UPDATE share_purchases SET status = 'failed' WHERE operation_id = $1", operation.id);
             }
             await tx.commit();
@@ -2934,33 +2954,6 @@ async function legacyPlaceMatrixNode(profileId: string, sponsorProfileId: string
     await tx.commit();
     return { id: nodeId, profileId, parentNodeId: parent?.id ?? null, sponsorProfileId, positionIndex, depth, path };
   } catch (error) { await tx.rollback(); throw error; }
-}
-
-async function ensureLedgerAccount(
-  ownerType: string,
-  ownerId: string,
-  accountCode: string,
-  currency: string,
-) {
-  const existing = await financeDb.rawQueryRow<{ id: string }>("SELECT id FROM ledger_accounts WHERE owner_type = $1 AND owner_id = $2 AND account_code = $3 AND currency = $4",
-    ownerType,
-    ownerId,
-    accountCode,
-    currency,
-  );
-  if (existing) {
-    return existing.id;
-  }
-  const id = crypto.randomUUID();
-  await financeDb.rawExec(`INSERT INTO ledger_accounts (id, owner_type, owner_id, account_code, currency, status)
-     VALUES ($1, $2, $3, $4, $5, 'active')`,
-    id,
-    ownerType,
-    ownerId,
-    accountCode,
-    currency,
-  );
-  return id;
 }
 
 export const listLedgerTransactions = api<

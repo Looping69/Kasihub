@@ -2,7 +2,7 @@
 import { api, APIError } from "encore.dev/api";
 import { CronJob } from "encore.dev/cron";
 import * as log from "encore.dev/log";
-import { auditDb, financeDb, membershipDb, networkDb, sharesDb } from "../../infrastructure/resources";
+import { auditDb, financeDb, identityDb, membershipDb, networkDb, sharesDb } from "../../infrastructure/resources";
 import { requireAdminAccess } from "../auth/access";
 
 type OperationRow = {
@@ -121,7 +121,7 @@ async function executeReconciliation(scope: string) {
   try {
     const stuck = await financeDb.rawQueryAll<{ id: string; operation_type: string; state: string; updated_at: string }>(
       `SELECT id, operation_type, state, updated_at FROM financial_operations
-       WHERE state IN ('processing','compensating') AND updated_at < now() - interval '10 minutes' LIMIT 500`);
+       WHERE state IN ('pending','processing','compensating') AND updated_at < now() - interval '10 minutes' LIMIT 500`);
     checked += stuck.length;
     for (const row of stuck) {
       await addFinding(runId, "stuck_operation", "critical", "financial_operation", row.id,
@@ -175,6 +175,42 @@ async function executeReconciliation(scope: string) {
       findings++;
     }
 
+    const inventoryMismatches = await sharesDb.rawQueryAll<{
+      id: string; phase_number: number; total_quantity: number; quantity_available: number; allocated_quantity: string;
+    }>(`SELECT phase.id, phase.phase_number, phase.total_quantity, phase.quantity_available,
+          COALESCE(SUM(CASE WHEN purchase.status IN ('reserved','paid')
+            THEN purchase.quantity + purchase.bonus_quantity ELSE 0 END), 0)::text AS allocated_quantity
+        FROM share_phases phase
+        LEFT JOIN share_purchases purchase ON purchase.phase_id = phase.id
+        GROUP BY phase.id, phase.phase_number, phase.total_quantity, phase.quantity_available
+        HAVING phase.quantity_available <> phase.total_quantity - COALESCE(SUM(CASE
+          WHEN purchase.status IN ('reserved','paid') THEN purchase.quantity + purchase.bonus_quantity ELSE 0 END), 0)
+        LIMIT 500`);
+    checked += inventoryMismatches.length;
+    for (const row of inventoryMismatches) {
+      await addFinding(runId, "share_inventory_mismatch", "critical", "share_phase", row.id,
+        { available: row.total_quantity - Number(row.allocated_quantity) },
+        { phaseNumber: row.phase_number, available: row.quantity_available, allocated: row.allocated_quantity, total: row.total_quantity });
+      findings++;
+    }
+
+    const certificateMismatches = await sharesDb.rawQueryAll<{
+      purchase_id: string; certificate_id: string; expected_shares: number; actual_shares: number;
+    }>(`SELECT purchase.id AS purchase_id, certificate.id AS certificate_id,
+          purchase.quantity + purchase.bonus_quantity AS expected_shares,
+          certificate.total_shares AS actual_shares
+        FROM share_purchases purchase
+        JOIN share_certificates certificate ON certificate.id = purchase.certificate_id
+        WHERE purchase.status = 'paid'
+          AND certificate.total_shares <> purchase.quantity + purchase.bonus_quantity
+        LIMIT 500`);
+    checked += certificateMismatches.length;
+    for (const row of certificateMismatches) {
+      await addFinding(runId, "share_certificate_quantity_mismatch", "critical", "share_purchase", row.purchase_id,
+        { certificateId: row.certificate_id, totalShares: row.expected_shares }, { totalShares: row.actual_shares });
+      findings++;
+    }
+
     const inconsistentSubscriptions = await membershipDb.rawQueryAll<{ id: string; profile_id: string }>(
       `SELECT s.id, s.profile_id FROM subscriptions s
        JOIN payments p ON p.subscription_id = s.id WHERE p.status = 'paid' AND s.status <> 'active' LIMIT 500`);
@@ -182,6 +218,47 @@ async function executeReconciliation(scope: string) {
     for (const row of inconsistentSubscriptions) {
       await addFinding(runId, "paid_inactive_subscription", "critical", "subscription", row.id,
         { status: "active" }, { profileId: row.profile_id });
+      findings++;
+    }
+
+    const payoutWithoutLedger = await financeDb.rawQueryAll<{ id: string; operation_id: string | null }>(
+      `SELECT payout.id, payout.operation_id FROM pool_distributions payout
+       LEFT JOIN ledger_transactions transaction
+         ON transaction.reference_type = 'pool_distribution' AND transaction.reference_id = payout.id
+       WHERE payout.status = 'paid' AND transaction.id IS NULL LIMIT 500`);
+    checked += payoutWithoutLedger.length;
+    for (const row of payoutWithoutLedger) {
+      await addFinding(runId, "paid_distribution_without_ledger", "critical", "pool_distribution", row.id,
+        { ledgerTransaction: "present" }, { operationId: row.operation_id, ledgerTransaction: null });
+      findings++;
+    }
+
+    const distributionTotalMismatches = await financeDb.rawQueryAll<{
+      operation_id: string; declared_amount: string; allocated_amount: string;
+    }>(`SELECT declaration.operation_id,
+          declaration.amount::text AS declared_amount,
+          COALESCE(SUM(allocation.amount), 0)::text AS allocated_amount
+       FROM dividend_declarations declaration
+       LEFT JOIN distribution_allocations allocation ON allocation.operation_id = declaration.operation_id
+       WHERE declaration.operation_id IS NOT NULL
+       GROUP BY declaration.operation_id, declaration.amount
+       HAVING declaration.amount <> COALESCE(SUM(allocation.amount), 0)
+       LIMIT 500`);
+    checked += distributionTotalMismatches.length;
+    for (const row of distributionTotalMismatches) {
+      await addFinding(runId, "dividend_allocation_total_mismatch", "critical", "financial_operation", row.operation_id,
+        { total: row.declared_amount }, { total: row.allocated_amount });
+      findings++;
+    }
+
+    const stalledRegistrations = await identityDb.rawQueryAll<{ id: string; state: string; updated_at: string }>(
+      `SELECT id, state, updated_at FROM registration_workflows
+       WHERE state IN ('pending','identity_created','membership_pending','kyc_pending','failed')
+         AND updated_at < now() - interval '30 minutes' LIMIT 500`);
+    checked += stalledRegistrations.length;
+    for (const row of stalledRegistrations) {
+      await addFinding(runId, "stalled_registration", row.state === "failed" ? "critical" : "warning",
+        "registration_workflow", row.id, { state: "completed" }, { state: row.state, updatedAt: row.updated_at });
       findings++;
     }
 

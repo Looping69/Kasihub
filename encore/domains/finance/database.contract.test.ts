@@ -17,6 +17,25 @@ describe("database financial contracts", () => {
     expect(phase?.quantity_available).toBe(0);
   });
 
+  test("bonus shares consume inventory atomically", async () => {
+    const phaseNumber = 990_000 + Math.floor(Math.random() * 9_000);
+    await sharesDb.rawExec(`INSERT INTO share_phases
+      (phase_number, quantity_available, total_quantity, price_per_share, currency, status, starts_at, bonus_buy_one_get)
+      VALUES ($1, 6, 6, 1.00, 'ZAR', 'active', now(), true)`, phaseNumber);
+
+    const attempts = await Promise.all(Array.from({ length: 10 }, () => sharesDb.rawQueryRow<{ id: string }>(
+      `UPDATE share_phases
+       SET quantity_available = quantity_available - CASE WHEN bonus_buy_one_get THEN $2 * 2 ELSE $2 END
+       WHERE phase_number = $1 AND status = 'active'
+         AND quantity_available >= CASE WHEN bonus_buy_one_get THEN $2 * 2 ELSE $2 END
+       RETURNING id`, phaseNumber, 2)));
+
+    expect(attempts.filter(Boolean)).toHaveLength(1);
+    const phase = await sharesDb.rawQueryRow<{ quantity_available: number }>(
+      "SELECT quantity_available FROM share_phases WHERE phase_number = $1", phaseNumber);
+    expect(phase?.quantity_available).toBe(2);
+  });
+
   test("operation idempotency key is unique per workflow type", async () => {
     const keyHash = crypto.randomUUID().replaceAll("-", "");
     const requestHash = crypto.randomUUID().replaceAll("-", "");

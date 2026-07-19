@@ -12,7 +12,10 @@ export type OperationState = "pending" | "processing" | "completed" | "compensat
 export interface FinancialOperation<T = unknown> {
   id: string;
   operationType: string;
+  actorUserId: string | null;
   profileId: string | null;
+  idempotencyKeyHash: string;
+  createdAt: string;
   state: OperationState;
   result: T | null;
   retryCount: number;
@@ -36,8 +39,8 @@ export async function beginOperation<T>(input: {
   const idempotencyKeyHash = sha256(input.idempotencyKey);
   const payloadHash = requestHash(input.payload);
   const existing = await financeDb.rawQueryRow<{
-    id: string; operation_type: string; profile_id: string | null; request_hash: string; state: OperationState; result: T | null; retry_count: number;
-  }>(`SELECT id, operation_type, profile_id, request_hash, state, result, retry_count
+    id: string; operation_type: string; actor_user_id: string | null; profile_id: string | null; idempotency_key_hash: string; request_hash: string; created_at: string; state: OperationState; result: T | null; retry_count: number;
+  }>(`SELECT id, operation_type, actor_user_id, profile_id, idempotency_key_hash, request_hash, created_at, state, result, retry_count
       FROM financial_operations WHERE operation_type = $1 AND idempotency_key_hash = $2`, input.operationType, idempotencyKeyHash);
   if (existing) {
     if (idempotencyDecision(existing.request_hash, payloadHash) === "conflict") throw APIError.alreadyExists("Idempotency-Key was already used with a different request");
@@ -47,19 +50,20 @@ export async function beginOperation<T>(input: {
   const id = crypto.randomUUID();
   try {
     const row = await financeDb.rawQueryRow<{
-      id: string; operation_type: string; profile_id: string | null; state: OperationState; result: T | null; retry_count: number;
+      id: string; operation_type: string; actor_user_id: string | null; profile_id: string | null; idempotency_key_hash: string; created_at: string; state: OperationState; result: T | null; retry_count: number;
     }>(`INSERT INTO financial_operations
        (id, operation_type, actor_user_id, profile_id, idempotency_key_hash, request_hash, request_payload, state)
        VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, 'processing')
-       RETURNING id, operation_type, profile_id, state, result, retry_count`,
+       RETURNING id, operation_type, actor_user_id, profile_id, idempotency_key_hash, created_at, state, result, retry_count`,
       id, input.operationType, input.actorUserId, input.profileId ?? null, idempotencyKeyHash, payloadHash, JSON.stringify(input.payload));
     if (!row) throw new Error("operation_not_created");
-    log.info("financial workflow started", workflowFields(row.id, input.operationType, input.profileId, "start", "processing", 0));
-    return { operation: mapOperation(row), replay: false };
+    const operation = mapOperation(row);
+    log.info("financial workflow started", workflowFields(operation, "start", "processing"));
+    return { operation, replay: false };
   } catch (error) {
     const raced = await financeDb.rawQueryRow<{
-      id: string; operation_type: string; profile_id: string | null; request_hash: string; state: OperationState; result: T | null; retry_count: number;
-    }>(`SELECT id, operation_type, profile_id, request_hash, state, result, retry_count
+      id: string; operation_type: string; actor_user_id: string | null; profile_id: string | null; idempotency_key_hash: string; request_hash: string; created_at: string; state: OperationState; result: T | null; retry_count: number;
+    }>(`SELECT id, operation_type, actor_user_id, profile_id, idempotency_key_hash, request_hash, created_at, state, result, retry_count
         FROM financial_operations WHERE operation_type = $1 AND idempotency_key_hash = $2`, input.operationType, idempotencyKeyHash);
     if (!raced || raced.request_hash !== payloadHash) throw error;
     return { operation: mapOperation(raced), replay: true };
@@ -76,7 +80,7 @@ export async function recordStep(operation: FinancialOperation, stepName: string
         details = EXCLUDED.details, last_error = EXCLUDED.last_error,
         completed_at = EXCLUDED.completed_at, updated_at = now()`,
     operation.id, stepName, state, JSON.stringify(details), message);
-  const fields = workflowFields(operation.id, operation.operationType, operation.profileId ?? undefined, stepName, state, operation.retryCount);
+  const fields = workflowFields(operation, stepName, state);
   if (state === "failed") log.error(error ?? new Error(message ?? "workflow step failed"), "financial workflow step failed", fields);
   else log.info("financial workflow transition", fields);
 }
@@ -84,7 +88,7 @@ export async function recordStep(operation: FinancialOperation, stepName: string
 export async function completeOperation<T>(operation: FinancialOperation<T>, result: T): Promise<T> {
   await financeDb.rawExec(`UPDATE financial_operations SET state = 'completed', result = $2::jsonb,
       last_error = NULL, completed_at = now(), updated_at = now() WHERE id = $1`, operation.id, JSON.stringify(result));
-  log.info("financial workflow completed", workflowFields(operation.id, operation.operationType, operation.profileId ?? undefined, "complete", "completed", operation.retryCount));
+  log.info("financial workflow completed", workflowFields(operation, "complete", "completed"));
   return result;
 }
 
@@ -93,7 +97,7 @@ export async function failOperation(operation: FinancialOperation, error: unknow
   const state = compensating ? "compensating" : "failed";
   await financeDb.rawExec(`UPDATE financial_operations SET state = $2, last_error = $3,
       retry_count = retry_count + 1, updated_at = now() WHERE id = $1`, operation.id, state, message.slice(0, 1000));
-  log.error(error, "financial workflow failed", workflowFields(operation.id, operation.operationType, operation.profileId ?? undefined, "failure", state, operation.retryCount + 1));
+  log.error(error, "financial workflow failed", workflowFields({ ...operation, retryCount: operation.retryCount + 1 }, "failure", state));
   throw error;
 }
 
@@ -273,10 +277,30 @@ async function ensureLedgerAccountTx(tx: Awaited<ReturnType<typeof financeDb.beg
   return id;
 }
 
-function mapOperation<T>(row: { id: string; operation_type: string; profile_id: string | null; state: OperationState; result: T | null; retry_count: number }): FinancialOperation<T> {
-  return { id: row.id, operationType: row.operation_type, profileId: row.profile_id, state: row.state, result: row.result, retryCount: row.retry_count };
+function mapOperation<T>(row: { id: string; operation_type: string; actor_user_id: string | null; profile_id: string | null; idempotency_key_hash: string; created_at: string; state: OperationState; result: T | null; retry_count: number }): FinancialOperation<T> {
+  return {
+    id: row.id,
+    operationType: row.operation_type,
+    actorUserId: row.actor_user_id,
+    profileId: row.profile_id,
+    idempotencyKeyHash: row.idempotency_key_hash,
+    createdAt: row.created_at,
+    state: row.state,
+    result: row.result,
+    retryCount: row.retry_count,
+  };
 }
 
-function workflowFields(operationId: string, operationType: string, profileId: string | undefined, step: string, result: string, retryCount: number) {
-  return { operationId, operationType, profileId: profileId ?? null, step, result, retryCount };
+function workflowFields(operation: FinancialOperation, step: string, result: string) {
+  return {
+    operationId: operation.id,
+    idempotencyKeyHash: operation.idempotencyKeyHash,
+    actorUserId: operation.actorUserId,
+    profileId: operation.profileId,
+    operationType: operation.operationType,
+    step,
+    result,
+    durationMs: Math.max(0, Date.now() - new Date(operation.createdAt).getTime()),
+    retryCount: operation.retryCount,
+  };
 }
