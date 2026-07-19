@@ -13,8 +13,8 @@ jobs:
   frontend:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -33,8 +33,8 @@ jobs:
       run:
         working-directory: encore
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -44,5 +44,11 @@ jobs:
         run: curl -L https://encore.dev/install.sh | bash
       - name: Add Encore to path
         run: echo "$HOME/.encore/bin" >> "$GITHUB_PATH"
+      - name: Authenticate Encore CI
+        env:
+          ENCORE_AUTH_KEY: ${{ secrets.ENCORE_AUTH_KEY }}
+        run: |
+          test -n "$ENCORE_AUTH_KEY"
+          encore auth login --auth-key "$ENCORE_AUTH_KEY"
       - run: encore check
       - run: encore test

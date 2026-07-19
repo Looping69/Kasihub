@@ -4,6 +4,7 @@ import { CronJob } from "encore.dev/cron";
 import * as log from "encore.dev/log";
 import { auditDb, financeDb, identityDb, membershipDb, networkDb, sharesDb } from "../../infrastructure/resources";
 import { requireAdminAccess } from "../auth/access";
+import { resumeFinancialOperation } from "../workflows/retry";
 
 type OperationRow = {
   id: string;
@@ -68,8 +69,9 @@ export const retryOperation = api<{ id: string }, { operationId: string; status:
     await auditDb.rawExec(`INSERT INTO audit_logs (actor_user_id, action, entity_type, entity_id, after)
        VALUES ($1, 'operations.retry', 'financial_operations', $2, $3::jsonb)`,
       admin.user.id, req.id, JSON.stringify({ previousState: row.state }));
-    log.info("financial operation queued for retry", { operationId: req.id, actorUserId: admin.user.id, previousState: row.state });
-    return { operationId: req.id, status: "processing", nextAction: "replay_original_operation" };
+    log.info("financial operation retry started", { operationId: req.id, actorUserId: admin.user.id, previousState: row.state });
+    await resumeFinancialOperation(req.id);
+    return { operationId: req.id, status: "completed", nextAction: "none" };
   },
 );
 
