@@ -37,5 +37,10 @@ jobs:
       - name: Build deploy commit
         id: subtree
         run: echo "sha=$(git subtree split --prefix encore HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Trust Encore Git host
+        run: |
+          install -d -m 700 "$HOME/.ssh"
+          ssh-keyscan -H git.encore.dev >> "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
       - name: Deploy to Encore staging
         run: git push encore://kasihub-ygb2 "${{ steps.subtree.outputs.sha }}:refs/heads/main"
