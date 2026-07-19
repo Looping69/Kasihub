@@ -10,6 +10,9 @@ permissions:
 jobs:
   auth-canary:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: encore
     steps:
       - uses: actions/checkout@v5
       - name: Install Encore CLI
