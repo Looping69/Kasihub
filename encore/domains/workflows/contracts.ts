@@ -23,3 +23,12 @@ export function idempotencyDecision(existingHash: string | null, incomingHash: s
   if (!existingHash) return "create";
   return existingHash === incomingHash ? "replay" : "conflict";
 }
+
+export function normalizeLegacyWalletBalance(value: string | number): { available: string; deficit: string } {
+  const balance = Number(value);
+  if (!Number.isFinite(balance)) throw new RangeError("Legacy wallet balance is invalid");
+  return {
+    available: Math.max(balance, 0).toFixed(2),
+    deficit: Math.max(-balance, 0).toFixed(2),
+  };
+}

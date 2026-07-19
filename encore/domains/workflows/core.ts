@@ -3,7 +3,7 @@ import { APIError } from "encore.dev/api";
 import * as log from "encore.dev/log";
 import { financeDb, networkDb } from "../../resources";
 import { requestHeader } from "../auth/access";
-import { idempotencyDecision, requestHash, sha256 } from "./contracts";
+import { idempotencyDecision, normalizeLegacyWalletBalance, requestHash, sha256 } from "./contracts";
 
 export { requestHash } from "./contracts";
 
@@ -107,7 +107,14 @@ export async function ensureAuthoritativeWallet(profileId: string, currency: str
   const legacy = await networkDb.rawQueryRow<{ cached_balance: string; currency: string }>(
     "SELECT cached_balance::text AS cached_balance, currency FROM wallets WHERE profile_id = $1", profileId);
   if (legacy && legacy.currency !== currency) throw APIError.failedPrecondition("Wallet currency does not match transaction currency");
-  const openingBalance = legacy?.cached_balance ?? "0.00";
+  let normalized: { available: string; deficit: string };
+  try {
+    normalized = normalizeLegacyWalletBalance(legacy?.cached_balance ?? 0);
+  } catch {
+    throw APIError.internal("Legacy wallet balance is invalid");
+  }
+  const openingBalance = normalized.available;
+  const openingDeficit = normalized.deficit;
   const tx = await financeDb.begin();
   try {
     await tx.rawExec("SELECT pg_advisory_xact_lock(hashtext($1))", `wallet-open:${profileId}:${currency}`);
@@ -123,8 +130,25 @@ export async function ensureAuthoritativeWallet(profileId: string, currency: str
         VALUES ($1, $2, 'debit', $3::numeric, $4), ($1, $5, 'credit', $3::numeric, $4)`,
         transactionId, openingAccount, openingBalance, currency, memberAccount);
     }
+    if (inserted && Number(openingDeficit) > 0) {
+      const deficitAccount = await ensureLedgerAccountTx(tx, "profile", profileId, "legacy_wallet_deficit", currency);
+      const openingAccount = await ensureLedgerAccountTx(tx, "system", "00000000-0000-0000-0000-000000000000", "legacy_opening_balance", currency);
+      const transactionId = crypto.randomUUID();
+      await tx.rawExec(`INSERT INTO ledger_transactions (id, transaction_type, reference_type, reference_id, description)
+        VALUES ($1, 'opening_deficit', 'wallet_opening', $2, 'Legacy wallet deficit recorded outside spendable balance')`, transactionId, profileId);
+      await tx.rawExec(`INSERT INTO ledger_entries (transaction_id, account_id, direction, amount, currency)
+        VALUES ($1, $2, 'debit', $3::numeric, $4), ($1, $5, 'credit', $3::numeric, $4)`,
+        transactionId, deficitAccount, openingDeficit, currency, openingAccount);
+    }
     await tx.commit();
   } catch (error) { await tx.rollback(); throw error; }
+  if (Number(openingDeficit) > 0) {
+    await networkDb.rawExec(
+      "UPDATE wallets SET cached_balance = 0 WHERE profile_id = $1 AND cached_balance < 0",
+      profileId,
+    );
+    log.warn("legacy wallet deficit normalized", { profileId, currency, deficit: openingDeficit });
+  }
 }
 
 export async function placeWalletHold(operation: FinancialOperation, profileId: string, currency: string, amount: string): Promise<string> {
