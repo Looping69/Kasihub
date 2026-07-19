@@ -1,6 +1,6 @@
 // Author: Klaasvaakie ( |╲ )
 import { APIError } from "encore.dev/api";
-import { commerceDb, financeDb, membershipDb, sharesDb } from "../../infrastructure/resources";
+import { commerceDb, financeDb, membershipDb, sharesDb } from "../../resources";
 import {
   captureWalletHold,
   completeOperation,

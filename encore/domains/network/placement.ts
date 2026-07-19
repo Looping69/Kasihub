@@ -1,6 +1,6 @@
 // Author: Klaasvaakie ( |╲ )
 import { APIError } from "encore.dev/api";
-import { networkDb } from "../../infrastructure/resources";
+import { networkDb } from "../../resources";
 
 export interface MatrixPlacement {
   id: string;

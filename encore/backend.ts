@@ -14,7 +14,7 @@ import {
   membershipDb,
   networkDb,
   sharesDb,
-} from "./infrastructure/resources";
+} from "./resources";
 import {
   bearerToken,
   hashSessionToken,

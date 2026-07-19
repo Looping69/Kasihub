@@ -1,6 +1,6 @@
 // Author: Klaasvaakie ( |╲ )
 import { describe, expect, test } from "vitest";
-import { financeDb, sharesDb } from "../../infrastructure/resources";
+import { financeDb, sharesDb } from "../../resources";
 
 describe("database financial contracts", () => {
   test("conditional inventory reservation cannot oversell under concurrency", async () => {

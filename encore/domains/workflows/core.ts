@@ -1,7 +1,7 @@
 // Author: Klaasvaakie ( |╲ )
 import { APIError } from "encore.dev/api";
 import * as log from "encore.dev/log";
-import { financeDb, networkDb } from "../../infrastructure/resources";
+import { financeDb, networkDb } from "../../resources";
 import { requestHeader } from "../auth/access";
 import { idempotencyDecision, requestHash, sha256 } from "./contracts";
 

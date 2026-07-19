@@ -1,7 +1,7 @@
 // Author: Klaasvaakie ( |╲ )
 import { currentRequest } from "encore.dev";
 import { createHash } from "node:crypto";
-import { identityDb } from "../../infrastructure/resources";
+import { identityDb } from "../../resources";
 
 export interface AuthenticatedSession {
   token: string;

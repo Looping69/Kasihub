@@ -2,7 +2,7 @@
 import { api, APIError } from "encore.dev/api";
 import { CronJob } from "encore.dev/cron";
 import * as log from "encore.dev/log";
-import { auditDb, financeDb, identityDb, membershipDb, networkDb, sharesDb } from "../../infrastructure/resources";
+import { auditDb, financeDb, identityDb, membershipDb, networkDb, sharesDb } from "../../resources";
 import { requireAdminAccess } from "../auth/access";
 import { resumeFinancialOperation } from "../workflows/retry";
 

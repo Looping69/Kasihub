@@ -1,5 +1,5 @@
 // Author: Klaasvaakie ( |╲ )
-import { financeDb } from "../../infrastructure/resources";
+import { financeDb } from "../../resources";
 
 export async function ensureLedgerAccount(
   ownerType: string,

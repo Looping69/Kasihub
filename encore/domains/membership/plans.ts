@@ -1,5 +1,5 @@
 // Author: Klaasvaakie ( |╲ )
-import { membershipDb } from "../../infrastructure/resources";
+import { membershipDb } from "../../resources";
 
 const DEFAULT_PLANS: Record<string, { name: string; memberType: string; currency: string; amount: string }> = {
   INDIVIDUAL_LOCAL: { name: "Individual Local", memberType: "individual", currency: "ZAR", amount: "140.00" },
