@@ -181,7 +181,7 @@ async function executeReconciliation(scope: string) {
     }
 
     const brokenShares = await sharesDb.rawQueryAll<{ id: string; status: string; certificate_id: string | null }>(
-      "SELECT id, status, certificate_id FROM share_purchases WHERE status = 'paid' AND certificate_id IS NULL LIMIT 500");
+      "SELECT id, status, certificate_id FROM share_purchases WHERE status IN ('active', 'paid') AND certificate_id IS NULL LIMIT 500");
     checked += brokenShares.length;
     for (const row of brokenShares) {
       await addFinding(runId, "paid_share_without_certificate", "critical", "share_purchase", row.id,
@@ -192,13 +192,17 @@ async function executeReconciliation(scope: string) {
     const inventoryMismatches = await sharesDb.rawQueryAll<{
       id: string; phase_number: number; total_quantity: number; quantity_available: number; allocated_quantity: string;
     }>(`SELECT phase.id, phase.phase_number, phase.total_quantity, phase.quantity_available,
-          COALESCE(SUM(CASE WHEN purchase.status IN ('reserved','paid')
-            THEN purchase.quantity + purchase.bonus_quantity ELSE 0 END), 0)::text AS allocated_quantity
+          COALESCE(SUM(CASE WHEN purchase.status IN ('active','reserved','paid')
+            THEN purchase.quantity + purchase.bonus_quantity ELSE 0 END), 0)::text
+          + COALESCE((SELECT SUM(adjustment.quantity) FROM share_inventory_adjustments adjustment
+              WHERE adjustment.phase_id = phase.id), 0) AS allocated_quantity
         FROM share_phases phase
         LEFT JOIN share_purchases purchase ON purchase.phase_id = phase.id
         GROUP BY phase.id, phase.phase_number, phase.total_quantity, phase.quantity_available
         HAVING phase.quantity_available <> phase.total_quantity - COALESCE(SUM(CASE
-          WHEN purchase.status IN ('reserved','paid') THEN purchase.quantity + purchase.bonus_quantity ELSE 0 END), 0)
+          WHEN purchase.status IN ('active','reserved','paid') THEN purchase.quantity + purchase.bonus_quantity ELSE 0 END), 0)
+          - COALESCE((SELECT SUM(adjustment.quantity) FROM share_inventory_adjustments adjustment
+              WHERE adjustment.phase_id = phase.id), 0)
         LIMIT 500`);
     checked += inventoryMismatches.length;
     for (const row of inventoryMismatches) {
@@ -215,7 +219,7 @@ async function executeReconciliation(scope: string) {
           certificate.total_shares AS actual_shares
         FROM share_purchases purchase
         JOIN share_certificates certificate ON certificate.id = purchase.certificate_id
-        WHERE purchase.status = 'paid'
+        WHERE purchase.status IN ('active', 'paid')
           AND certificate.total_shares <> purchase.quantity + purchase.bonus_quantity
         LIMIT 500`);
     checked += certificateMismatches.length;

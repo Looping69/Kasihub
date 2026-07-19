@@ -2816,7 +2816,7 @@ async function importLegacyTransaction(row: Record<string, unknown>) {
 }
 
 async function importLegacyShare(row: Record<string, unknown>) {
-  await sharesDb.rawExec(`INSERT INTO share_purchases (id,profile_id,phase_id,quantity,bonus_quantity,total_amount,status,created_at) SELECT $1,$2,id,$4,0,$5::numeric,$6,$7::timestamptz FROM share_phases WHERE phase_number=$3 ON CONFLICT (id) DO NOTHING`,requiredString(row,"id"),requiredString(row,"profileId"),Number(row.phase),Number(row.quantity),String(row.totalAmount),requiredString(row,"status").toLowerCase(),requiredString(row,"createdAt"));
+  await sharesDb.rawExec(`INSERT INTO share_purchases (id,profile_id,phase_id,quantity,bonus_quantity,total_amount,status,certificate_id,created_at) SELECT $1,$2,id,$4,0,$5::numeric,$6,$7,$8::timestamptz FROM share_phases WHERE phase_number=$3 ON CONFLICT (id) DO NOTHING`,requiredString(row,"id"),requiredString(row,"profileId"),Number(row.phase),Number(row.quantity),String(row.totalAmount),requiredString(row,"status").toLowerCase(),requiredString(row,"certificateId"),requiredString(row,"createdAt"));
   await sharesDb.rawExec(`INSERT INTO share_certificates (id,profile_id,certificate_number,total_shares,status,issued_at,revoked_at) VALUES ($1,$2,$3,$4,$5,$6::timestamptz,$7::timestamptz) ON CONFLICT (certificate_number) DO NOTHING`,requiredString(row,"certificateId"),requiredString(row,"profileId"),requiredString(row,"certificateNo"),Number(row.quantity),requiredString(row,"status").toLowerCase(),requiredString(row,"createdAt"),row.status==='REVOKED'?requiredString(row,"createdAt"):null);
 }
 
