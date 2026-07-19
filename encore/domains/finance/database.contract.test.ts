@@ -1,6 +1,19 @@
 // Author: Klaasvaakie ( |╲ )
 import { describe, expect, test } from "vitest";
-import { financeDb, sharesDb } from "../../resources";
+import { financeDb, networkDb, sharesDb } from "../../resources";
+import { ensureMembershipPlan } from "../membership/plans";
+import { placeMatrixNode } from "../network/placement";
+import { ensureLedgerAccount } from "../wallets/ledger";
+import {
+  beginOperation,
+  captureWalletHold,
+  completeOperation,
+  creditDistribution,
+  failOperation,
+  placeWalletHold,
+  recordStep,
+  releaseWalletHold,
+} from "../workflows/core";
 
 describe("database financial contracts", () => {
   test("conditional inventory reservation cannot oversell under concurrency", async () => {
@@ -65,5 +78,129 @@ describe("database financial contracts", () => {
       SUM(CASE WHEN direction = 'credit' THEN amount ELSE 0 END)::text AS credits
       FROM ledger_entries WHERE transaction_id = $1`, transactionId);
     expect(totals?.debits).toBe(totals?.credits);
+  });
+
+  test("membership plan materialization is idempotent under retries", async () => {
+    const code = `CONTRACT_${crypto.randomUUID().replaceAll("-", "")}`;
+    const first = await ensureMembershipPlan(code);
+    const replay = await ensureMembershipPlan(code);
+    expect(replay.id).toBe(first.id);
+    expect(first.amount).toBe("140.00");
+    expect(first.currency).toBe("ZAR");
+  });
+
+  test("matrix placement and ledger account creation are idempotent", async () => {
+    const profileId = crypto.randomUUID();
+    const node = await placeMatrixNode(profileId, null);
+    const replayedNode = await placeMatrixNode(profileId, null);
+    expect(replayedNode).toEqual(node);
+
+    const account = await ensureLedgerAccount("profile", profileId, "contract_wallet", "ZAR");
+    const replayedAccount = await ensureLedgerAccount("profile", profileId, "contract_wallet", "ZAR");
+    expect(replayedAccount).toBe(account);
+  });
+
+  test("wallet hold lifecycle is atomic, replayable, and ledger backed", async () => {
+    const profileId = crypto.randomUUID();
+    const actorUserId = crypto.randomUUID();
+    await networkDb.rawExec(
+      "INSERT INTO wallets (profile_id, currency, cached_balance) VALUES ($1, 'ZAR', 100.00)",
+      profileId,
+    );
+    const idempotencyKey = crypto.randomUUID();
+    const started = await beginOperation<{ ok: true }>({
+      operationType: "contract_wallet_capture",
+      actorUserId,
+      profileId,
+      idempotencyKey,
+      payload: { amount: "30.00" },
+    });
+    expect(started.replay).toBe(false);
+    const replay = await beginOperation<{ ok: true }>({
+      operationType: started.operation.operationType,
+      actorUserId,
+      profileId,
+      idempotencyKey,
+      payload: { amount: "30.00" },
+    });
+    expect(replay.replay).toBe(true);
+    expect(replay.operation.id).toBe(started.operation.id);
+    await expect(beginOperation({
+      operationType: started.operation.operationType,
+      actorUserId,
+      profileId,
+      idempotencyKey,
+      payload: { amount: "31.00" },
+    })).rejects.toThrow("Idempotency-Key was already used with a different request");
+
+    const holdId = await placeWalletHold(started.operation, profileId, "ZAR", "30.00");
+    expect(await placeWalletHold(started.operation, profileId, "ZAR", "30.00")).toBe(holdId);
+    await recordStep(started.operation, "hold_wallet_funds", "completed", { amount: "30.00" });
+    await captureWalletHold(started.operation, "contract_revenue", "Contract capture");
+    await captureWalletHold(started.operation, "contract_revenue", "Contract capture replay");
+    await completeOperation(started.operation, { ok: true });
+
+    const balance = await financeDb.rawQueryRow<{ available: string; held: string }>(
+      "SELECT available_balance::text AS available, held_balance::text AS held FROM wallet_balances WHERE profile_id = $1 AND currency = 'ZAR'",
+      profileId,
+    );
+    expect(balance).toEqual({ available: "70.00", held: "0.00" });
+    const projection = await networkDb.rawQueryRow<{ balance: string }>(
+      "SELECT cached_balance::text AS balance FROM wallets WHERE profile_id = $1",
+      profileId,
+    );
+    expect(projection?.balance).toBe("70.00");
+    const ledger = await financeDb.rawQueryRow<{ debits: string; credits: string }>(`SELECT
+      SUM(CASE WHEN direction = 'debit' THEN amount ELSE 0 END)::text AS debits,
+      SUM(CASE WHEN direction = 'credit' THEN amount ELSE 0 END)::text AS credits
+      FROM ledger_entries entry JOIN ledger_transactions transaction ON transaction.id = entry.transaction_id
+      WHERE transaction.reference_type = 'financial_operation' AND transaction.reference_id = $1`, started.operation.id);
+    expect(ledger?.debits).toBe("30.00");
+    expect(ledger?.credits).toBe("30.00");
+  });
+
+  test("held funds release exactly once and insufficient funds fail closed", async () => {
+    const profileId = crypto.randomUUID();
+    const actorUserId = crypto.randomUUID();
+    await networkDb.rawExec("INSERT INTO wallets (profile_id, currency, cached_balance) VALUES ($1, 'ZAR', 20.00)", profileId);
+    const operation = (await beginOperation({
+      operationType: "contract_wallet_release", actorUserId, profileId,
+      idempotencyKey: crypto.randomUUID(), payload: { amount: "10.00" },
+    })).operation;
+    await placeWalletHold(operation, profileId, "ZAR", "10.00");
+    await releaseWalletHold(operation.id);
+    await releaseWalletHold(operation.id);
+    const balance = await financeDb.rawQueryRow<{ available: string; held: string }>(
+      "SELECT available_balance::text AS available, held_balance::text AS held FROM wallet_balances WHERE profile_id = $1 AND currency = 'ZAR'",
+      profileId,
+    );
+    expect(balance).toEqual({ available: "20.00", held: "0.00" });
+
+    const rejected = (await beginOperation({
+      operationType: "contract_insufficient_funds", actorUserId, profileId,
+      idempotencyKey: crypto.randomUUID(), payload: { amount: "21.00" },
+    })).operation;
+    await expect(placeWalletHold(rejected, profileId, "ZAR", "21.00")).rejects.toThrow("Insufficient wallet funds");
+    expect(await financeDb.rawQueryRow("SELECT id FROM wallet_holds WHERE operation_id = $1", rejected.id)).toBeNull();
+    await expect(failOperation(rejected, new Error("Insufficient wallet funds"))).rejects.toThrow("Insufficient wallet funds");
+    const state = await financeDb.rawQueryRow<{ state: string }>("SELECT state FROM financial_operations WHERE id = $1", rejected.id);
+    expect(state?.state).toBe("failed");
+  });
+
+  test("recipient credits are unique per operation and update the wallet projection", async () => {
+    const profileId = crypto.randomUUID();
+    const operation = (await beginOperation({
+      operationType: "contract_distribution", actorUserId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(), payload: { amount: "12.34" },
+    })).operation;
+    const first = await creditDistribution({ operation, profileId, amount: "12.34", source: "DIVIDEND", poolType: "SHAREHOLDERS" });
+    const replay = await creditDistribution({ operation, profileId, amount: "12.34", source: "DIVIDEND", poolType: "SHAREHOLDERS" });
+    expect(replay).toBe(first);
+    const balance = await financeDb.rawQueryRow<{ available: string }>(
+      "SELECT available_balance::text AS available FROM wallet_balances WHERE profile_id = $1 AND currency = 'ZAR'", profileId);
+    expect(balance?.available).toBe("12.34");
+    const payouts = await financeDb.rawQueryRow<{ count: string }>(
+      "SELECT COUNT(*)::text AS count FROM pool_distributions WHERE operation_id = $1 AND profile_id = $2", operation.id, profileId);
+    expect(payouts?.count).toBe("1");
   });
 });

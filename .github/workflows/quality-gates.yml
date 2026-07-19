@@ -21,7 +21,14 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run typecheck
-      - run: npm test
+      - run: npm run test:coverage
+      - name: Upload critical server coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: critical-server-coverage
+          path: coverage/critical-server
+          if-no-files-found: error
       - run: npm run audit:production
       - run: npm run build
       - run: npx playwright install --with-deps chromium
@@ -51,4 +58,11 @@ jobs:
           test -n "$ENCORE_AUTH_KEY"
           encore auth login --auth-key "$ENCORE_AUTH_KEY"
       - run: encore check
-      - run: encore test
+      - run: encore test -- --coverage
+      - name: Upload Encore core coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: encore-core-coverage
+          path: encore/coverage/backend
+          if-no-files-found: error
