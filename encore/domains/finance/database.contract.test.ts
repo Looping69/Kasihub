@@ -226,10 +226,10 @@ describe("database financial contracts", () => {
       actorUserId: crypto.randomUUID(),
       profileId: deficitProfileId,
       idempotencyKey: crypto.randomUUID(),
-      payload: { amount: "0.00" },
+      payload: { amount: "1.00" },
     })).operation;
-    const holdId = await placeWalletHold(deficitOperation, deficitProfileId, "ZAR", "0.00");
-    expect(holdId).toBeTruthy();
+    await expect(placeWalletHold(deficitOperation, deficitProfileId, "ZAR", "1.00"))
+      .rejects.toThrow("Insufficient wallet funds");
     const authoritative = await financeDb.rawQueryRow<{ available: string }>(
       "SELECT available_balance::text AS available FROM wallet_balances WHERE profile_id = $1 AND currency = 'ZAR'",
       deficitProfileId,
