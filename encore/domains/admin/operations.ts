@@ -192,10 +192,10 @@ async function executeReconciliation(scope: string) {
     const inventoryMismatches = await sharesDb.rawQueryAll<{
       id: string; phase_number: number; total_quantity: number; quantity_available: number; allocated_quantity: string;
     }>(`SELECT phase.id, phase.phase_number, phase.total_quantity, phase.quantity_available,
-          COALESCE(SUM(CASE WHEN purchase.status IN ('active','reserved','paid')
-            THEN purchase.quantity + purchase.bonus_quantity ELSE 0 END), 0)::text
+          (COALESCE(SUM(CASE WHEN purchase.status IN ('active','reserved','paid')
+            THEN purchase.quantity + purchase.bonus_quantity ELSE 0 END), 0)
           + COALESCE((SELECT SUM(adjustment.quantity) FROM share_inventory_adjustments adjustment
-              WHERE adjustment.phase_id = phase.id), 0) AS allocated_quantity
+              WHERE adjustment.phase_id = phase.id), 0))::text AS allocated_quantity
         FROM share_phases phase
         LEFT JOIN share_purchases purchase ON purchase.phase_id = phase.id
         GROUP BY phase.id, phase.phase_number, phase.total_quantity, phase.quantity_available
