@@ -17,9 +17,21 @@ type OperationRow = {
   completed_at: string | null;
 };
 
+type OperationResponse = {
+  id: string;
+  type: string;
+  profileId: string | null;
+  state: string;
+  retryCount: number;
+  lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
+  completedAt: string | null;
+};
+
 export const listOperations = api<
   { state?: string; limit?: number },
-  { operations: ReturnType<typeof operationResponse>[] }
+  { operations: OperationResponse[] }
 >({ method: "GET", path: "/admin/operations", expose: true }, async (req) => {
   await requireAdminAccess();
   const rows = await financeDb.rawQueryAll<OperationRow>(`SELECT id, operation_type, profile_id, state,
@@ -31,7 +43,7 @@ export const listOperations = api<
 
 export const operationDetails = api<
   { id: string },
-  { operation: ReturnType<typeof operationResponse>; steps: { name: string; state: string; attempts: number; details: Record<string, unknown>; lastError: string | null; updatedAt: string }[] }
+  { operation: OperationResponse; steps: { name: string; state: string; attempts: number; details: Record<string, unknown>; lastError: string | null; updatedAt: string }[] }
 >({ method: "GET", path: "/admin/operations/:id", expose: true }, async (req) => {
   await requireAdminAccess();
   const row = await financeDb.rawQueryRow<OperationRow>(`SELECT id, operation_type, profile_id, state,
@@ -283,6 +295,6 @@ async function addFinding(runId: string, type: string, severity: string, entityT
     runId, type, severity, entityType, entityId, JSON.stringify(expected), JSON.stringify(actual));
 }
 
-function operationResponse(row: OperationRow) {
+function operationResponse(row: OperationRow): OperationResponse {
   return { id: row.id, type: row.operation_type, profileId: row.profile_id, state: row.state, retryCount: row.retry_count, lastError: row.last_error, createdAt: row.created_at, updatedAt: row.updated_at, completedAt: row.completed_at };
 }
