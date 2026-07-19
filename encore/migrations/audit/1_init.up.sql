@@ -1,4 +1,4 @@
--- Author: Klaasvaakie ( |â•² )
+-- Author: Klaasvaakie ( |╲ )
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 CREATE TABLE audit_logs (
@@ -12,4 +12,3 @@ CREATE TABLE audit_logs (
   ip_address TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-

@@ -1,4 +1,4 @@
--- Author: Klaasvaakie ( |â•² )
+-- Author: Klaasvaakie ( |╲ )
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 CREATE TABLE kyc_cases (
@@ -19,4 +19,3 @@ CREATE TABLE kyc_documents (
   storage_url TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'uploaded'
 );
-

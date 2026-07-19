@@ -1,4 +1,4 @@
--- Author: Klaasvaakie ( |â•² )
+-- Author: Klaasvaakie ( |╲ )
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 CREATE TABLE users (
@@ -79,4 +79,3 @@ CREATE TABLE sessions (
 CREATE INDEX idx_users_email ON users(email);
 CREATE INDEX idx_profiles_unique_profile_number ON profiles(unique_profile_number);
 CREATE INDEX idx_profiles_id_or_passport_number ON profiles(id_or_passport_number);
-

@@ -1,4 +1,4 @@
--- Author: Klaasvaakie ( |â•² )
+-- Author: Klaasvaakie ( |╲ )
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 CREATE TABLE ledger_accounts (
@@ -32,4 +32,3 @@ CREATE TABLE ledger_entries (
 
 CREATE INDEX idx_ledger_transactions_reference ON ledger_transactions(reference_type, reference_id);
 CREATE INDEX idx_ledger_entries_account_id ON ledger_entries(account_id);
-

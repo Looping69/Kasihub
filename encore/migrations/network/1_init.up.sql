@@ -1,4 +1,4 @@
--- Author: Klaasvaakie ( |â•² )
+-- Author: Klaasvaakie ( |╲ )
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 CREATE TABLE matrix_nodes (
@@ -33,4 +33,3 @@ CREATE INDEX idx_matrix_nodes_profile_id ON matrix_nodes(profile_id);
 CREATE INDEX idx_matrix_nodes_parent_node_id ON matrix_nodes(parent_node_id);
 CREATE INDEX idx_matrix_nodes_path ON matrix_nodes(path);
 CREATE INDEX idx_matrix_events_profile_id ON matrix_events(profile_id);
-

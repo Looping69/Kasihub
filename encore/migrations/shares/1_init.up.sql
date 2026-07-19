@@ -1,4 +1,4 @@
--- Author: Klaasvaakie ( |â•² )
+-- Author: Klaasvaakie ( |╲ )
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 CREATE TABLE share_phases (
@@ -37,4 +37,3 @@ CREATE TABLE share_certificates (
 
 INSERT INTO share_phases (phase_number, quantity_available, price_per_share, currency, status, starts_at)
 VALUES (1, 100000, 25.00, 'USD', 'active', now());
-

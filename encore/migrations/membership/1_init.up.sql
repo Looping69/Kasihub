@@ -1,4 +1,4 @@
--- Author: Klaasvaakie ( |â•² )
+-- Author: Klaasvaakie ( |╲ )
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 CREATE TABLE business_config_versions (
@@ -48,4 +48,3 @@ CREATE TABLE payments (
 );
 
 CREATE INDEX idx_payments_provider_reference ON payments(provider_reference);
-
