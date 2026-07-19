@@ -1,4 +1,4 @@
-// Author: Klaasvaakie ( |â•² )
+// Author: Klaasvaakie ( |╲ )
 import { Service } from "encore.dev/service";
 
 // Encore requires the service instance to be exported inline. Klaasvaakie ( |╲ )

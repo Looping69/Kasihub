@@ -1,5 +1,6 @@
 // Author: Klaasvaakie ( |╲ )
 import { currentRequest } from "encore.dev";
+import { APIError } from "encore.dev/api";
 import { createHash } from "node:crypto";
 import { identityDb } from "../../resources";
 
@@ -53,7 +54,7 @@ export async function sessionFromBearer(): Promise<AuthenticatedSession | null> 
 
 export async function requireSession(): Promise<AuthenticatedSession> {
   const session = await sessionFromBearer();
-  if (!session) throw new Error("unauthenticated");
+  if (!session) throw APIError.unauthenticated("Authentication is required");
   return session;
 }
 
@@ -65,7 +66,7 @@ export async function requireAdminAccess(): Promise<AuthenticatedSession> {
      WHERE ur.user_id = $1 AND r.name = 'admin' LIMIT 1`,
     session.user.id,
   );
-  if (!role) throw new Error("permission_denied");
+  if (!role) throw APIError.permissionDenied("Administrator access is required");
   return session;
 }
 
@@ -78,6 +79,6 @@ export async function requireProfileAccess(profileId: string): Promise<Authentic
      WHERE ur.user_id = $1 AND r.name = 'admin' LIMIT 1`,
     session.user.id,
   );
-  if (!role) throw new Error("permission_denied");
+  if (!role) throw APIError.permissionDenied("Profile access is not permitted");
   return session;
 }

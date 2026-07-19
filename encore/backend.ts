@@ -442,13 +442,13 @@ export const login = api<{ email: string; password: string }, LoginResponse>(
       payload.email,
     );
     if (!user?.password_hash || !verifyPassword(payload.password, user.password_hash)) {
-      throw new Error("unauthenticated");
+      throw APIError.unauthenticated("Invalid email or password");
     }
     const profile = await identityDb.rawQueryRow<{ id: string; unique_profile_number: string }>("SELECT id, unique_profile_number FROM profiles WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1",
       user.id,
     );
     if (!profile) {
-      throw new Error("not_found");
+      throw APIError.notFound("Member profile not found");
     }
     const token = crypto.randomUUID();
     await identityDb.rawExec(`INSERT INTO sessions (user_id, token, created_at, expires_at)
@@ -484,7 +484,7 @@ export const myProfile = api<void, { member: FrontendMember }>(
   { method: "GET", path: "/profiles/me", expose: true },
   async () => {
     const session = await sessionFromBearer();
-    if (!session) throw new Error("unauthenticated");
+    if (!session) throw APIError.unauthenticated("Authentication is required");
     const profile = await identityDb.rawQueryRow<{
       id: string;
       unique_profile_number: string;
@@ -519,7 +519,7 @@ export const myProfile = api<void, { member: FrontendMember }>(
        WHERE p.id = $1`,
       session.profile.id,
     );
-    if (!profile) throw new Error("not_found");
+    if (!profile) throw APIError.notFound("Member profile not found");
     const subscription = await membershipDb.rawQueryRow<{
       status: string;
       amount: string;
@@ -2660,7 +2660,7 @@ export const bootstrapMigrationAdmin = api<void, { ok: true; promoted: boolean }
   { method: "POST", path: "/migration/bootstrap-admin", expose: true },
   async () => {
     const session = await sessionFromBearer();
-    if (!session) throw new Error("unauthenticated");
+    if (!session) throw APIError.unauthenticated("Authentication is required");
     const count = await identityDb.rawQueryRow<{ count: string }>(
       `SELECT COUNT(*)::text AS count FROM user_roles ur
        JOIN roles r ON r.id = ur.role_id WHERE r.name = 'admin'`,
