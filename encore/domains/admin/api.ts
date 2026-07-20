@@ -6,7 +6,24 @@ import { auditDb, commerceDb, financeDb, identityDb, kycDb, membershipDb, networ
 import { requireAdminAccess } from "../auth/access";
 import { decodeStoredConfig } from "./theme-storage";
 
-const themeSchema = z.object({
+interface AppTheme {
+  name: string;
+  primary: string;
+  accent: string;
+  background: string;
+  surface: string;
+  text: string;
+  mutedText: string;
+  border: string;
+  sidebar: string;
+  sidebarText: string;
+  radius: number;
+  fontScale: number;
+  shadow: "none" | "soft" | "medium" | "strong";
+  pageBackground: "solid" | "soft" | "grid";
+}
+
+const themeSchema: z.ZodType<AppTheme> = z.object({
   name: z.string().min(1).max(80),
   primary: z.string().regex(/^#[0-9a-fA-F]{6}$/),
   accent: z.string().regex(/^#[0-9a-fA-F]{6}$/),
@@ -28,7 +45,7 @@ const DEFAULT_THEME = {
   surface: "#FFFFFF", text: "#17233C", mutedText: "#64748B", border: "#DDE6EE",
   sidebar: "#0569BD", sidebarText: "#FFFFFF", radius: 12, fontScale: 1,
   shadow: "soft" as const, pageBackground: "soft" as const,
-};
+} satisfies AppTheme;
 
 function storedTheme(value: unknown) {
   const config = decodeStoredConfig(value);
@@ -38,7 +55,7 @@ function storedTheme(value: unknown) {
   return parsed.success ? parsed.data : null;
 }
 
-export const publicTheme = api<void, { theme: typeof DEFAULT_THEME; version: number }>(
+export const publicTheme = api<void, { theme: AppTheme; version: number }>(
   { method: "GET", path: "/theme", expose: true },
   async () => {
     const row = await membershipDb.rawQueryRow<{ version: number; config: unknown }>(
@@ -51,7 +68,7 @@ export const publicTheme = api<void, { theme: typeof DEFAULT_THEME; version: num
   },
 );
 
-export const adminTheme = api<void, { active: typeof DEFAULT_THEME; versions: { version: number; status: string; theme: typeof DEFAULT_THEME; createdAt: string }[] }>(
+export const adminTheme = api<void, { active: AppTheme; versions: { version: number; status: string; theme: AppTheme; createdAt: string }[] }>(
   { method: "GET", path: "/admin/theme", expose: true },
   async () => {
     await requireAdminAccess();
@@ -73,7 +90,7 @@ export const adminTheme = api<void, { active: typeof DEFAULT_THEME; versions: { 
   },
 );
 
-export const saveTheme = api<{ action: "draft" | "publish"; theme: typeof DEFAULT_THEME }, { ok: true; version: number; status: string }>(
+export const saveTheme = api<{ action: "draft" | "publish"; theme: AppTheme }, { ok: true; version: number; status: string }>(
   { method: "POST", path: "/admin/theme", expose: true },
   async (req) => {
     const admin = await requireAdminAccess();
