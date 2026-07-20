@@ -31,7 +31,8 @@ const DEFAULT_THEME = {
 
 function storedTheme(config: Record<string, unknown>) {
   const nestedTheme = config.theme;
-  return themeSchema.parse(nestedTheme && typeof nestedTheme === "object" ? nestedTheme : config);
+  const parsed = themeSchema.safeParse(nestedTheme && typeof nestedTheme === "object" ? nestedTheme : config);
+  return parsed.success ? parsed.data : null;
 }
 
 export const publicTheme = api<void, { theme: typeof DEFAULT_THEME; version: number }>(
@@ -42,7 +43,8 @@ export const publicTheme = api<void, { theme: typeof DEFAULT_THEME; version: num
        WHERE config_key = 'app_theme' AND config->>'status' = 'published'
        ORDER BY version DESC LIMIT 1`,
     );
-    return { theme: row ? storedTheme(row.config) : DEFAULT_THEME, version: row?.version ?? 0 };
+    const theme = row ? storedTheme(row.config) : null;
+    return { theme: theme ?? DEFAULT_THEME, version: theme ? row?.version ?? 0 : 0 };
   },
 );
 
@@ -54,12 +56,15 @@ export const adminTheme = api<void, { active: typeof DEFAULT_THEME; versions: { 
       `SELECT version, config, created_at::text AS created_at FROM business_config_versions
        WHERE config_key = 'app_theme' ORDER BY version DESC LIMIT 20`,
     );
-    const versions = rows.map((row) => ({
-      version: row.version,
-      status: String(row.config.status ?? "draft"),
-      theme: storedTheme(row.config),
-      createdAt: row.created_at,
-    }));
+    const versions = rows.flatMap((row) => {
+      const theme = storedTheme(row.config);
+      return theme ? [{
+        version: row.version,
+        status: String(row.config.status ?? "draft"),
+        theme,
+        createdAt: row.created_at,
+      }] : [];
+    });
     return { active: versions.find((item) => item.status === "published")?.theme ?? DEFAULT_THEME, versions };
   },
 );
