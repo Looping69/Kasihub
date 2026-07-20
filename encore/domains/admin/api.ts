@@ -1,5 +1,6 @@
 // Author: Klaasvaakie ( |╲ )
 import { api } from "encore.dev/api";
+import * as log from "encore.dev/log";
 import { z } from "zod";
 import { auditDb, commerceDb, financeDb, identityDb, kycDb, membershipDb, networkDb, sharesDb } from "../../resources";
 import { requireAdminAccess } from "../auth/access";
@@ -45,7 +46,7 @@ export const adminTheme = api<void, { active: typeof DEFAULT_THEME; versions: { 
   async () => {
     await requireAdminAccess();
     const rows = await membershipDb.rawQueryAll<{ version: number; config: Record<string, unknown>; created_at: string }>(
-      `SELECT version, config, created_at FROM business_config_versions
+      `SELECT version, config, created_at::text AS created_at FROM business_config_versions
        WHERE config_key = 'app_theme' ORDER BY version DESC LIMIT 20`,
     );
     const versions = rows.map((row) => ({
@@ -64,22 +65,47 @@ export const saveTheme = api<{ action: "draft" | "publish"; theme: typeof DEFAUL
     const admin = await requireAdminAccess();
     const theme = themeSchema.parse(req.theme);
     const status = req.action === "publish" ? "published" : "draft";
+    const audit = await auditDb.rawQueryRow<{ id: string }>(`INSERT INTO audit_logs
+      (actor_user_id, action, entity_type, entity_id, after) VALUES
+      ($1, $2, 'app_theme', gen_random_uuid(), $3::jsonb) RETURNING id`,
+      admin.user.id,
+      `theme.${status}.requested`,
+      JSON.stringify({ status: "processing", theme }),
+    );
+    if (!audit) throw new Error("theme_audit_not_created");
     const tx = await membershipDb.begin();
+    let row: { version: number } | null;
     try {
       if (status === "published") {
         await tx.rawExec(`UPDATE business_config_versions SET config = jsonb_set(config, '{status}', '"archived"')
           WHERE config_key = 'app_theme' AND config->>'status' = 'published'`);
       }
-      const row = await tx.rawQueryRow<{ version: number }>(`INSERT INTO business_config_versions
+      row = await tx.rawQueryRow<{ version: number }>(`INSERT INTO business_config_versions
         (config_key, version, config, created_by) VALUES
         ('app_theme', COALESCE((SELECT MAX(version) + 1 FROM business_config_versions WHERE config_key = 'app_theme'), 1), $1::jsonb, $2)
         RETURNING version`, JSON.stringify({ status, theme }), admin.user.id);
-      await tx.commit();
       if (!row) throw new Error("theme_version_not_created");
-      await auditDb.rawExec(`INSERT INTO audit_logs (action, entity_type, entity_id, after)
-        VALUES ($1, 'app_theme', gen_random_uuid(), $2::jsonb)`, `theme.${status}`, JSON.stringify({ version: row.version, theme }));
-      return { ok: true, version: row.version, status };
-    } catch (error) { await tx.rollback(); throw error; }
+      await tx.commit();
+    } catch (error) {
+      await tx.rollback();
+      try {
+        await auditDb.rawExec(`UPDATE audit_logs SET after = $1::jsonb WHERE id = $2`,
+          JSON.stringify({ status: "failed", theme }), audit.id);
+      } catch (auditError) {
+        log.error(auditError, "theme failure audit update failed", { auditId: audit.id, actorUserId: admin.user.id });
+      }
+      throw error;
+    }
+    try {
+      await auditDb.rawExec(`UPDATE audit_logs SET action = $1, after = $2::jsonb WHERE id = $3`,
+        `theme.${status}`,
+        JSON.stringify({ status: "completed", version: row.version, theme }),
+        audit.id,
+      );
+    } catch (error) {
+      log.error(error, "theme completion audit update failed", { auditId: audit.id, actorUserId: admin.user.id, version: row.version });
+    }
+    return { ok: true, version: row.version, status };
   },
 );
 
@@ -312,4 +338,3 @@ export const financialSummary = api<
     };
   },
 );
-
