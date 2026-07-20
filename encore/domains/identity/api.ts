@@ -82,15 +82,6 @@ const loginRequest = z.object({
   password: z.string().min(1).max(128),
 });
 
-type RegisterResponse = {
-  user: {
-    id: string;
-    email: string;
-    profileId: string;
-    profileNumber: string;
-  };
-};
-
 type LoginResponse = {
   token: string;
   profileId: string;
@@ -142,54 +133,6 @@ export const health = api<void, { ok: boolean; service: string; hardeningRevisio
   { method: "GET", path: "/health", expose: true },
   async () => {
     return { ok: true, service: "kasihub-backend", hardeningRevision: "financial-workflows-v1" };
-  },
-);
-
-export const register = api<RegisterRequest, RegisterResponse>(
-  { method: "POST", path: "/auth/register", expose: true },
-  async (req) => {
-    const payload = registerRequest.parse(req);
-    const userId = crypto.randomUUID();
-    const profileId = crypto.randomUUID();
-    const profileNumber = `KSI-${String(Date.now()).slice(-8)}`;
-
-    await identityDb.rawExec(`INSERT INTO users (id, email, phone, password_hash) VALUES ($1, $2, $3, $4)`,
-      userId,
-      payload.email,
-      payload.phone ?? null,
-      hashPassword(payload.password),
-    );
-    await identityDb.rawExec(`INSERT INTO profiles (
-        id, user_id, profile_type, unique_profile_number, first_name, surname,
-        company_name, company_registration_number, id_or_passport_number, sars_number, country, status
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-      profileId,
-      userId,
-      payload.profileType,
-      profileNumber,
-      payload.firstName ?? null,
-      payload.surname ?? null,
-      payload.companyName ?? null,
-      payload.companyRegistrationNumber ?? null,
-      payload.idOrPassportNumber ?? null,
-      payload.sarsNumber ?? null,
-      payload.country ?? "ZA",
-      "pending",
-    );
-    await identityDb.rawExec(
-      `INSERT INTO user_roles (user_id, role_id)
-       SELECT $1, id FROM roles WHERE name = 'member'
-       ON CONFLICT (user_id, role_id) DO NOTHING`,
-      userId,
-    );
-    return {
-      user: {
-        id: userId,
-        email: payload.email,
-        profileId,
-        profileNumber,
-      },
-    };
   },
 );
 
@@ -462,4 +405,3 @@ export const logout = api<void, { ok: true }>(
     return { ok: true };
   },
 );
-

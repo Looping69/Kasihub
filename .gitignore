@@ -59,3 +59,8 @@ encore.gen.go
 encore.gen.cue
 /.encore
 /encore.gen
+
+# Encore is the only backend. Local legacy database artifacts are never tracked.
+/db/
+/prisma/
+/.zscripts/

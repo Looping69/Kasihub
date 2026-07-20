@@ -1,7 +1,6 @@
 // Author: Klaasvaakie ( |╲ )
 // One Encore service, with public routes loaded from domain-owned modules.
 import "./domains/admin/api";
-import "./domains/admin/legacy";
 import "./domains/admin/operations";
 import "./domains/commerce/api";
 import "./domains/engagement/api";

@@ -4,7 +4,7 @@ This directory is the real MVP backend entrypoint.
 
 ## Endpoints
 - `GET /health`
-- `POST /auth/register`
+- `POST /registration/start`
 - `POST /auth/login`
 - `GET /auth/me`
 - `GET /profiles/me`
@@ -27,7 +27,6 @@ This directory is the real MVP backend entrypoint.
 - `GET /admin/reports/financial-summary`
 - `GET /admin/ledger/transactions`
 - `GET /admin/matrix/tree`
-- `GET /admin/debug/member/:profileId`
 - `POST /admin/shares/certificates/:certificateNumber/revoke`
 - `POST /admin/shares/certificates/reissue`
 
