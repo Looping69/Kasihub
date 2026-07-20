@@ -4,6 +4,7 @@ import * as log from "encore.dev/log";
 import { z } from "zod";
 import { auditDb, commerceDb, financeDb, identityDb, kycDb, membershipDb, networkDb, sharesDb } from "../../resources";
 import { requireAdminAccess } from "../auth/access";
+import { decodeStoredConfig } from "./theme-storage";
 
 const themeSchema = z.object({
   name: z.string().min(1).max(80),
@@ -29,7 +30,9 @@ const DEFAULT_THEME = {
   shadow: "soft" as const, pageBackground: "soft" as const,
 };
 
-function storedTheme(config: Record<string, unknown>) {
+function storedTheme(value: unknown) {
+  const config = decodeStoredConfig(value);
+  if (!config) return null;
   const nestedTheme = config.theme;
   const parsed = themeSchema.safeParse(nestedTheme && typeof nestedTheme === "object" ? nestedTheme : config);
   return parsed.success ? parsed.data : null;
@@ -38,7 +41,7 @@ function storedTheme(config: Record<string, unknown>) {
 export const publicTheme = api<void, { theme: typeof DEFAULT_THEME; version: number }>(
   { method: "GET", path: "/theme", expose: true },
   async () => {
-    const row = await membershipDb.rawQueryRow<{ version: number; config: Record<string, unknown> }>(
+    const row = await membershipDb.rawQueryRow<{ version: number; config: unknown }>(
       `SELECT version, config FROM business_config_versions
        WHERE config_key = 'app_theme' AND config->>'status' = 'published'
        ORDER BY version DESC LIMIT 1`,
@@ -52,15 +55,16 @@ export const adminTheme = api<void, { active: typeof DEFAULT_THEME; versions: { 
   { method: "GET", path: "/admin/theme", expose: true },
   async () => {
     await requireAdminAccess();
-    const rows = await membershipDb.rawQueryAll<{ version: number; config: Record<string, unknown>; created_at: string }>(
+    const rows = await membershipDb.rawQueryAll<{ version: number; config: unknown; created_at: string }>(
       `SELECT version, config, created_at::text AS created_at FROM business_config_versions
        WHERE config_key = 'app_theme' ORDER BY version DESC LIMIT 20`,
     );
     const versions = rows.flatMap((row) => {
+      const config = decodeStoredConfig(row.config);
       const theme = storedTheme(row.config);
       return theme ? [{
         version: row.version,
-        status: String(row.config.status ?? "draft"),
+        status: String(config?.status ?? "draft"),
         theme,
         createdAt: row.created_at,
       }] : [];
