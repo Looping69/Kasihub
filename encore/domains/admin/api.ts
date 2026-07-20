@@ -29,6 +29,11 @@ const DEFAULT_THEME = {
   shadow: "soft" as const, pageBackground: "soft" as const,
 };
 
+function storedTheme(config: Record<string, unknown>) {
+  const nestedTheme = config.theme;
+  return themeSchema.parse(nestedTheme && typeof nestedTheme === "object" ? nestedTheme : config);
+}
+
 export const publicTheme = api<void, { theme: typeof DEFAULT_THEME; version: number }>(
   { method: "GET", path: "/theme", expose: true },
   async () => {
@@ -37,7 +42,7 @@ export const publicTheme = api<void, { theme: typeof DEFAULT_THEME; version: num
        WHERE config_key = 'app_theme' AND config->>'status' = 'published'
        ORDER BY version DESC LIMIT 1`,
     );
-    return { theme: row ? themeSchema.parse(row.config.theme) : DEFAULT_THEME, version: row?.version ?? 0 };
+    return { theme: row ? storedTheme(row.config) : DEFAULT_THEME, version: row?.version ?? 0 };
   },
 );
 
@@ -52,7 +57,7 @@ export const adminTheme = api<void, { active: typeof DEFAULT_THEME; versions: { 
     const versions = rows.map((row) => ({
       version: row.version,
       status: String(row.config.status ?? "draft"),
-      theme: themeSchema.parse(row.config.theme),
+      theme: storedTheme(row.config),
       createdAt: row.created_at,
     }));
     return { active: versions.find((item) => item.status === "published")?.theme ?? DEFAULT_THEME, versions };
