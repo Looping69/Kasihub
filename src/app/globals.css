@@ -133,8 +133,13 @@
   }
   body {
     @apply bg-background text-foreground;
+    font-size: calc(1rem * var(--font-scale, 1));
   }
+  [data-page-background="grid"] body { background-image: linear-gradient(var(--border) 1px, transparent 1px), linear-gradient(90deg, var(--border) 1px, transparent 1px); background-size: 32px 32px; }
+  [data-page-background="soft"] body { background-image: radial-gradient(circle at 80% 0%, color-mix(in srgb, var(--primary) 8%, transparent), transparent 36rem); }
 }
+
+.theme-elevation { box-shadow: var(--theme-shadow, 0 8px 24px rgb(15 23 42 / .06)); }
 
 /* Custom scrollbar */
 .scrollbar-kasi::-webkit-scrollbar {

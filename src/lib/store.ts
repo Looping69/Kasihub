@@ -16,6 +16,7 @@ export type AdminViewKey =
   | "vouchers"
   | "referrals"
   | "notifications"
+  | "design"
   | "settings";
 
 interface KasiState {

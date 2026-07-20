@@ -4,6 +4,85 @@ import { z } from "zod";
 import { auditDb, commerceDb, financeDb, identityDb, kycDb, membershipDb, networkDb, sharesDb } from "../../resources";
 import { requireAdminAccess } from "../auth/access";
 
+const themeSchema = z.object({
+  name: z.string().min(1).max(80),
+  primary: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+  accent: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+  background: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+  surface: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+  text: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+  mutedText: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+  border: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+  sidebar: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+  sidebarText: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+  radius: z.number().int().min(0).max(24),
+  fontScale: z.number().min(0.85).max(1.2),
+  shadow: z.enum(["none", "soft", "medium", "strong"]),
+  pageBackground: z.enum(["solid", "soft", "grid"]),
+});
+
+const DEFAULT_THEME = {
+  name: "KaSiHUB Classic", primary: "#0569BD", accent: "#F58220", background: "#FFFFFF",
+  surface: "#FFFFFF", text: "#17233C", mutedText: "#64748B", border: "#DDE6EE",
+  sidebar: "#0569BD", sidebarText: "#FFFFFF", radius: 12, fontScale: 1,
+  shadow: "soft" as const, pageBackground: "soft" as const,
+};
+
+export const publicTheme = api<void, { theme: typeof DEFAULT_THEME; version: number }>(
+  { method: "GET", path: "/theme", expose: true },
+  async () => {
+    const row = await membershipDb.rawQueryRow<{ version: number; config: Record<string, unknown> }>(
+      `SELECT version, config FROM business_config_versions
+       WHERE config_key = 'app_theme' AND config->>'status' = 'published'
+       ORDER BY version DESC LIMIT 1`,
+    );
+    return { theme: row ? themeSchema.parse(row.config.theme) : DEFAULT_THEME, version: row?.version ?? 0 };
+  },
+);
+
+export const adminTheme = api<void, { active: typeof DEFAULT_THEME; versions: { version: number; status: string; theme: typeof DEFAULT_THEME; createdAt: string }[] }>(
+  { method: "GET", path: "/admin/theme", expose: true },
+  async () => {
+    await requireAdminAccess();
+    const rows = await membershipDb.rawQueryAll<{ version: number; config: Record<string, unknown>; created_at: string }>(
+      `SELECT version, config, created_at FROM business_config_versions
+       WHERE config_key = 'app_theme' ORDER BY version DESC LIMIT 20`,
+    );
+    const versions = rows.map((row) => ({
+      version: row.version,
+      status: String(row.config.status ?? "draft"),
+      theme: themeSchema.parse(row.config.theme),
+      createdAt: row.created_at,
+    }));
+    return { active: versions.find((item) => item.status === "published")?.theme ?? DEFAULT_THEME, versions };
+  },
+);
+
+export const saveTheme = api<{ action: "draft" | "publish"; theme: typeof DEFAULT_THEME }, { ok: true; version: number; status: string }>(
+  { method: "POST", path: "/admin/theme", expose: true },
+  async (req) => {
+    const admin = await requireAdminAccess();
+    const theme = themeSchema.parse(req.theme);
+    const status = req.action === "publish" ? "published" : "draft";
+    const tx = await membershipDb.begin();
+    try {
+      if (status === "published") {
+        await tx.rawExec(`UPDATE business_config_versions SET config = jsonb_set(config, '{status}', '"archived"')
+          WHERE config_key = 'app_theme' AND config->>'status' = 'published'`);
+      }
+      const row = await tx.rawQueryRow<{ version: number }>(`INSERT INTO business_config_versions
+        (config_key, version, config, created_by) VALUES
+        ('app_theme', COALESCE((SELECT MAX(version) + 1 FROM business_config_versions WHERE config_key = 'app_theme'), 1), $1::jsonb, $2)
+        RETURNING version`, JSON.stringify({ status, theme }), admin.user.id);
+      await tx.commit();
+      if (!row) throw new Error("theme_version_not_created");
+      await auditDb.rawExec(`INSERT INTO audit_logs (action, entity_type, entity_id, after)
+        VALUES ($1, 'app_theme', gen_random_uuid(), $2::jsonb)`, `theme.${status}`, JSON.stringify({ version: row.version, theme }));
+      return { ok: true, version: row.version, status };
+    } catch (error) { await tx.rollback(); throw error; }
+  },
+);
+
 interface ConfigVersionRequest {
   config: Record<string, unknown>;
 }
@@ -233,5 +312,4 @@ export const financialSummary = api<
     };
   },
 );
-
 
