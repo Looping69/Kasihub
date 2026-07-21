@@ -432,3 +432,12 @@ Author: Klaasvaakie ( |╲ )
 - Linux Encore compilation provisioned Redis and applied migrations successfully; repeated theme reads dropped from about 20 ms to about 1 ms inside Encore.
 - Verified 41 frontend contract/unit tests, lint, TypeScript, production build, five browser security/session/design tests, and 27 Encore tests with 87.78% statements and 80% branch coverage. Local Encore remains online on port 4001.
 - Changes remain local and are not deployed.
+
+## 2026-07-21 — Redis performance production rollout
+
+- Committed the performance hardening as `4d4a6ce` with release marker `1a44e76` and pushed both commits to GitHub `main`.
+- Passed the complete GitHub quality workflow and deployed the matching Encore subtree through the controlled staging workflow.
+- Verified Encore Cloud reports `performance-redis-v1`; the new dashboard and administrator aggregate routes exist and enforce authentication.
+- Built Forge image `kasihub:20260721-performance-1a44e76` from the exact committed tree and passed private canary checks before cutover.
+- Cut production over to the new image, preserving `kasihub-rollback-20260721-performance` as the immediate rollback container.
+- Verified the public homepage, Encore proxy, theme endpoint, session endpoint, and authenticated administrator overview; the Design Suite navigation is absent as intended.
