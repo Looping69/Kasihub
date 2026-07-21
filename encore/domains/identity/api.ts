@@ -132,7 +132,7 @@ type FrontendMember = {
 export const health = api<void, { ok: boolean; service: string; hardeningRevision: string }>(
   { method: "GET", path: "/health", expose: true },
   async () => {
-    return { ok: true, service: "kasihub-backend", hardeningRevision: "financial-workflows-v1" };
+    return { ok: true, service: "kasihub-backend", hardeningRevision: "performance-redis-v1" };
   },
 );
 
