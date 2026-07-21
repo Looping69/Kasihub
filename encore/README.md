@@ -8,6 +8,7 @@ This directory is the real MVP backend entrypoint.
 - `POST /auth/login`
 - `GET /auth/me`
 - `GET /profiles/me`
+- `GET /dashboard/:profileId`
 - `POST /auth/logout`
 - `GET /membership/plans`
 - `POST /membership/subscribe`
@@ -25,6 +26,7 @@ This directory is the real MVP backend entrypoint.
 - `POST /admin/config/:key/version`
 - `GET /admin/members`
 - `GET /admin/reports/financial-summary`
+- `GET /admin/overview`
 - `GET /admin/ledger/transactions`
 - `GET /admin/matrix/tree`
 - `POST /admin/shares/certificates/:certificateNumber/revoke`
@@ -34,5 +36,14 @@ All member and administrator operations require the bearer session returned by
 `POST /auth/login`. Administrator access is granted through the `admin` role in
 the identity database; profile access is limited to the session owner or an
 administrator.
+
+## Managed cache
+
+The `application-cache` Encore resource provisions Redis-compatible caching.
+Public theme configuration is cached for five minutes, share-phase reads for
+15 seconds, and the administrator overview bundle for 15 seconds. Published
+theme changes and share inventory mutations invalidate their keys explicitly.
+Wallet balances, ledger state, holds, payments, payouts, and mutation decisions
+remain database-authoritative and are never accepted from cache.
 
 Author: Klaasvaakie ( |╲ )

@@ -94,7 +94,7 @@ test("restores administrator authority from the server, not browser storage", as
   await expect(page.getByText("Exco Administrator").first()).toBeVisible();
 });
 
-test("administrator can preview design tokens without publishing them", async ({ page }) => {
+test("design studio remains hidden while its persistence path is stabilised", async ({ page }) => {
   await page.route("**/api/auth/session", (route) => route.fulfill({
     status: 200, contentType: "application/json",
     body: JSON.stringify({ authenticated: true, member: { ...member, id: "admin-profile", firstName: "Admin", isAdmin: true } }),
@@ -111,22 +111,7 @@ test("administrator can preview design tokens without publishing them", async ({
       instapayVerifiedCount: 0, instapayPendingCount: 0,
     }, memberGrowth: [], cumulativeGrowth: [], revenueBySource: [], typeBreakdown: { INDIVIDUAL_ADULT: 0, INDIVIDUAL_KIDS: 0, COMPANY: 0 }, kycBreakdown: { VERIFIED: 0, PENDING: 0, REJECTED: 0 }, silos: [], phases: [], dividends: [], recentActivity: [] }),
   }));
-  await page.route("**/api/admin/design", async (route) => {
-    if (route.request().method() === "POST") return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, version: 2, status: "draft" }) });
-    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
-      active: { name: "KaSiHUB Classic", primary: "#0569BD", accent: "#F58220", background: "#FFFFFF", surface: "#FFFFFF", text: "#17233C", mutedText: "#64748B", border: "#DDE6EE", sidebar: "#0569BD", sidebarText: "#FFFFFF", radius: 12, fontScale: 1, shadow: "soft", pageBackground: "soft" },
-      versions: [],
-    }) });
-  });
   await page.goto("/");
-  await page.locator("button").filter({ hasText: "Design Suite" }).click();
-  await expect(page.getByRole("heading", { name: "Design Suite" })).toBeVisible();
-  await page.getByLabel("Primary hex").fill("#135E4A");
-  await expect(page.getByText("Live preview")).toBeVisible();
-  await page.getByRole("button", { name: "tablet" }).click();
-  await expect(page.getByRole("button", { name: "Publish theme" })).toBeVisible();
-  await page.screenshot({ path: "output/design-suite-implementation.png", fullPage: true });
-  await page.setViewportSize({ width: 390, height: 844 });
-  await expect(page.getByRole("heading", { name: "Design Suite" })).toBeVisible();
-  await page.screenshot({ path: "output/design-suite-mobile.png", fullPage: true });
+  // Author: Klaasvaakie ( |╲ )
+  await expect(page.locator("button").filter({ hasText: "Design Suite" })).toHaveCount(0);
 });

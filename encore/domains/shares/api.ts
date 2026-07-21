@@ -1,7 +1,8 @@
 // Author: Klaasvaakie ( |╲ )
 import { api, APIError } from "encore.dev/api";
+import { StructKeyspace, expireInSeconds } from "encore.dev/storage/cache";
 import { z } from "zod";
-import { auditDb, documentsBucket, financeDb, sharesDb } from "../../resources";
+import { applicationCache, auditDb, documentsBucket, financeDb, sharesDb } from "../../resources";
 import { requireAdminAccess, requireProfileAccess } from "../auth/access";
 import {
   beginOperation,
@@ -12,6 +13,7 @@ import {
   recordStep,
   requireIdempotencyKey,
 } from "../workflows/core";
+import { cacheDelete, cacheRead, cacheWrite } from "../shared/cache";
 
 interface SharePurchaseRequest {
   profileId: string;
@@ -40,6 +42,11 @@ interface SharePurchaseResponse {
   certificateNumber: string;
   operationId: string;
 }
+
+const sharePhaseCache = new StructKeyspace<string, { phases: SharePhaseResponse[] }>(applicationCache, {
+  keyPattern: "share-phases/:key",
+  defaultExpiry: expireInSeconds(15),
+});
 
 const sharePurchaseRequest = z.object({
   profileId: z.string().min(1),
@@ -136,6 +143,8 @@ export const listSharePhases = api<
 >(
   { method: "GET", path: "/shares/phases", expose: true },
   async () => {
+    const cached = await cacheRead(sharePhaseCache, "all-v1");
+    if (cached) return cached;
     const rows = await sharesDb.rawQueryAll<{
       id: string;
       phase_number: number;
@@ -157,7 +166,7 @@ export const listSharePhases = api<
         currency: string;
         status: string;
       }>("SELECT id, phase_number, quantity_available, price_per_share::text AS price_per_share, currency, status FROM share_phases ORDER BY phase_number");
-      return {
+      const response = {
         phases: seeded.map((row) => ({
           id: row.id,
           phaseNumber: row.phase_number,
@@ -167,8 +176,10 @@ export const listSharePhases = api<
           status: row.status,
         })),
       };
+      await cacheWrite(sharePhaseCache, "all-v1", response);
+      return response;
     }
-    return {
+    const response = {
       phases: rows.map((row) => ({
         id: row.id,
         phaseNumber: row.phase_number,
@@ -178,6 +189,8 @@ export const listSharePhases = api<
         status: row.status,
       })),
     };
+    await cacheWrite(sharePhaseCache, "all-v1", response);
+    return response;
   },
 );
 
@@ -309,6 +322,7 @@ export const purchaseShares = api<SharePurchaseRequest, SharePurchaseResponse>(
         bonusQuantity: purchase.bonus_quantity,
         certificateNumber: certificate.certificate_number,
       };
+      await cacheDelete(sharePhaseCache, "all-v1");
       return await completeOperation(operation, result);
     } catch (error) {
       let compensationRequired = false;
@@ -376,6 +390,7 @@ export const updateSharePhase = api<
       sold,
     );
     if (!row) throw new Error("phase_not_found");
+    await cacheDelete(sharePhaseCache, "all-v1");
     return { phase: { id: row.id, phaseNumber: row.phase_number, quantityAvailable: row.quantity_available, totalShares: row.total_quantity, pricePerShare: row.price_per_share, currency: row.currency, status: row.status, bonusBuyOneGet: row.bonus_buy_one_get, createdAt: row.created_at, updatedAt: row.updated_at } };
   },
 );
@@ -407,4 +422,3 @@ export const adminShareCertificates = api<
     return { shares: rows.map((row) => ({ id: row.id, profileId: row.profile_id, phase: row.phase_number, pricePerShare: Number(row.price_per_share), quantity: row.total_shares, totalAmount: Number(row.total_amount), certificateNo: row.certificate_number, status: row.status.toUpperCase(), createdAt: row.issued_at })) };
   },
 );
-

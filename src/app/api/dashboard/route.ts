@@ -15,13 +15,13 @@ export async function GET(req: NextRequest) {
   if (!memberId) return NextResponse.json({ error: "memberId is required" }, { status: 400 });
   if (!token) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
   try {
-    const [profile, wallet, matrix, shares, phases] = await Promise.all([
-      encoreRequest<ProfileResponse>("/profiles/me", {}, token),
-      encoreRequest<WalletResponse>(`/wallets/me/${encodeURIComponent(memberId)}`, {}, token),
-      encoreRequest<MatrixResponse>(`/matrix/me/${encodeURIComponent(memberId)}/downline`, {}, token),
-      encoreRequest<ShareResponse>(`/shares/me/${encodeURIComponent(memberId)}`, {}, token),
-      encoreRequest<PhaseResponse>("/shares/phases", {}, token),
-    ]);
+    const { profile, wallet, matrix, shares, phases } = await encoreRequest<{
+      profile: ProfileResponse;
+      wallet: WalletResponse;
+      matrix: MatrixResponse;
+      shares: ShareResponse;
+      phases: PhaseResponse;
+    }>(`/dashboard/${encodeURIComponent(memberId)}`, {}, token);
     if (profile.member.id !== memberId) {
       return NextResponse.json({ error: "Member identity mismatch" }, { status: 403 });
     }

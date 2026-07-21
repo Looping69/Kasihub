@@ -15,6 +15,10 @@ export class EncoreRequestError extends Error {
   }
 }
 
+function observablePath(path: string): string {
+  return path.split("?")[0].replace(/[0-9a-f]{8}-[0-9a-f-]{27,}/gi, ":id");
+}
+
 export async function encoreRequest<T>(
   path: string,
   init: RequestInit = {},
@@ -30,11 +34,35 @@ export async function encoreRequest<T>(
     headers.set("Content-Type", "application/json");
   }
   if (token) headers.set("Authorization", `Bearer ${token}`);
-  const response = await fetch(`${baseUrl}${path}`, {
-    ...init,
-    headers,
-    cache: "no-store",
-  });
+  const startedAt = performance.now();
+  let response: Response;
+  try {
+    response = await fetch(`${baseUrl}${path}`, {
+      ...init,
+      headers,
+      cache: "no-store",
+    });
+  } catch (error) {
+    console.error(JSON.stringify({
+      event: "encore_request",
+      path: observablePath(path),
+      method: init.method ?? "GET",
+      result: "network_error",
+      durationMs: Math.round(performance.now() - startedAt),
+    }));
+    throw error;
+  }
+  const durationMs = Math.round(performance.now() - startedAt);
+  if (durationMs >= 250 || !response.ok) {
+    console.info(JSON.stringify({
+      event: "encore_request",
+      path: observablePath(path),
+      method: init.method ?? "GET",
+      status: response.status,
+      result: response.ok ? "slow" : "failed",
+      durationMs,
+    }));
+  }
   const text = await response.text();
   let payload: unknown = null;
   if (text) {

@@ -16,20 +16,32 @@ export async function GET() {
   const token = await encoreSessionToken();
   if (!token) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
   try {
-    const [memberData, shareData, rootsData, marketData, mallData, poolData, voucherData, referralData, notificationData, phaseData, dividendData, activityData] = await Promise.all([
-      encoreRequest<{ members: Member[] }>("/admin/member-profiles?limit=500", {}, token),
-      encoreRequest<{ shares: Share[] }>("/admin/shares?limit=500", {}, token),
-      encoreRequest<{ pioneers: unknown[] }>("/admin/rootsbank", {}, token),
-      encoreRequest<{ orders: Order[] }>("/admin/marketplace", {}, token),
-      encoreRequest<{ transactions: MallTransaction[]; silos: unknown[] }>("/admin/mall?limit=500", {}, token),
-      encoreRequest<{ totals: { totalPaidOut: number; balance: number; totalIncoming: number } }>("/admin/pool?limit=500", {}, token),
-      encoreRequest<{ vouchers: Voucher[] }>("/admin/vouchers", {}, token),
-      encoreRequest<{ referrals: Referral[] }>("/admin/referrals", {}, token),
-      encoreRequest<{ notifications: Notification[] }>("/admin/subscription-notifications", {}, token),
-      encoreRequest<{ phases: Phase[] }>("/shares/phases", {}, token),
-      encoreRequest<{ dividends: unknown[] }>("/admin/dividends", {}, token),
-      encoreRequest<{ transactions: Activity[] }>("/admin/ledger/transactions", {}, token),
-    ]);
+    const bundle = await encoreRequest<{
+      members: { members: Member[] };
+      shares: { shares: Share[] };
+      roots: { pioneers: unknown[] };
+      marketplace: { orders: Order[] };
+      mall: { transactions: MallTransaction[]; silos: unknown[] };
+      pool: { totals: { totalPaidOut: number; balance: number; totalIncoming: number } };
+      vouchers: { vouchers: Voucher[] };
+      referrals: { referrals: Referral[] };
+      notifications: { notifications: Notification[] };
+      phases: { phases: Phase[] };
+      dividends: { dividends: unknown[] };
+      activity: { transactions: Activity[] };
+    }>("/admin/overview", {}, token);
+    const memberData = bundle.members;
+    const shareData = bundle.shares;
+    const rootsData = bundle.roots;
+    const marketData = bundle.marketplace;
+    const mallData = bundle.mall;
+    const poolData = bundle.pool;
+    const voucherData = bundle.vouchers;
+    const referralData = bundle.referrals;
+    const notificationData = bundle.notifications;
+    const phaseData = bundle.phases;
+    const dividendData = bundle.dividends;
+    const activityData = bundle.activity;
     const members = memberData.members;
     const now = Date.now();
     const activeVouchers = voucherData.vouchers.filter((voucher) => voucher.status === "ACTIVE" && new Date(voucher.expiryDate).getTime() > now);

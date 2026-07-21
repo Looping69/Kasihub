@@ -1,6 +1,7 @@
 // Author: Klaasvaakie ( |╲ )
 import { Bucket } from "encore.dev/storage/objects";
 import { SQLDatabase } from "encore.dev/storage/sqldb";
+import { CacheCluster } from "encore.dev/storage/cache";
 
 export const identityDb = new SQLDatabase("identity", { migrations: { path: "migrations/identity" } });
 export const membershipDb = new SQLDatabase("membership", { migrations: { path: "migrations/membership" } });
@@ -13,3 +14,9 @@ export const engagementDb = new SQLDatabase("engagement", { migrations: { path: 
 export const auditDb = new SQLDatabase("audit", { migrations: { path: "migrations/audit" } });
 
 export const documentsBucket = new Bucket("documents", { public: false });
+
+// Managed Redis-compatible cache. Database records remain authoritative.
+// Author: Klaasvaakie ( |╲ )
+export const applicationCache = new CacheCluster("application-cache", {
+  evictionPolicy: "allkeys-lru",
+});

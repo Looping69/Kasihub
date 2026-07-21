@@ -28,6 +28,7 @@ import { VouchersView } from "@/components/views/vouchers-view";
 import { ReferView } from "@/components/views/refer-view";
 import { BrandLogo } from "@/components/brand-logo";
 import { Scale, Ticket, UserPlus } from "lucide-react";
+import { loadDashboard } from "@/lib/dashboard-client";
 
 const NAV: { key: ViewKey; label: string; icon: typeof LayoutDashboard; desc: string }[] = [
   { key: "dashboard", label: "Dashboard", icon: LayoutDashboard, desc: "Stats & overview" },
@@ -50,17 +51,14 @@ export function AppShell() {
     if (!currentMember) return;
     async function load() {
       try {
-        const res = await fetch(`/api/dashboard?memberId=${currentMember!.id}`, { cache: "no-store" });
-        if (res.ok) {
-          const data = await res.json();
-          setWalletBalance(data.totalEarnings);
-        }
+        const data = await loadDashboard(currentMember!.id);
+        setWalletBalance(data.totalEarnings);
       } catch {
         // ignore
       }
     }
     load();
-  }, [currentMember, activeView]);
+  }, [currentMember]);
 
   const activeNav = NAV.find((n) => n.key === activeView) || NAV[0];
 

@@ -39,6 +39,7 @@ import {
 } from "recharts";
 import { useKasiStore } from "@/lib/store";
 import type { DashboardStats } from "@/lib/types";
+import { loadDashboard } from "@/lib/dashboard-client";
 
 export function DashboardView() {
   const { currentMember, setView } = useKasiStore();
@@ -49,10 +50,7 @@ export function DashboardView() {
     if (!currentMember) return;
     async function load() {
       try {
-        const res = await fetch(`/api/dashboard?memberId=${currentMember!.id}`, {
-          cache: "no-store",
-        });
-        if (res.ok) setStats(await res.json());
+        setStats(await loadDashboard(currentMember!.id));
       } finally {
         setLoading(false);
       }

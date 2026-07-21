@@ -269,3 +269,166 @@ Author: Klaasvaakie ( |╲ )
 
 - Committed the full verified KaSiHub and Encore implementation on `main`.
 - Commit includes application code, migrations, branding, startup tooling, and WhatsApp voucher delivery; local-only state remains excluded.
+
+## 2026-07-18 — Encore Cloud staging deployment
+
+- Deployed the backend-only `encore` subtree to Encore Cloud app `kasihub-ygb2` on the `staging` environment.
+- Rollout `208rmm6agip0tp7j00r0` completed successfully: build/test, 253 infrastructure changes, nine database migrations, bucket provisioning, release, and startup probe all passed.
+- Verified the public cloud health endpoint at `https://staging-kasihub-ygb2.encr.app/health` returned `ok: true` for `kasihub-backend`.
+
+## 2026-07-18 — Forge production deployment
+
+- Recovered and verified the replacement Ed25519 server key without exposing its contents.
+- Migrated all 925 legacy records into Encore Cloud and added resumable migration support for deterministic recovery.
+- Built image `kasihub:20260718-103423`, passed isolated homepage plus member/admin login canary checks, and cut over `forge.smartunitednetwork.com`.
+- Verified the public homepage and login return HTTP 200, then browser-verified the branded landing page and authenticated member dashboard with no console warnings or errors.
+- Preserved `kasihub-rollback-20260718-103423`, the prior image, and the legacy SQLite data as rollback points; production secrets remain in a permission-600 server env file.
+
+## 2026-07-19 — Codebase analysis
+
+- Mapped the current architecture: Next.js 16 frontend/BFF, Zustand client shell, and a 67-endpoint Encore backend split across nine PostgreSQL databases plus a private documents bucket.
+- Verified frontend lint, TypeScript, and production build pass; Encore CLI validation was blocked locally by Windows Application Control.
+- Found no automated tests and identified the main production risks: non-atomic cross-database money/share workflows, race-prone share inventory updates, partial registration persistence, oversized backend/UI modules, stale Prisma artifacts, unused dependencies, and nine moderate dependency advisories.
+- No application behavior was changed during this read-only analysis.
+
+## 2026-07-19 — Production hardening implementation
+
+- Rebuilt financial mutations around durable idempotent operations, wallet holds, balanced ledger capture, deterministic distributions, compensation, and scheduled reconciliation.
+- Added safe server-backed session restoration, CSRF enforcement, resumable registration, administrator-only payment activation, contract/browser tests, Linux CI gates, dependency cleanup, and structured workflow telemetry.
+- Fixed bonus-share inventory accounting so bonus certificates consume stock atomically and retries or compensation restore the exact issued quantity.
+- Expanded reconciliation across wallet projections, ledger balance, inventory, certificates, subscriptions, payouts, dividend totals, stalled registrations, and incomplete operations.
+- Committed the main hardening as `7e4a8e6` and the follow-up integrity corrections as `eb4a19e`; local gates pass, while the new Encore Cloud deployment remains unverified because the Encore MCP is not connected to this task.
+- Pushed hardening through `7f549aa` to GitHub `main`; the frontend Linux gate passed completely, and Encore parsing passed before runtime startup stopped on the missing repository `ENCORE_AUTH_KEY` needed to fetch cloud development secrets.
+
+## 2026-07-19 — Encore staging verification and legacy reconciliation
+
+- Verified the repository follows Encore's supported single-service structure with domain modules and service-owned SQL resources.
+- Replaced plain authentication and authorization errors with typed Encore `APIError` responses; staging now returns HTTP 401 for invalid credentials instead of HTTP 500.
+- Passed Linux Encore checks/tests and the full frontend quality gate, then deployed the fixes through controlled Encore staging rollouts.
+- Ran authenticated member and administrator canaries and a live reconciliation, exposing 148 legacy discrepancies rather than hiding them.
+- Added corrective migrations for paid legacy subscriptions, explicit opening share-inventory adjustments, certificate linkage, and balanced historical payout memo evidence without changing wallet balances.
+- Fixed the deployed PostgreSQL aggregate-cast defect found by sanitized Encore logs; clean reconciliation run `a3eeaf0b-5772-4e40-a775-e663d0c4dda4` completed with zero findings.
+- Began audited resolution of superseded findings; production frontend session restoration remains undeployed because the currently live frontend is still the older build.
+## 2026-07-19 — Production hardening completion pass
+
+- Cut over the production frontend to the hardened image with the prior container retained as an intact rollback target.
+- Verified public admin/member login, session restoration, logout, expired-cookie cleanup, authorization boundaries, financial idempotency conflict behavior, and clean reconciliation.
+- Found and fixed reverse-proxy CSRF origin handling and a legacy negative-wallet migration defect exposed by browser QA.
+- Split the Encore backend shell into domain-owned API modules while keeping one service and preserving public routes.
+- Revalidated TypeScript, lint, tests, signatures, and zero production dependency vulnerabilities before the final CI/deployment pass.
+- Final Linux gates passed, Encore staging deployed from `a8e6438`, rejected canary operations were terminalized safely, and reconciliation `ad85e2ee-9c4f-4dfa-906e-e3c9b24e74a7` closed with zero new or open findings.
+## 2026-07-20 — Fresh post-hardening codebase analysis
+
+- Re-audited the current `a8e6438` tree across architecture, financial invariants, registration, auth/session handling, reconciliation, tests, CI, dependencies, and legacy runtime boundaries.
+- Fresh local lint, TypeScript, unit tests, and both production dependency audits passed; the latest Linux quality and Encore deployment workflows remain green.
+- Confirmed the strongest seams are atomic share inventory reservation, wallet holds, idempotent allocation/payout records, server-backed sessions, authorization, and Encore domain modularity.
+- Identified residual risks: registration is marked complete before payment/KYC/network placement, legacy `/auth/register` remains non-resumable, wallet balances are not reconciled back to ledger-account totals, pool reporting/payouts are not funding-bounded, reconciliation is capped without pagination, browser coverage has only two smoke tests, several frontend dependencies remain unused, and backend documentation is stale.
+## 2026-07-20 — Test coverage inventory
+
+- Counted 18 executable tests: 4 frontend unit tests, 12 Encore unit/database-contract tests, and 2 Playwright smoke tests.
+- Confirmed no enforced line, branch, function, or statement coverage report/threshold exists in either Vitest configuration or CI.
+- Only a few infrastructure seams are directly exercised; approximately 75 Encore APIs and most frontend views, registration, sessions, authorization, financial saga retries, reconciliation, and administrator workflows lack endpoint-level coverage.
+- Frontend tests pass locally. Eight pure Encore tests pass locally; four database contracts require the Encore runtime and are proven only by the green Linux `encore test` CI job.
+## 2026-07-20 — Test coverage standard clarified
+
+- Established a risk-based target for KaSiHUB: 80% repository-wide lines/functions, 70-75% branches, and at least 95% lines with 90% branches for financial, authorization, session, registration, and reconciliation code.
+- Critical invariants require scenario completeness rather than a cosmetic percentage: every mutation, authorization boundary, retry point, compensation path, concurrency case, and ledger/inventory constraint must have direct contract coverage.
+## 2026-07-20 — Coverage standard implementation
+
+- Added V8 coverage instrumentation, HTML/JSON/text reports, CI thresholds, and uploaded coverage artifacts for the critical Next.js server boundary and Encore core.
+- Expanded frontend contracts from 4 to 39 tests, reaching 92.72% statements, 79.19% branches, 92.5% functions, and 93.6% lines across authentication, sessions, registration, dashboard composition, financial mutations, operations, and reconciliation routes.
+- Added Encore password, wallet hold/capture/release, insufficient-funds, idempotency conflict, payout uniqueness, ledger balance, plan materialization, matrix placement, and ledger-account contracts.
+- Expanded Playwright from 2 to 4 journeys covering member session restoration/logout and administrator authority restoration; all four pass locally.
+- Added `TESTING.md`, kept production audits at zero vulnerabilities, and repaired all development dependency advisories with a lockfile-only audit fix.
+
+## 2026-07-20 — Coverage gates verified
+
+- Corrected the Encore coverage invocation and added contracts for matrix placement, currency mismatch, legacy wallet deficits, captured-hold release rejection, compensation state, and non-dividend payouts.
+- Final Encore run passed 24 tests at 87.78% statements, 80% branches, 97.14% functions, and 92.09% lines.
+- Final GitHub Actions run `29707081205` passed both frontend and Encore jobs, including coverage thresholds, production audit, build, and four browser journeys.
+
+## 2026-07-20 — Legacy SQLite backend removed
+
+- Removed the tracked Prisma schema, SQLite database, SQLite inspection/migration utilities, obsolete `.zscripts` deployment path, and the Encore legacy import/debug module; local database copies remain ignored recovery artifacts only.
+- Removed the unsafe non-resumable `/auth/register` endpoint so registration has one durable entrypoint: `/registration/start`.
+- Replaced the fake root `/api` response with a real Encore health probe.
+- Quality run `29725167437` passed frontend and Encore gates; staging deployment `29725287052` succeeded.
+- Live staging probes returned `200` for `/health` and `404` for `/auth/register`, `/migration/bootstrap-admin`, `/admin/migration/import`, and `/admin/debug/member/test` after rollout completion.
+
+## 2026-07-20 — Administrator Design Suite
+
+- Added an administrator-only Design Suite with editable color tokens, backgrounds, radius, typography scale, shadow strength, responsive live previews, draft saving, publishing, and version history.
+- Added audited, versioned Encore theme APIs plus a public read-only `/theme` endpoint; publishing archives the prior active version atomically.
+- Added global browser theme application so published tokens control application backgrounds, surfaces, text, borders, navigation and geometry without code changes.
+- Verified the concept against desktop and 390x844 browser renders, repaired mobile preview compression, and added a fifth browser smoke test for isolated theme preview behavior.
+- Commit `85e6ee6`, quality run `29726785410`, and Encore deployment `29726907313` passed; live staging `/theme` returns `200` with the safe default theme.
+## 2026-07-20 — Deployment status clarified
+
+- Confirmed commit `85e6ee610c7fd9fc8535cb57734a822c3b3e88d9` is pushed to GitHub `main`.
+- Confirmed the matching Encore staging deployment completed successfully and its `/theme` endpoint responds.
+- Clarified that the Design Suite frontend has not yet been deployed to the production web server.
+## 2026-07-20 — Design Suite production deployment
+
+- Deployed Git commit `85e6ee610c7fd9fc8535cb57734a822c3b3e88d9` to Forge as image `kasihub:20260720-design-suite-85e6ee6`.
+- Built from a clean Git archive, excluding local secrets, databases, and uncommitted files.
+- Canary verified the homepage and theme API with HTTP 200 and confirmed anonymous Design Suite access is rejected with HTTP 401.
+- Cut production over successfully; `https://forge.smartunitednetwork.com/` and `/api/theme` return HTTP 200.
+- Preserved the prior production container as `kasihub-rollback-20260720-85e6ee6` for immediate rollback.
+## 2026-07-20 — Design Suite save repair
+
+- Reproduced the live failure through the authenticated administrator UI and traced the Encore 500 response.
+- Fixed JSONB decoding for both object and serialized-string database values, including malformed legacy theme records.
+- Made theme auditing durable so a post-commit audit update cannot falsely report a failed save.
+- Added regression tests for persisted JSON decoding and passed the full Linux quality gates.
+- Deployed Encore commit `6376912c90cfeb01a684f2e6c2bafaf10d74a29e` to staging.
+- Verified production Design Suite GET and POST return HTTP 200; browser save created version 5 and remained visible after reload.
+## 2026-07-20 — Live status reconfirmed
+
+- Reconfirmed `https://forge.smartunitednetwork.com/` and `/api/theme` return HTTP 200.
+- Confirmed the production `kasihub-live` container remains healthy and running the Design Suite frontend image.
+## 2026-07-20 — Design Suite 400 contract repair
+
+- Traced the remaining HTTP 400 to an Encore request type inferred from the default theme, which restricted `shadow` and `pageBackground` to the literal value `soft`.
+- Replaced the inferred literals with the complete explicit `AppTheme` contract covering all UI-supported options.
+- Passed local type checks, theme-storage regression tests, and the complete Linux quality gates.
+- Deployed commit `db59cc94c948b641819c9ca5a9f14d824279a7bf` to Encore staging.
+- Browser-verified a previously rejected `strong` shadow plus `grid` background draft; version 6 saved successfully and remained visible after reload with `Strong` selected.
+## 2026-07-20 — InstaPay developer meeting briefing
+
+- Audited the current InstaPay-facing frontend routes, registration UI, Encore identity/KYC/membership records, subscription activation workflow, and internal ledger payouts.
+- Confirmed the present integration is scaffolding rather than a live provider connection: no InstaPay SDK/API client, webhook, signature validation, provider credentials, settlement flow, or reconciliation import exists.
+- Identified the meeting-critical boundary: KaSiHUB's finance ledger remains authoritative while InstaPay should provide verified account linking, subscription collection confirmation, and external payout/settlement events.
+- Prepared integration questions, terminology, target workflows, security red lines, and a concise meeting position for Klaasvaakie.
+## 2026-07-20 — InstaPay white-label scope briefing
+
+- Clarified that white-labelling expands the proposed InstaPay work from payment APIs into branding, embedded onboarding, domains/apps, customer support, compliance, data ownership, operational SLAs, and release governance.
+- Defined the three likely delivery models: branded hosted journey, embedded SDK/web components, or fully API-driven white-label infrastructure.
+- Preserved the core boundary: InstaPay can execute regulated external services, while KaSiHUB authorization, durable operations, internal ledger integrity, webhook verification, idempotency, and reconciliation remain authoritative.
+
+## 2026-07-20 — InstaPay white-label integration PDF
+
+- Created a 12-page, meeting-ready KaSiHUB x InstaPay integration brief covering the implementation-derived current state, missing provider edge, white-label operating models, target architecture, retry-safe workflows, ownership matrix, security controls, phased rollout, developer questions, and glossary.
+- Added vector system diagrams, workflow lanes, capability and responsibility matrices, and a delivery roadmap without inventing maturity percentages or provider capabilities.
+- Rendered and visually inspected all 12 pages, corrected long-title clipping, and verified page count, attribution, key meeting content, and glossary extraction.
+- Final artifact: `output/pdf/KaSiHUB-InstaPay-White-Label-Integration-Brief.pdf`.
+
+## 2026-07-21 — Design Studio pause and Encore latency diagnosis
+
+- Hid the Design Studio import, admin navigation entry and rendered view without deleting its implementation; persisted `design` view state now falls back safely to the admin overview.
+- Replaced the old Design Studio browser test with a regression proving the dormant navigation entry is absent.
+- Confirmed the main member shell duplicates the dashboard request and refetches it on every view change, while each dashboard response fans out to five Encore calls.
+- Confirmed the admin overview fans out to 12 Encore endpoints and `/admin/member-profiles` performs five enrichment queries per member, creating an N+1 path of roughly 2,500 queries at the 500-member ceiling.
+- Live timing samples showed the homepage near 0.11-0.18 seconds, warm proxy API calls near 0.33-0.38 seconds, and first requests at 1.31 seconds for `/api` and 2.83 seconds for `/api/theme`, consistent with cold-start plus cross-service hop cost.
+- ESLint, TypeScript and the focused Playwright regression passed; the change remains local and is not deployed.
+
+## 2026-07-21 — Encore performance hardening and managed Redis
+
+- Added Encore's managed `application-cache` Redis resource with all-keys LRU eviction; documented authoritative database boundaries and kept financial decisions out of cache.
+- Added five-minute public-theme caching with publish invalidation, 15-second share-phase caching with inventory/phase invalidation, and a 15-second administrator overview bundle.
+- Collapsed the member dashboard from five Forge-to-Encore calls to one aggregate endpoint and added a browser-side in-flight request cache so the shell and dashboard share one load; navigation no longer refetches the dashboard.
+- Collapsed the administrator overview from 12 Forge-to-Encore calls to one cached aggregate endpoint.
+- Replaced five-per-member enrichment queries with five batched domain queries, reducing the 500-member worst case from roughly 2,500 queries to five enrichment queries, and added supporting membership, KYC, and share indexes.
+- Added slow Encore request logs with sanitized paths, result, status, method, and duration without tokens or raw profile identifiers.
+- Linux Encore compilation provisioned Redis and applied migrations successfully; repeated theme reads dropped from about 20 ms to about 1 ms inside Encore.
+- Verified 41 frontend contract/unit tests, lint, TypeScript, production build, five browser security/session/design tests, and 27 Encore tests with 87.78% statements and 80% branch coverage. Local Encore remains online on port 4001.
+- Changes remain local and are not deployed.

@@ -1,10 +1,12 @@
 // Author: Klaasvaakie ( |╲ )
 import { api } from "encore.dev/api";
 import * as log from "encore.dev/log";
+import { StructKeyspace, expireInMinutes } from "encore.dev/storage/cache";
 import { z } from "zod";
-import { auditDb, commerceDb, financeDb, identityDb, kycDb, membershipDb, networkDb, sharesDb } from "../../resources";
+import { applicationCache, auditDb, commerceDb, financeDb, identityDb, kycDb, membershipDb, networkDb, sharesDb } from "../../resources";
 import { requireAdminAccess } from "../auth/access";
 import { decodeStoredConfig } from "./theme-storage";
+import { cacheDelete, cacheRead, cacheWrite } from "../shared/cache";
 
 interface AppTheme {
   name: string;
@@ -47,6 +49,11 @@ const DEFAULT_THEME = {
   shadow: "soft" as const, pageBackground: "soft" as const,
 } satisfies AppTheme;
 
+const publicThemeCache = new StructKeyspace<string, { theme: AppTheme; version: number }>(applicationCache, {
+  keyPattern: "public-config/:key",
+  defaultExpiry: expireInMinutes(5),
+});
+
 function storedTheme(value: unknown) {
   const config = decodeStoredConfig(value);
   if (!config) return null;
@@ -58,13 +65,17 @@ function storedTheme(value: unknown) {
 export const publicTheme = api<void, { theme: AppTheme; version: number }>(
   { method: "GET", path: "/theme", expose: true },
   async () => {
+    const cached = await cacheRead(publicThemeCache, "theme-v1");
+    if (cached) return cached;
     const row = await membershipDb.rawQueryRow<{ version: number; config: unknown }>(
       `SELECT version, config FROM business_config_versions
        WHERE config_key = 'app_theme' AND config->>'status' = 'published'
        ORDER BY version DESC LIMIT 1`,
     );
     const theme = row ? storedTheme(row.config) : null;
-    return { theme: theme ?? DEFAULT_THEME, version: theme ? row?.version ?? 0 : 0 };
+    const response = { theme: theme ?? DEFAULT_THEME, version: theme ? row?.version ?? 0 : 0 };
+    await cacheWrite(publicThemeCache, "theme-v1", response);
+    return response;
   },
 );
 
@@ -136,6 +147,7 @@ export const saveTheme = api<{ action: "draft" | "publish"; theme: AppTheme }, {
     } catch (error) {
       log.error(error, "theme completion audit update failed", { auditId: audit.id, actorUserId: admin.user.id, version: row.version });
     }
+    if (status === "published") await cacheDelete(publicThemeCache, "theme-v1");
     return { ok: true, version: row.version, status };
   },
 );
@@ -253,29 +265,49 @@ export const adminMemberProfiles = api<
               p.upline_confirmed, p.created_at
        FROM profiles p JOIN users u ON u.id = p.user_id ORDER BY p.created_at DESC`,
     );
-    const enriched: AdminMemberResponse[] = [];
-    for (const row of rows) {
-      const [subscription, kyc, shares, transactions, orders] = await Promise.all([
-        membershipDb.rawQueryRow<{ status: string; amount: string; currency: string }>(
-          `SELECT s.status, mp.amount::text AS amount, mp.currency FROM subscriptions s
-           JOIN membership_plans mp ON mp.id = s.plan_id WHERE s.profile_id = $1 ORDER BY s.starts_at DESC LIMIT 1`, row.id,
+    // Batch cross-database enrichment once per domain instead of five queries per member.
+    // Author: Klaasvaakie ( |╲ )
+    const profileIds = rows.map((row) => row.id);
+    const [subscriptions, kycCases, shareTotals, transactionCounts, orderCounts] = profileIds.length === 0
+      ? [[], [], [], [], []] as const
+      : await Promise.all([
+        membershipDb.rawQueryAll<{ profile_id: string; status: string; amount: string; currency: string }>(
+          `SELECT DISTINCT ON (s.profile_id) s.profile_id, s.status, mp.amount::text AS amount, mp.currency
+           FROM subscriptions s JOIN membership_plans mp ON mp.id = s.plan_id
+           WHERE s.profile_id = ANY($1::uuid[]) ORDER BY s.profile_id, s.starts_at DESC`, profileIds,
         ),
-        kycDb.rawQueryRow<{ status: string; reviewed_at: string | null }>(
-          "SELECT status, reviewed_at FROM kyc_cases WHERE profile_id = $1 ORDER BY submitted_at DESC NULLS LAST LIMIT 1", row.id,
+        kycDb.rawQueryAll<{ profile_id: string; status: string; reviewed_at: string | null }>(
+          `SELECT DISTINCT ON (profile_id) profile_id, status, reviewed_at FROM kyc_cases
+           WHERE profile_id = ANY($1::uuid[]) ORDER BY profile_id, submitted_at DESC NULLS LAST`, profileIds,
         ),
-        sharesDb.rawQueryRow<{ total: string }>("SELECT COALESCE(SUM(total_shares), 0)::text AS total FROM share_certificates WHERE profile_id = $1 AND status <> 'revoked'", row.id),
-        financeDb.rawQueryRow<{ count: string }>(
-          `SELECT COUNT(DISTINCT lt.id)::text AS count FROM ledger_transactions lt
-           JOIN ledger_entries le ON le.transaction_id = lt.id JOIN ledger_accounts la ON la.id = le.account_id
-           WHERE la.owner_type = 'profile' AND la.owner_id = $1`, row.id,
+        sharesDb.rawQueryAll<{ profile_id: string; total: string }>(
+          `SELECT profile_id, COALESCE(SUM(total_shares), 0)::text AS total FROM share_certificates
+           WHERE profile_id = ANY($1::uuid[]) AND status <> 'revoked' GROUP BY profile_id`, profileIds,
         ),
-        commerceDb.rawQueryRow<{ count: string }>("SELECT COUNT(*)::text AS count FROM marketplace_orders WHERE profile_id = $1", row.id),
+        financeDb.rawQueryAll<{ profile_id: string; count: string }>(
+          `SELECT la.owner_id::text AS profile_id, COUNT(DISTINCT lt.id)::text AS count
+           FROM ledger_accounts la JOIN ledger_entries le ON le.account_id = la.id
+           JOIN ledger_transactions lt ON lt.id = le.transaction_id
+           WHERE la.owner_type = 'profile' AND la.owner_id = ANY($1::uuid[]) GROUP BY la.owner_id`, profileIds,
+        ),
+        commerceDb.rawQueryAll<{ profile_id: string; count: string }>(
+          `SELECT profile_id, COUNT(*)::text AS count FROM marketplace_orders
+           WHERE profile_id = ANY($1::uuid[]) GROUP BY profile_id`, profileIds,
+        ),
       ]);
+    const subscriptionByProfile = new Map(subscriptions.map((item) => [item.profile_id, item]));
+    const kycByProfile = new Map(kycCases.map((item) => [item.profile_id, item]));
+    const sharesByProfile = new Map(shareTotals.map((item) => [item.profile_id, item.total]));
+    const transactionsByProfile = new Map(transactionCounts.map((item) => [item.profile_id, item.count]));
+    const ordersByProfile = new Map(orderCounts.map((item) => [item.profile_id, item.count]));
+    const enriched: AdminMemberResponse[] = rows.map((row) => {
+      const subscription = subscriptionByProfile.get(row.id);
+      const kyc = kycByProfile.get(row.id);
       const kycStatusValue = kyc
         ? (kyc.status === "approved" ? "VERIFIED" : kyc.status.toUpperCase())
         : (row.status === "active" ? "VERIFIED" : row.status === "rejected" ? "REJECTED" : "PENDING");
       const subscriptionStatus = subscription?.status.toLowerCase();
-      enriched.push({
+      return {
         id: row.id, profileNumber: row.profile_number, membershipType: row.membership_type ?? row.profile_type.toUpperCase(), citizenshipType: row.citizenship_type,
         firstName: row.first_name, lastName: row.surname, companyName: row.company_name, email: row.email,
         country: row.country ?? "ZA", mobile: row.phone ?? "", kycStatus: kycStatusValue, kycVerifiedAt: kyc?.reviewed_at ?? row.kyc_verified_at,
@@ -285,9 +317,9 @@ export const adminMemberProfiles = api<
         nfcTagId: row.nfc_tag_id ?? `NFC-${row.id.slice(0, 12).toUpperCase()}`, instapayStatus: row.instapay_status,
         instapayVerifiedAt: row.instapay_verified_at, instapayAccountRef: row.instapay_account_ref,
         uplineProfileNumber: row.upline_profile_number, uplineConfirmed: row.upline_confirmed, createdAt: row.created_at,
-        shareCount: Number(shares?.total ?? 0), transactionCount: Number(transactions?.count ?? 0), orderCount: Number(orders?.count ?? 0),
-      });
-    }
+        shareCount: Number(sharesByProfile.get(row.id) ?? 0), transactionCount: Number(transactionsByProfile.get(row.id) ?? 0), orderCount: Number(ordersByProfile.get(row.id) ?? 0),
+      };
+    });
     const search = (req.search ?? "").toLowerCase();
     const filtered = enriched.filter((member) => {
       const searchable = [member.firstName, member.lastName, member.companyName, member.email, member.profileNumber, member.mobile].filter(Boolean).join(" ").toLowerCase();

@@ -78,23 +78,23 @@ describe("registration and dashboard contracts", () => {
   });
 
   test("dashboard rejects identity drift", async () => {
-    mocks.encoreRequest
-      .mockResolvedValueOnce({ member: { ...member, id: "different" } })
-      .mockResolvedValueOnce({ balance: "0", currency: "ZAR", transactions: [] })
-      .mockResolvedValueOnce({ nodes: [] })
-      .mockResolvedValueOnce({ certificates: [] })
-      .mockResolvedValueOnce({ phases: [] });
+    mocks.encoreRequest.mockResolvedValueOnce({
+      profile: { member: { ...member, id: "different" } },
+      wallet: { balance: "0", currency: "ZAR", transactions: [] },
+      matrix: { nodes: [] }, shares: { certificates: [] }, phases: { phases: [] },
+    });
     const response = await dashboard(new NextRequest("https://kasihub.test/api/dashboard?memberId=profile"));
     expect(response.status).toBe(403);
   });
 
   test("dashboard composes authoritative Encore projections", async () => {
-    mocks.encoreRequest
-      .mockResolvedValueOnce({ member })
-      .mockResolvedValueOnce({ balance: "125.50", currency: "ZAR", transactions: [{ id: "transaction" }] })
-      .mockResolvedValueOnce({ nodes: [{ depth: 0 }, { depth: 2 }] })
-      .mockResolvedValueOnce({ certificates: [{ totalShares: 3, status: "issued" }, { totalShares: 50, status: "revoked" }] })
-      .mockResolvedValueOnce({ phases: [{ phaseNumber: 1, pricePerShare: "20", status: "active" }] });
+    mocks.encoreRequest.mockResolvedValueOnce({
+      profile: { member },
+      wallet: { balance: "125.50", currency: "ZAR", transactions: [{ id: "transaction" }] },
+      matrix: { nodes: [{ depth: 0 }, { depth: 2 }] },
+      shares: { certificates: [{ totalShares: 3, status: "issued" }, { totalShares: 50, status: "revoked" }] },
+      phases: { phases: [{ phaseNumber: 1, pricePerShare: "20", status: "active" }] },
+    });
     const response = await dashboard(new NextRequest("https://kasihub.test/api/dashboard?memberId=profile"));
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
