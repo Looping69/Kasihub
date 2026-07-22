@@ -32,7 +32,7 @@ jobs:
         env:
           TARGET_EMAIL: ${{ inputs.email }}
         run: |
-          node -e "const email=process.env.TARGET_EMAIL; if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) process.exit(1)"
+          node -e "const email=process.env.TARGET_EMAIL; if (!/^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(email)) process.exit(1)"
       - name: Install Encore CLI
         run: curl -L https://encore.dev/install.sh | bash
       - name: Authenticate Encore
@@ -42,18 +42,15 @@ jobs:
           test -n "$ENCORE_AUTH_KEY"
           echo "$HOME/.encore/bin" >> "$GITHUB_PATH"
           "$HOME/.encore/bin/encore" auth login --auth-key "$ENCORE_AUTH_KEY"
-      - name: Install PostgreSQL client
-        run: sudo apt-get update && sudo apt-get install --yes postgresql-client
       - name: Apply administrator role
         env:
           TARGET_EMAIL: ${{ inputs.email }}
           ROLE_ACTION: ${{ inputs.action }}
         run: |
-          database_url="$(encore db conn-uri identity --env=staging)"
           if [ "$ROLE_ACTION" = "grant" ]; then
-            affected="$(psql "$database_url" --no-psqlrc --tuples-only --set=ON_ERROR_STOP=1 --set=target_email="$TARGET_EMAIL" <<'SQL'
+            affected="$(encore db shell identity --env=staging --superuser <<SQL
           WITH target AS (
-            SELECT id FROM users WHERE lower(email) = lower(:'target_email')
+            SELECT id FROM users WHERE lower(email) = lower('$TARGET_EMAIL')
           ), inserted AS (
             INSERT INTO user_roles (user_id, role_id)
             SELECT target.id, roles.id
@@ -66,9 +63,9 @@ jobs:
           SQL
             )"
           else
-            affected="$(psql "$database_url" --no-psqlrc --tuples-only --set=ON_ERROR_STOP=1 --set=target_email="$TARGET_EMAIL" <<'SQL'
+            affected="$(encore db shell identity --env=staging --superuser <<SQL
           WITH target AS (
-            SELECT id FROM users WHERE lower(email) = lower(:'target_email')
+            SELECT id FROM users WHERE lower(email) = lower('$TARGET_EMAIL')
           ), removed AS (
             DELETE FROM user_roles
             WHERE user_id IN (SELECT id FROM target)
@@ -79,5 +76,5 @@ jobs:
           SQL
             )"
           fi
-          test "$(echo "$affected" | tr -d '[:space:]')" = "1"
+          test "$(echo "$affected" | grep -Eo '[0-9]+' | tail -1)" = "1"
           echo "Administrator role action completed for one registered identity."
