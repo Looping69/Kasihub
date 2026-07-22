@@ -13,6 +13,7 @@ import {
 import { useKasiStore } from "@/lib/store";
 
 interface MatrixData {
+  placementStatus?: "active" | "pending";
   tree: TreeNode | null;
   levelStats: { level: number; count: number; maxCount: number; commission: number }[];
   upline: { level: number; profileNumber: string; firstName: string | null; lastName: string | null; companyName: string | null }[];
@@ -163,6 +164,7 @@ export function EcosystemView() {
   const [data, setData] = useState<MatrixData | null>(null);
   const [earnings, setEarnings] = useState<DashboardEarnings | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [focusLevel, setFocusLevel] = useState<number | null>(null);
 
   useEffect(() => {
@@ -175,6 +177,7 @@ export function EcosystemView() {
           fetch(`/api/dashboard?memberId=${currentMember!.id}`, { cache: "no-store" }),
         ]);
         if (active && matrixRes.ok) setData(await matrixRes.json());
+        if (active && !matrixRes.ok) setError("The Eco-System could not be loaded. Please try again.");
         if (active && dashRes.ok) {
           const d = await dashRes.json();
           setEarnings({
@@ -193,11 +196,21 @@ export function EcosystemView() {
     };
   }, [currentMember]);
 
-  if (loading || !data) {
+  if (loading) {
     return (
       <div className="flex items-center justify-center py-24">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
       </div>
+    );
+  }
+
+  if (error || !data) {
+    return (
+      <Card className="mx-auto max-w-xl p-8 text-center">
+        <Network className="mx-auto mb-3 h-8 w-8 text-orange-500" />
+        <h2 className="text-lg font-bold">Eco-System temporarily unavailable</h2>
+        <p className="mt-2 text-sm text-muted-foreground">{error ?? "No Eco-System data was returned."}</p>
+      </Card>
     );
   }
 
@@ -220,6 +233,12 @@ export function EcosystemView() {
           from upline fills your Eco-System downline.
         </p>
       </div>
+
+      {data.placementStatus === "pending" && (
+        <Card className="border-amber-300 bg-amber-50 p-4 text-sm text-amber-950 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100">
+          This tester account is ready to explore the Eco-System. Its live matrix placement will appear after membership activation.
+        </Card>
+      )}
 
       {/* Earnings blocks */}
       <div className="grid gap-4 sm:grid-cols-3">

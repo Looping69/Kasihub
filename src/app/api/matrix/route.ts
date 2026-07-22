@@ -42,7 +42,37 @@ export async function GET(req: NextRequest) {
       token,
     );
     const root = nodes.find((node) => node.profileId === memberId);
-    if (!root) return NextResponse.json({ error: "Member not in matrix" }, { status: 404 });
+    if (!root) {
+      return NextResponse.json({
+        placementStatus: "pending",
+        tree: {
+          id: memberId,
+          nodeId: `pending-${memberId}`,
+          level: 0,
+          position: 0,
+          isMe: true,
+          member: {
+            profileNumber: `KSI-${memberId.slice(0, 8).toUpperCase()}`,
+            firstName: "You",
+            lastName: null,
+            companyName: null,
+            membershipType: "MEMBER",
+            country: "ZA",
+            subscriptionStatus: "PENDING",
+          },
+          children: [],
+        },
+        levelStats: [20, 10, 8, 5, 3, 1].map((rate, index) => ({
+          level: index + 1,
+          count: 0,
+          maxCount: 5 ** (index + 1),
+          commission: 0 * rate,
+        })),
+        upline: [],
+        myLevel: 0,
+        myNodeIndex: 0,
+      });
+    }
     const childMap = new Map<string, MatrixNode[]>();
     for (const node of nodes) {
       if (!node.parentNodeId) continue;
@@ -77,6 +107,7 @@ export async function GET(req: NextRequest) {
       return { level, count, maxCount: 5 ** level, commission: count * rate };
     });
     return NextResponse.json({
+      placementStatus: "active",
       tree: buildTree(root),
       levelStats,
       upline: [],

@@ -21,6 +21,7 @@ vi.mock("@/lib/encore-client", () => {
 
 import { POST as register } from "./members/route";
 import { GET as dashboard } from "./dashboard/route";
+import { GET as matrix } from "./matrix/route";
 
 function post(body: unknown) {
   return new NextRequest("https://kasihub.test/api/members", {
@@ -100,6 +101,18 @@ describe("registration and dashboard contracts", () => {
     expect(await response.json()).toMatchObject({
       totalEarnings: 125.5, ecosystemDownline: 1, ecosystemLevels: 2,
       kasiShares: { count: 3, valuePerShare: 20, totalValue: 60 },
+    });
+  });
+
+  test("matrix returns an empty tester-safe ecosystem while placement is pending", async () => {
+    mocks.encoreRequest.mockResolvedValueOnce({ nodes: [] });
+    const response = await matrix(new NextRequest("https://kasihub.test/api/matrix?memberId=profile"));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      placementStatus: "pending",
+      tree: { id: "profile", isMe: true, children: [] },
+      myLevel: 0,
+      myNodeIndex: 0,
     });
   });
 });
