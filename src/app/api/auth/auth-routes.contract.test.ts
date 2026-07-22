@@ -63,6 +63,19 @@ describe("authentication BFF contracts", () => {
     expect(response.headers.get("set-cookie")).toContain("HttpOnly");
   });
 
+  test("admin portal login rejects a valid non-admin account without setting a session cookie", async () => {
+    mocks.encoreRequest
+      .mockResolvedValueOnce({ token: "member-token" })
+      .mockResolvedValueOnce({ member });
+    const response = await login(new NextRequest("https://kasihub.test/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email: "member@example.test", password: "correct-password", adminPortal: true }),
+    }));
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: "Administrator access required" });
+    expect(response.headers.get("set-cookie")).toBeNull();
+  });
+
   test("demo administrator login fails closed when configuration or role is wrong", async () => {
     const unavailable = await login(new NextRequest("https://kasihub.test/api/auth/login", {
       method: "POST", body: JSON.stringify({ demoRole: "admin" }),

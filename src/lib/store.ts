@@ -110,7 +110,12 @@ export const useKasiStore = create<KasiState>()(
 
       setSidebarOpen: (open) => set({ sidebarOpen: open }),
 
-      setAdminMode: (on) => set({ adminMode: on, sidebarOpen: false }),
+      // Author: Klaasvaakie ( |╲ )
+      // Never trust persisted presentation state to grant the admin surface.
+      setAdminMode: (on) => set((state) => ({
+        adminMode: on && Boolean(state.currentMember?.isAdmin),
+        sidebarOpen: false,
+      })),
 
       openRegistration: () => set({ registrationOpen: true }),
       closeRegistration: () => set({ registrationOpen: false }),

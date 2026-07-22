@@ -49,7 +49,7 @@ const NAV: { key: AdminViewKey; label: string; icon: typeof LayoutDashboard; des
 ];
 
 export function AdminShell() {
-  const { currentMember, adminView, logout, sidebarOpen, setSidebarOpen, setAdminMode } = useKasiStore();
+  const { currentMember, adminView, logout, sidebarOpen, setSidebarOpen, setAdminMode, setAdminView } = useKasiStore();
   // Persisted Design Studio state must fall back safely while that surface is dormant.
   // Author: Klaasvaakie ( |╲ )
   const visibleAdminView = NAV.some((item) => item.key === adminView) ? adminView : "overview";
@@ -64,7 +64,7 @@ export function AdminShell() {
 
       {/* Mobile Sidebar */}
       <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
-        <SheetContent side="left" className="w-72 p-0 bg-sidebar text-sidebar-foreground border-sidebar-border">
+        <SheetContent side="left" className="flex w-72 flex-col border-sidebar-border bg-sidebar p-0 text-sidebar-foreground">
           <SheetHeader className="p-4 border-b border-sidebar-border">
             <SheetTitle className="text-sidebar-foreground">KaSiHUB Admin</SheetTitle>
           </SheetHeader>
@@ -99,7 +99,7 @@ export function AdminShell() {
                 <ArrowLeftRight className="h-3.5 w-3.5 mr-1.5" /> Member view
               </Button>
 
-              <Button variant="ghost" size="icon" className="relative">
+              <Button variant="ghost" size="icon" className="relative" aria-label="Open admin notifications" onClick={() => setAdminView("notifications")}>
                 <Bell className="h-5 w-5" />
                 <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-rose-500 rounded-full" />
               </Button>
@@ -160,7 +160,7 @@ export function AdminShell() {
 function AdminSidebarContent({ mobile = false }: { mobile?: boolean }) {
   const { adminView, setAdminView, currentMember, logout, setAdminMode } = useKasiStore();
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex min-h-0 flex-1 flex-col">
       {/* Logo */}
       <div className={`px-5 py-3 ${mobile ? "hidden" : ""}`}>
         <BrandLogo className="h-16 w-full" priority />

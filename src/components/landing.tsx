@@ -81,6 +81,15 @@ export function Landing() {
   const [loginError, setLoginError] = useState("");
   const [signingIn, setSigningIn] = useState(false);
   const [demoLoading, setDemoLoading] = useState(false);
+  const [loginIntent, setLoginIntent] = useState<"member" | "admin">("member");
+
+  // Author: Klaasvaakie ( |╲ )
+  // Both portals use real credentials; the admin intent is enforced server-side.
+  function openLogin(intent: "member" | "admin") {
+    setLoginIntent(intent);
+    setLoginError("");
+    setLoginOpen(true);
+  }
 
   async function handleEnter() {
     setDemoLoading(true);
@@ -104,22 +113,6 @@ export function Landing() {
     }
   }
 
-  async function handleAdminLogin() {
-    try {
-      const res = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ demoRole: "admin" }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.member) login(data.member.id, data.member);
-      }
-    } catch {
-      // ignore
-    }
-  }
-
   async function handleAccountLogin(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSigningIn(true);
@@ -128,7 +121,7 @@ export function Landing() {
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, password, adminPortal: loginIntent === "admin" }),
       });
       const data = await res.json();
       if (!res.ok || !data.member) {
@@ -162,10 +155,10 @@ export function Landing() {
 
             <div className="flex items-center gap-2">
               <ThemeToggle className="text-white hover:bg-white/15 hover:text-white" />
-              <Button variant="ghost" size="sm" onClick={handleAdminLogin} className="hidden sm:inline-flex text-orange-200 hover:bg-white/15 hover:text-white">
+              <Button variant="ghost" size="sm" onClick={() => openLogin("admin")} className="hidden sm:inline-flex text-orange-200 hover:bg-white/15 hover:text-white">
                 <ShieldCheck className="h-4 w-4 mr-1" /> Admin
               </Button>
-              <Button variant="ghost" size="sm" onClick={() => setLoginOpen(true)} className="hidden text-white hover:bg-white/15 hover:text-white sm:inline-flex">
+              <Button variant="ghost" size="sm" onClick={() => openLogin("member")} className="hidden text-white hover:bg-white/15 hover:text-white sm:inline-flex">
                 Sign in
               </Button>
               <Button size="sm" onClick={openRegistration} className="bg-gradient-to-r from-[#ff9d13] to-[#ff641e] text-white shadow-lg hover:from-[#ffad32] hover:to-[#ff7435]">
@@ -185,7 +178,8 @@ export function Landing() {
               <a href="#pioneer" onClick={() => setMobileMenu(false)} className="px-3 py-2 text-sm font-medium hover:bg-muted rounded-md">Pioneer Pool</a>
               <a href="#contact" onClick={() => setMobileMenu(false)} className="px-3 py-2 text-sm font-medium hover:bg-muted rounded-md">Contact</a>
               <button onClick={() => { setMobileMenu(false); void handleEnter(); }} className="rounded-md px-3 py-2 text-left text-sm font-bold text-orange-200 hover:bg-white/10">Explore demo</button>
-              <button onClick={() => { setMobileMenu(false); setLoginOpen(true); }} className="rounded-md px-3 py-2 text-left text-sm font-medium hover:bg-white/10">Sign in</button>
+              <button onClick={() => { setMobileMenu(false); openLogin("member"); }} className="rounded-md px-3 py-2 text-left text-sm font-medium hover:bg-white/10">Sign in</button>
+              <button onClick={() => { setMobileMenu(false); openLogin("admin"); }} className="rounded-md px-3 py-2 text-left text-sm font-bold text-orange-200 hover:bg-white/10">Admin login</button>
             </nav>
           </div>
         )}
@@ -483,7 +477,7 @@ export function Landing() {
       <Dialog open={loginOpen} onOpenChange={setLoginOpen}>
         <DialogContent className="border-blue-200 bg-background/95 shadow-2xl backdrop-blur-xl dark:border-blue-900 sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Sign in to KaSiHUB</DialogTitle>
+            <DialogTitle>{loginIntent === "admin" ? "Sign in to the Admin Portal" : "Sign in to KaSiHUB"}</DialogTitle>
           </DialogHeader>
           <form className="space-y-4" onSubmit={handleAccountLogin}>
             <div className="space-y-2">

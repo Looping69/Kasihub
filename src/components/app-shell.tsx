@@ -134,7 +134,7 @@ export function AppShell() {
                 </Button>
               )}
 
-              <Button variant="ghost" size="icon" className="relative">
+              <Button variant="ghost" size="icon" className="relative" aria-label="Open notifications" onClick={() => setView("vouchers")}>
                 <Bell className="h-5 w-5" />
                 <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-amber-500 rounded-full" />
               </Button>

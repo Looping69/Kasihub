@@ -519,3 +519,18 @@ Author: Klaasvaakie ( |╲ )
 - Provisioned a dedicated restricted Encore demo member and stored its generated credentials only in the protected server runtime environment.
 - Fixed the mobile drawer height contract so account controls, including sign out, remain reachable.
 - Lint, TypeScript, production build, light/dark browser captures, and side-by-side landing QA passed. `( |╲ )` — Klaasvaakie
+
+## 2026-07-22 — Demo and landing production release
+
+- Published commit `301f2e7` and built production image `kasihub:20260722-landing-301f2e7` from its exact archive.
+- Private canary returned HTTP 200 for the homepage and demo login, with a real restricted demo member in the response.
+- Forge was cut over to the new image with `kasihub-rollback-20260722-prelanding` preserved.
+- Browser-verified the redesigned signed-out production landing page, clicked `Explore the demo`, and confirmed the live demo dashboard loaded protected Encore data and navigation. `( |╲ )` — Klaasvaakie
+
+## 2026-07-22 — Navigation integrity repair
+
+- Root cause: the landing Admin button still called the removed demo-admin credential path and silently ignored its failure.
+- Replaced that path with an explicit Admin Portal login intent enforced by the server before any session cookie is issued.
+- Wired member and admin notification bells to real destinations, hardened admin-mode state against non-admin members, and repaired the admin mobile drawer height contract.
+- Added a regression contract proving non-admin credentials cannot enter the admin portal or receive a session cookie.
+- Landing Admin dialog, registration entry, role rejection, member demo entry, tests, lint, TypeScript, production build, and console health passed locally. `( |╲ )` — Klaasvaakie

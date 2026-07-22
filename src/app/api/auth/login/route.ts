@@ -11,7 +11,7 @@ type LoginResponse = { token: string };
 type ProfileResponse = { member: Member };
 
 export async function POST(req: NextRequest) {
-  const body = (await req.json()) as { email?: string; password?: string; demoRole?: "member" | "admin" };
+  const body = (await req.json()) as { email?: string; password?: string; demoRole?: "member" | "admin"; adminPortal?: boolean };
   if (body.demoRole) {
     const isAdmin = body.demoRole === "admin";
     const email = process.env[isAdmin ? "KASIHUB_DEMO_ADMIN_EMAIL" : "KASIHUB_DEMO_MEMBER_EMAIL"];
@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
   if (!body.email || !body.password) {
     return NextResponse.json({ error: "Email and password are required" }, { status: 400 });
   }
-  return authenticate(body.email, body.password, false);
+  return authenticate(body.email, body.password, Boolean(body.adminPortal));
 }
 
 async function authenticate(email: string, password: string, requireAdmin: boolean) {
