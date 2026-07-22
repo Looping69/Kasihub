@@ -441,3 +441,59 @@ Author: Klaasvaakie ( |╲ )
 - Built Forge image `kasihub:20260721-performance-1a44e76` from the exact committed tree and passed private canary checks before cutover.
 - Cut production over to the new image, preserving `kasihub-rollback-20260721-performance` as the immediate rollback container.
 - Verified the public homepage, Encore proxy, theme endpoint, session endpoint, and authenticated administrator overview; the Design Suite navigation is absent as intended.
+
+## 2026-07-21 — Complete current-flow and dead-end map
+
+- Traced all 46 browser-facing Next.js API route files and the exposed/internal Encore endpoints across identity, KYC, membership, network, shares, wallets, commerce, finance, engagement, administration, operations, dashboard aggregation, and theme services.
+- Mapped the landing, registration, login/session, member, and administrator UI branches to their endpoint families and authoritative databases.
+- Marked the current terminal gaps: InstaPay and Bankus have no provider client or webhook confirmation; payment activation is administrator-confirmed; WhatsApp/WABlast and renewal messages stop in `notification_outbox`; external payouts, settlement, NFC mall execution, and marketplace fulfilment have no provider edge; Design Suite remains deliberately unreachable from navigation although its APIs exist.
+- Prepared an exhaustive Mermaid architecture diagram signed for Klaasvaakie with a legend separating working paths, protected/error exits, internal-only endpoints, and incomplete external hand-offs.
+## 2026-07-22 — Mobile visual refresh in progress
+
+- Loaded the supplied KaSiHUB dashboard, background, and bottom-navigation references.
+- Traced the existing app shell, live dashboard data, theme tokens, and navigation routes.
+- Started a mobile-first dashboard and persistent five-action navigation while preserving the existing desktop dashboard and real member flows.
+
+## 2026-07-22 — Mobile visual refresh completed
+
+- Added the supplied energy and township imagery as responsive application assets.
+- Built the reference-aligned mobile dashboard with live member totals, quick actions, promotional panels, categories, menu/notification controls, and an elevated wallet dock.
+- Kept the established desktop dashboard intact and stopped hidden desktop charts from mounting on mobile.
+- Verified the production build, mobile menu, Home/Market navigation, responsive capture, and side-by-side design QA; final result passed.
+
+## 2026-07-22 — Data-loading regression investigation
+
+- User reported that most pages in the local preview no longer load data.
+- Root cause identified: the isolated visual-QA preview service covered authentication and dashboard data only, leaving the rest of the existing Next.js-to-Encore routes without upstream responses.
+- Restoring full page-route coverage and rechecking navigation/data states now.
+
+## 2026-07-22 — Full local data coverage restored
+
+- Replaced the dashboard-only visual-QA service with full local coverage for member-facing Encore contracts.
+- Confirmed HTTP 200 responses and correct payload shapes for dashboard, marketplace, matrix, transactions, shares, mall, Roots Bank, vouchers, WhatsApp status, referrals, and legal documents.
+- Browser-verified Marketplace, Groups, Profile, Wallet, Shares, menu navigation, and return to Home; no browser console errors remained.
+- Left the repaired mobile preview running at `http://127.0.0.1:3000/`.
+
+## 2026-07-22 — Mode-specific background styling
+
+- Wired the supplied blue township image to light mode and the supplied dark energy image to dark mode across the authenticated app shell.
+- Added class-based system theme handling and an accessible light/dark toggle.
+- Updated the mobile dashboard hero to switch between the same supplied mode-specific images.
+- Production build passed; browser verification confirmed the blue township image in light mode and the energy image in dark mode across both dashboard and Marketplace surfaces.
+- Final handoff confirmed the mode mapping, accessible toggle, successful build, and live local preview.
+
+## 2026-07-22 — Full KaSiHUB palette propagation
+
+- Applied the browser annotation: the mobile action/promotion/category region now uses a dark surface in dark mode.
+- Remapped shared theme tokens and legacy green/teal accents to KaSiHUB blue, with orange as the primary accent.
+- Updated mobile quick actions, cashback card, membership CTA, categories, cards, and bottom navigation for consistent light/dark coloring.
+- Extended the palette bridge to legacy gradient and soft-background utilities so Marketplace and the remaining member/admin cards no longer retain emerald/teal styling.
+- Added a translucent theme surface behind secondary views so light-mode text stays legible over the blue artwork while the background remains visible; dark mode receives the matching black-blue surface.
+- Browser-verified the annotated dashboard area plus Marketplace in both modes; production build and TypeScript passed with live data intact.
+
+## 2026-07-22 — Bottom navigation positioning repair
+
+- Root cause: the app-shell background selector forced every direct child to `position: relative`, overriding the mobile dock's `position: fixed` utility.
+- Removed the conflicting selector so the five-action navigation can remain pinned to the viewport bottom.
+- Browser verification confirmed the dock remains `position: fixed`, 8px above the viewport edge before and after scrolling.
+- Production build and TypeScript validation passed. `( |╲ )` — Klaasvaakie

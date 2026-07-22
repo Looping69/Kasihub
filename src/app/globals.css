@@ -55,19 +55,19 @@
   --card-foreground: oklch(0.18 0.02 150);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.18 0.02 150);
-  /* KaSiHUB Emerald primary */
-  --primary: oklch(0.52 0.13 158);
-  --primary-foreground: oklch(0.99 0.005 95);
-  --secondary: oklch(0.96 0.02 100);
-  --secondary-foreground: oklch(0.25 0.03 150);
-  --muted: oklch(0.96 0.01 100);
-  --muted-foreground: oklch(0.5 0.02 150);
-  --accent: oklch(0.94 0.04 95);
-  --accent-foreground: oklch(0.3 0.05 70);
+  /* Author: Klaasvaakie ( |╲ ) — KaSiHUB blue/orange application palette. */
+  --primary: #087fe8;
+  --primary-foreground: #ffffff;
+  --secondary: #e8f3ff;
+  --secondary-foreground: #092b50;
+  --muted: #edf4fb;
+  --muted-foreground: #58708a;
+  --accent: #f58220;
+  --accent-foreground: #ffffff;
   --destructive: oklch(0.58 0.22 27);
   --border: oklch(0.9 0.01 150);
   --input: oklch(0.92 0.01 150);
-  --ring: oklch(0.52 0.13 158);
+  --ring: #f58220;
   /* KaSiHUB brand colors */
   --kasi-emerald: oklch(0.52 0.13 158);
   --kasi-gold: oklch(0.75 0.15 80);
@@ -90,24 +90,24 @@
 }
 
 .dark {
-  --background: oklch(0.14 0.02 155);
-  --foreground: oklch(0.96 0.01 150);
-  --card: oklch(0.19 0.025 155);
-  --card-foreground: oklch(0.96 0.01 150);
-  --popover: oklch(0.19 0.025 155);
-  --popover-foreground: oklch(0.96 0.01 150);
-  --primary: oklch(0.68 0.15 158);
-  --primary-foreground: oklch(0.14 0.02 155);
-  --secondary: oklch(0.25 0.03 155);
-  --secondary-foreground: oklch(0.96 0.01 150);
-  --muted: oklch(0.25 0.03 155);
-  --muted-foreground: oklch(0.7 0.02 150);
-  --accent: oklch(0.3 0.04 80);
-  --accent-foreground: oklch(0.95 0.02 80);
+  --background: #05080d;
+  --foreground: #f2f7ff;
+  --card: #0c131d;
+  --card-foreground: #f2f7ff;
+  --popover: #0c131d;
+  --popover-foreground: #f2f7ff;
+  --primary: #1695ff;
+  --primary-foreground: #ffffff;
+  --secondary: #101f31;
+  --secondary-foreground: #f2f7ff;
+  --muted: #121d29;
+  --muted-foreground: #94a9bf;
+  --accent: #f58220;
+  --accent-foreground: #ffffff;
   --destructive: oklch(0.7 0.19 22);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.68 0.15 158);
+  --ring: #f58220;
   --kasi-emerald: oklch(0.68 0.15 158);
   --kasi-gold: oklch(0.8 0.15 80);
   --kasi-clay: oklch(0.6 0.1 50);
@@ -134,12 +134,44 @@
   body {
     @apply bg-background text-foreground;
     font-size: calc(1rem * var(--font-scale, 1));
+    background-color: var(--role-page);
   }
   [data-page-background="grid"] body { background-image: linear-gradient(var(--border) 1px, transparent 1px), linear-gradient(90deg, var(--border) 1px, transparent 1px); background-size: 32px 32px; }
   [data-page-background="soft"] body { background-image: radial-gradient(circle at 80% 0%, color-mix(in srgb, var(--primary) 8%, transparent), transparent 36rem); }
 }
 
 .theme-elevation { box-shadow: var(--theme-shadow, 0 8px 24px rgb(15 23 42 / .06)); }
+
+/* Author: Klaasvaakie ( |╲ ) — supplied mode-specific KaSiHUB artwork. */
+.kasi-app-shell {
+  position: relative;
+  isolation: isolate;
+  background-color: #0657d9;
+  background-image: linear-gradient(rgb(0 72 210 / 18%), rgb(0 72 210 / 58%)), url("/kasi-township-bg.png");
+  background-attachment: fixed;
+  background-position: center;
+  background-size: cover;
+}
+
+.dark .kasi-app-shell {
+  background-color: #03070d;
+  background-image: linear-gradient(rgb(0 0 0 / 26%), rgb(0 0 0 / 62%)), url("/kasi-energy-bg.webp");
+}
+
+/* Pull legacy view accents into the current KaSiHUB brand without rewriting data semantics. */
+.kasi-app-shell :is(.text-emerald-600, .text-emerald-700, .text-teal-600, .text-teal-700) { color: #087fe8 !important; }
+.dark .kasi-app-shell :is(.text-emerald-300, .text-emerald-400, .text-teal-300, .text-teal-400) { color: #58b3ff !important; }
+.kasi-app-shell :is(.bg-emerald-500, .bg-emerald-600, .bg-teal-500, .bg-teal-600) { background-color: #087fe8 !important; }
+.kasi-app-shell :is(.bg-emerald-50, .bg-teal-50) { background-color: #e8f3ff !important; }
+.dark .kasi-app-shell :is(.bg-emerald-950, .bg-teal-950) { background-color: rgb(8 27 46 / 78%) !important; }
+.kasi-app-shell :is(.border-emerald-200, .border-emerald-300, .border-teal-200, .border-teal-300) { border-color: #8bc9ff !important; }
+.kasi-app-shell :is(.text-amber-600, .text-amber-700, .text-yellow-600, .text-orange-600) { color: #e96f0b !important; }
+.dark .kasi-app-shell :is(.text-amber-300, .text-amber-400, .text-yellow-300, .text-orange-300) { color: #ffad61 !important; }
+.kasi-app-shell [data-slot="card"] { backdrop-filter: blur(14px); }
+.dark .kasi-app-shell [data-slot="card"] { background-color: rgb(12 19 29 / 92%); border-color: rgb(66 111 154 / 38%); }
+.kasi-app-shell :is(.from-emerald-50, .from-emerald-200, .from-emerald-500, .from-emerald-600, .from-emerald-700, .from-teal-50, .from-teal-500) { --tw-gradient-from: #1688ed !important; }
+.dark .kasi-app-shell :is(.from-emerald-950, .from-teal-950) { --tw-gradient-from: #071522 !important; }
+.kasi-app-shell :is(.to-emerald-200, .to-emerald-500, .to-emerald-600, .to-emerald-700, .to-teal-600) { --tw-gradient-to: #075aa0 !important; }
 
 /* Custom scrollbar */
 .scrollbar-kasi::-webkit-scrollbar {

@@ -29,6 +29,9 @@ import { ReferView } from "@/components/views/refer-view";
 import { BrandLogo } from "@/components/brand-logo";
 import { Scale, Ticket, UserPlus } from "lucide-react";
 import { loadDashboard } from "@/lib/dashboard-client";
+import { MobileDashboardView } from "@/components/views/mobile-dashboard-view";
+import { Home, Store, UsersRound } from "lucide-react";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 const NAV: { key: ViewKey; label: string; icon: typeof LayoutDashboard; desc: string }[] = [
   { key: "dashboard", label: "Dashboard", icon: LayoutDashboard, desc: "Stats & overview" },
@@ -46,6 +49,17 @@ const NAV: { key: ViewKey; label: string; icon: typeof LayoutDashboard; desc: st
 export function AppShell() {
   const { currentMember, activeView, setView, logout, sidebarOpen, setSidebarOpen, setAdminMode } = useKasiStore();
   const [walletBalance, setWalletBalance] = useState<number | null>(null);
+  const [desktopDashboard, setDesktopDashboard] = useState(false);
+
+  // Author: Klaasvaakie ( |╲ )
+  // Avoid mounting desktop-only charts inside a zero-width mobile container.
+  useEffect(() => {
+    const media = window.matchMedia("(min-width: 1024px)");
+    const sync = () => setDesktopDashboard(media.matches);
+    sync();
+    media.addEventListener("change", sync);
+    return () => media.removeEventListener("change", sync);
+  }, []);
 
   useEffect(() => {
     if (!currentMember) return;
@@ -63,11 +77,13 @@ export function AppShell() {
   const activeNav = NAV.find((n) => n.key === activeView) || NAV[0];
 
   return (
-    <div className="min-h-screen flex bg-role-page">
+    <div className="kasi-app-shell min-h-screen flex">
       {/* Desktop Sidebar */}
-      <aside className="hidden lg:flex w-64 flex-col fixed inset-y-0 left-0 z-30 bg-sidebar text-sidebar-foreground">
-        <SidebarContent />
-      </aside>
+      {desktopDashboard && (
+        <aside className="hidden lg:flex w-64 flex-col fixed inset-y-0 left-0 z-30 bg-sidebar text-sidebar-foreground">
+          <SidebarContent />
+        </aside>
+      )}
 
       {/* Mobile Sidebar (Sheet) */}
       <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
@@ -82,7 +98,7 @@ export function AppShell() {
       {/* Main */}
       <div className="flex-1 lg:pl-64 flex flex-col min-w-0">
         {/* Top bar */}
-        <header className="sticky top-0 z-20 h-16 border-b border-border/60 bg-background/80 backdrop-blur-xl">
+        <header className={`${activeView === "dashboard" ? "hidden lg:block" : "block"} sticky top-0 z-20 h-16 border-b border-border/60 bg-background/80 backdrop-blur-xl`}>
           <div className="h-full px-4 sm:px-6 flex items-center justify-between gap-4">
             <div className="flex items-center gap-3 min-w-0">
               <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setSidebarOpen(true)}>
@@ -99,6 +115,7 @@ export function AppShell() {
             </div>
 
             <div className="flex items-center gap-2 sm:gap-3">
+              <ThemeToggle />
               {/* Wallet balance */}
               <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900">
                 <Wallet className="h-4 w-4 text-emerald-600" />
@@ -142,16 +159,17 @@ export function AppShell() {
         </header>
 
         {/* Content */}
-        <main className="flex-1 p-4 sm:p-6 lg:p-8">
+        <main className={`flex-1 ${activeView === "dashboard" ? "p-0 pb-24 lg:p-8 lg:pb-8" : "p-4 pb-24 sm:p-6 lg:p-8"}`}>
           <AnimatePresence mode="wait">
             <motion.div
               key={activeView}
+              className={activeView === "dashboard" ? "" : "rounded-2xl border border-blue-200/60 bg-background/90 p-4 shadow-2xl backdrop-blur-xl dark:border-blue-900/60 sm:p-6"}
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
               transition={{ duration: 0.25 }}
             >
-              {activeView === "dashboard" && <DashboardView />}
+              {activeView === "dashboard" && (desktopDashboard ? <DashboardView /> : <MobileDashboardView />)}
               {activeView === "ecosystem" && <EcosystemView />}
               {activeView === "profile" && <ProfileView />}
               {activeView === "shares" && <SharesView />}
@@ -165,7 +183,32 @@ export function AppShell() {
           </AnimatePresence>
         </main>
       </div>
+      <MobileBottomNavigation />
     </div>
+  );
+}
+
+// Author: Klaasvaakie ( |╲ )
+// Persistent mobile navigation mirrors the supplied five-action dock.
+function MobileBottomNavigation() {
+  const { activeView, setView } = useKasiStore();
+  const items: { label: string; view: ViewKey; icon: typeof Home; raised?: boolean }[] = [
+    { label: "Home", view: "dashboard", icon: Home },
+    { label: "Market", view: "marketplace", icon: Store },
+    { label: "Wallet", view: "rootsbank", icon: Wallet, raised: true },
+    { label: "Groups", view: "ecosystem", icon: UsersRound },
+    { label: "Profile", view: "profile", icon: User },
+  ];
+  return (
+    <nav aria-label="Primary mobile navigation" className="fixed inset-x-3 bottom-2 z-50 mx-auto flex h-[72px] max-w-[500px] items-end justify-around rounded-[24px] border border-slate-200 bg-white/95 px-2 pb-2 shadow-[0_14px_40px_rgba(2,12,27,.35)] backdrop-blur-xl dark:border-[#23466a] dark:bg-[#0c131d]/95 lg:hidden">
+      {items.map(({ label, view, icon: Icon, raised }) => {
+        const active = activeView === view;
+        return <button key={label} onClick={() => setView(view)} className={`relative flex min-w-[54px] flex-col items-center gap-1 text-[9px] font-bold ${raised ? "-translate-y-4" : ""} ${active ? "text-[#ff7a18]" : "text-slate-500 dark:text-slate-400"}`}>
+          <span className={`${raised ? "grid h-14 w-14 place-items-center rounded-full bg-gradient-to-br from-[#ff9d13] to-[#ff5b2a] text-white shadow-xl ring-4 ring-white dark:ring-[#0c131d]" : active ? "grid h-8 min-w-12 place-items-center rounded-t-xl bg-[#fff2e8] px-3 dark:bg-[#352113]" : "grid h-8 place-items-center"}`}><Icon className={raised ? "h-6 w-6" : "h-5 w-5"} /></span>
+          <span>{label}</span>
+        </button>;
+      })}
+    </nav>
   );
 }
 
@@ -174,9 +217,7 @@ function SidebarContent({ mobile = false }: { mobile?: boolean }) {
   return (
     <div className="flex flex-col h-full">
       {/* Logo */}
-      <div className={`px-5 py-3 ${mobile ? "hidden" : ""}`}>
-        <BrandLogo className="h-20 w-full" priority />
-      </div>
+      {!mobile && <div className="px-5 py-3"><BrandLogo className="h-20 w-full" priority /></div>}
 
       <Separator className="bg-sidebar-border" />
 
@@ -210,6 +251,7 @@ function SidebarContent({ mobile = false }: { mobile?: boolean }) {
 
       {/* Member card */}
       <div className="p-3">
+        <ThemeToggle className="mb-2 w-full text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground" />
         <div className="rounded-xl bg-sidebar-accent p-3">
           <div className="flex items-center gap-2 mb-2">
             <ShieldCheck className="h-4 w-4 text-emerald-400" />
