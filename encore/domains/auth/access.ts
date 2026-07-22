@@ -1,8 +1,9 @@
 // Author: Klaasvaakie ( |╲ )
-import { currentRequest } from "encore.dev";
+import { appMeta, currentRequest } from "encore.dev";
 import { APIError } from "encore.dev/api";
 import { createHash } from "node:crypto";
 import { identityDb } from "../../resources";
+import { hasTesterAdminAccess } from "./tester-access";
 
 export interface AuthenticatedSession {
   token: string;
@@ -60,6 +61,7 @@ export async function requireSession(): Promise<AuthenticatedSession> {
 
 export async function requireAdminAccess(): Promise<AuthenticatedSession> {
   const session = await requireSession();
+  if (hasTesterAdminAccess(session.user.email, appMeta().environment.type)) return session;
   const role = await identityDb.rawQueryRow<{ name: string }>(
     `SELECT r.name FROM user_roles ur
      JOIN roles r ON r.id = ur.role_id
@@ -73,6 +75,7 @@ export async function requireAdminAccess(): Promise<AuthenticatedSession> {
 export async function requireProfileAccess(profileId: string): Promise<AuthenticatedSession> {
   const session = await requireSession();
   if (session.profile.id === profileId) return session;
+  if (hasTesterAdminAccess(session.user.email, appMeta().environment.type)) return session;
   const role = await identityDb.rawQueryRow<{ name: string }>(
     `SELECT r.name FROM user_roles ur
      JOIN roles r ON r.id = ur.role_id

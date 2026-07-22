@@ -1,8 +1,10 @@
 // Author: Klaasvaakie ( |╲ )
+import { appMeta } from "encore.dev";
 import { api, APIError } from "encore.dev/api";
 import { z } from "zod";
 import { auditDb, documentsBucket, identityDb, kycDb, membershipDb, networkDb } from "../../resources";
 import { bearerToken, hashSessionToken, sessionFromBearer } from "../auth/access";
+import { hasTesterAdminAccess } from "../auth/tester-access";
 import { hashPassword, verifyPassword } from "../auth/password";
 import { beginOperation, completeOperation, failOperation, recordStep, requestHash } from "../workflows/core";
 import { ensureMembershipPlan } from "../membership/plans";
@@ -388,7 +390,7 @@ export const myProfile = api<void, { member: FrontendMember }>(
         instapayAccountRef: profile.instapay_account_ref,
         uplineProfileNumber: profile.upline_profile_number,
         uplineConfirmed: profile.upline_confirmed,
-        isAdmin: Boolean(adminRole),
+        isAdmin: Boolean(adminRole) || hasTesterAdminAccess(session.user.email, appMeta().environment.type),
         createdAt: profile.created_at,
       },
     };
