@@ -1,16 +1,16 @@
 "use client";
 
 // Author: Klaasvaakie ( |╲ )
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 import { Moon, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
 
 export function ThemeToggle({ className = "" }: { className?: string }) {
   const { resolvedTheme, setTheme } = useTheme();
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => setMounted(true), []);
+  // Author: Klaasvaakie ( |╲ )
+  // Keep the server snapshot stable without scheduling a mount-only state update.
+  const mounted = useSyncExternalStore(() => () => undefined, () => true, () => false);
 
   return (
     <Button

@@ -44,4 +44,22 @@
 
 - A future brand-asset pass could replace the two promotional line icons with dedicated KaSiHUB campaign illustrations if exact source artwork becomes available.
 
+## Landing-page extension — 2026-07-22
+
+- Source visual truth: `C:\Users\wimpi\Downloads\Untitled design (2).png` for light mode and `C:\Users\wimpi\Downloads\1784231197361-g9hh8r9u0tf.webp` for dark mode.
+- Implementation screenshots: `C:\Users\wimpi\Downloads\Kasihub\output\landing-light-final.jpg` and `C:\Users\wimpi\Downloads\Kasihub\output\landing-dark-final.jpg`.
+- Side-by-side light comparison: `C:\Users\wimpi\Downloads\Kasihub\output\landing-light-comparison.jpg`.
+- Viewport: 667 × 776 CSS pixels at 1× density; comparison normalized to 667 × 794 per panel.
+- State: signed-out landing page, light and dark theme, demo CTA idle.
+- Full-view evidence: the comparison confirms the supplied township field, royal-blue treatment, white display typography, orange primary CTA, white demo CTA, and logo-led hierarchy are consistently translated.
+- Focused-region evidence: the above-the-fold hero was inspected separately because CTA visibility and branding are the core conversion path; computed demo button colors were white background and KaSiHUB blue text.
+- Fonts and typography: bold display hierarchy and compact header labels match the weight and density of the supplied app references.
+- Spacing and layout rhythm: navigation, logo, proof badge, headline, supporting copy, CTA row, and stat cards form a centered, responsive sequence without overflow.
+- Colors and visual tokens: light mode uses the supplied blue township artwork; dark mode uses the supplied energy artwork; orange remains the primary action color.
+- Image quality and asset fidelity: both supplied raster backgrounds and the existing KaSiHUB logo are used directly with responsive cover/contain behavior.
+- Copy and content: the existing landing content is preserved; `Explore the demo` is restored as an explicit above-the-fold action with loading and visible error states.
+- Interaction checks: light/dark toggle passed, desktop CTA passed, mobile menu exposes demo and sign-in actions, and no new browser console errors were observed.
+- Comparison history: initial dark capture showed the outline demo CTA losing its white surface; the final pass forces the white surface and blue label, with post-fix light comparison showing clear CTA contrast.
+- Remaining findings: no actionable P0/P1/P2 issues. P3 only: exact reference campaign illustrations remain outside the landing source material.
+
 final result: passed

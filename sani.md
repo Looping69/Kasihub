@@ -497,3 +497,25 @@ Author: Klaasvaakie ( |╲ )
 - Removed the conflicting selector so the five-action navigation can remain pinned to the viewport bottom.
 - Browser verification confirmed the dock remains `position: fixed`, 8px above the viewport edge before and after scrolling.
 - Production build and TypeScript validation passed. `( |╲ )` — Klaasvaakie
+
+## 2026-07-22 — Theme release deployed
+
+- Published the scoped mobile theme, supplied backgrounds, dark-mode surfaces, and fixed bottom navigation as commit `e9b8e53`.
+- Built `kasihub:20260722-theme-e9b8e53` from the exact commit archive and passed private canary checks for home, API, theme, and session routes.
+- Cut Forge production over to the new image; preserved `kasihub-rollback-20260722-pretheme` for rollback.
+- Public Forge home/API checks returned HTTP 200 and authenticated browser QA loaded real admin data with clean application startup logs. `( |╲ )` — Klaasvaakie
+
+## 2026-07-22 — Demo access diagnosis
+
+- Confirmed the landing page still renders `Explore the demo` and posts `demoRole: member` to the login route.
+- Production returns HTTP 503 with `Demo access is not configured`; the hardened route now requires dedicated demo member credentials in the runtime environment.
+- The landing handler currently swallows failed demo responses, so clicking the button appears to do nothing instead of explaining that configuration is missing. `( |╲ )` — Klaasvaakie
+
+## 2026-07-22 — Demo restoration and landing redesign
+
+- Reworked the signed-out landing page around the same supplied township/light and energy/dark backgrounds used by the member app.
+- Replaced legacy green presentation with KaSiHUB blue surfaces, orange conversion actions, glass cards, a prominent logo hero, and a theme toggle.
+- Restored `Explore the demo` as a visible desktop/mobile action with loading and error feedback instead of swallowed failures.
+- Provisioned a dedicated restricted Encore demo member and stored its generated credentials only in the protected server runtime environment.
+- Fixed the mobile drawer height contract so account controls, including sign out, remain reachable.
+- Lint, TypeScript, production build, light/dark browser captures, and side-by-side landing QA passed. `( |╲ )` — Klaasvaakie

@@ -87,7 +87,7 @@ export function AppShell() {
 
       {/* Mobile Sidebar (Sheet) */}
       <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
-        <SheetContent side="left" className="w-72 p-0 bg-sidebar text-sidebar-foreground border-sidebar-border">
+        <SheetContent side="left" className="flex w-72 flex-col border-sidebar-border bg-sidebar p-0 text-sidebar-foreground">
           <SheetHeader className="p-4 border-b border-sidebar-border">
             <SheetTitle className="text-sidebar-foreground">KaSiHUB Menu</SheetTitle>
           </SheetHeader>
@@ -215,7 +215,7 @@ function MobileBottomNavigation() {
 function SidebarContent({ mobile = false }: { mobile?: boolean }) {
   const { activeView, setView, currentMember, logout } = useKasiStore();
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex min-h-0 flex-1 flex-col">
       {/* Logo */}
       {!mobile && <div className="px-5 py-3"><BrandLogo className="h-20 w-full" priority /></div>}
 

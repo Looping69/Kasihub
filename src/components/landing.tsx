@@ -6,7 +6,7 @@ import {
   ArrowRight, Users, Network, ShoppingBag, Building2, Landmark,
   Sparkles, Wallet, TrendingUp, Coins, QrCode,
   CheckCircle2, Phone, Mail, MapPin, Menu, X, ChevronRight,
-  ShieldCheck,
+  ShieldCheck, LoaderCircle, PlayCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -16,6 +16,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { BrandLogo } from "@/components/brand-logo";
 import { useKasiStore } from "@/lib/store";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 // Author: Klaasvaakie ( |╲ )
 const PILLARS = [
@@ -79,20 +80,27 @@ export function Landing() {
   const [password, setPassword] = useState("");
   const [loginError, setLoginError] = useState("");
   const [signingIn, setSigningIn] = useState(false);
+  const [demoLoading, setDemoLoading] = useState(false);
 
   async function handleEnter() {
+    setDemoLoading(true);
+    setLoginError("");
     try {
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ demoRole: "member" }),
       });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.member) login(data.member.id, data.member);
+      const data = await res.json();
+      if (!res.ok || !data.member) {
+        setLoginError(data.error || "The demo is temporarily unavailable.");
+        return;
       }
+      login(data.member.id, data.member);
     } catch {
-      // ignore
+      setLoginError("The demo could not connect to KaSiHUB. Please try again.");
+    } finally {
+      setDemoLoading(false);
     }
   }
 
@@ -138,53 +146,55 @@ export function Landing() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-background">
+    <div className="kasi-app-shell min-h-screen flex flex-col">
       {/* Header */}
-      <header className="sticky top-0 z-40 w-full border-b border-border/40 bg-background/80 backdrop-blur-xl">
+      <header className="sticky top-0 z-40 w-full border-b border-white/20 bg-[#075bb8]/88 text-white shadow-lg backdrop-blur-xl dark:bg-[#050b12]/90">
         <div className="container mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="flex h-16 items-center justify-between">
             <BrandLogo className="h-14 w-auto max-w-32" priority />
 
             <nav className="hidden md:flex items-center gap-1">
-              <a href="#pillars" className="px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">Ecosystem</a>
-              <a href="#flow" className="px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">How it works</a>
-              <a href="#pioneer" className="px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">Pioneer Pool</a>
-              <a href="#contact" className="px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">Contact</a>
+              <a href="#pillars" className="px-3 py-2 text-sm font-medium text-blue-100 hover:text-white transition-colors">Ecosystem</a>
+              <a href="#flow" className="px-3 py-2 text-sm font-medium text-blue-100 hover:text-white transition-colors">How it works</a>
+              <a href="#pioneer" className="px-3 py-2 text-sm font-medium text-blue-100 hover:text-white transition-colors">Pioneer Pool</a>
+              <a href="#contact" className="px-3 py-2 text-sm font-medium text-blue-100 hover:text-white transition-colors">Contact</a>
             </nav>
 
             <div className="flex items-center gap-2">
-              <Button variant="ghost" size="sm" onClick={handleAdminLogin} className="hidden sm:inline-flex text-amber-700 hover:text-amber-800 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-950/30">
+              <ThemeToggle className="text-white hover:bg-white/15 hover:text-white" />
+              <Button variant="ghost" size="sm" onClick={handleAdminLogin} className="hidden sm:inline-flex text-orange-200 hover:bg-white/15 hover:text-white">
                 <ShieldCheck className="h-4 w-4 mr-1" /> Admin
               </Button>
-              <Button variant="ghost" size="sm" onClick={() => setLoginOpen(true)} className="hidden sm:inline-flex">
+              <Button variant="ghost" size="sm" onClick={() => setLoginOpen(true)} className="hidden text-white hover:bg-white/15 hover:text-white sm:inline-flex">
                 Sign in
               </Button>
-              <Button size="sm" onClick={openRegistration} className="bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-700 hover:to-emerald-600">
+              <Button size="sm" onClick={openRegistration} className="bg-gradient-to-r from-[#ff9d13] to-[#ff641e] text-white shadow-lg hover:from-[#ffad32] hover:to-[#ff7435]">
                 Join KaSiHUB <ArrowRight className="ml-1.5 h-4 w-4" />
               </Button>
-              <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setMobileMenu(!mobileMenu)}>
+              <Button variant="ghost" size="icon" className="text-white hover:bg-white/15 hover:text-white md:hidden" onClick={() => setMobileMenu(!mobileMenu)}>
                 {mobileMenu ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
               </Button>
             </div>
           </div>
         </div>
         {mobileMenu && (
-          <div className="md:hidden border-t border-border/40 bg-background">
+          <div className="border-t border-white/15 bg-[#064b94]/96 md:hidden dark:bg-[#07111d]/96">
             <nav className="container mx-auto max-w-7xl px-4 py-3 flex flex-col gap-1">
               <a href="#pillars" onClick={() => setMobileMenu(false)} className="px-3 py-2 text-sm font-medium hover:bg-muted rounded-md">Ecosystem</a>
               <a href="#flow" onClick={() => setMobileMenu(false)} className="px-3 py-2 text-sm font-medium hover:bg-muted rounded-md">How it works</a>
               <a href="#pioneer" onClick={() => setMobileMenu(false)} className="px-3 py-2 text-sm font-medium hover:bg-muted rounded-md">Pioneer Pool</a>
               <a href="#contact" onClick={() => setMobileMenu(false)} className="px-3 py-2 text-sm font-medium hover:bg-muted rounded-md">Contact</a>
+              <button onClick={() => { setMobileMenu(false); void handleEnter(); }} className="rounded-md px-3 py-2 text-left text-sm font-bold text-orange-200 hover:bg-white/10">Explore demo</button>
+              <button onClick={() => { setMobileMenu(false); setLoginOpen(true); }} className="rounded-md px-3 py-2 text-left text-sm font-medium hover:bg-white/10">Sign in</button>
             </nav>
           </div>
         )}
       </header>
 
       {/* Hero */}
-      <section className="relative overflow-hidden kasi-pattern flex-1">
+      <section className="relative flex-1 overflow-hidden text-white">
         <div className="absolute inset-0 kasi-grid-pattern opacity-40" />
-        <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-gradient-to-br from-emerald-500/10 via-amber-500/5 to-transparent rounded-full blur-3xl -translate-y-1/4 translate-x-1/4" />
-        <div className="absolute bottom-0 left-0 w-[500px] h-[500px] bg-gradient-to-tr from-amber-500/10 via-emerald-500/5 to-transparent rounded-full blur-3xl translate-y-1/4 -translate-x-1/4" />
+        <div className="absolute inset-0 bg-gradient-to-b from-[#005fc7]/35 via-[#073b75]/45 to-[#031427]/80 dark:from-black/15 dark:via-black/35 dark:to-black/85" />
 
         <div className="container relative mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-16 lg:py-24">
           <motion.div
@@ -193,28 +203,31 @@ export function Landing() {
             transition={{ duration: 0.6 }}
             className="max-w-4xl mx-auto text-center"
           >
-            <Badge variant="outline" className="mb-6 bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-950/40 dark:border-emerald-900 dark:text-emerald-400">
+            <BrandLogo className="mx-auto mb-5 h-32 w-auto max-w-[340px] drop-shadow-2xl sm:h-40" priority />
+            <Badge variant="outline" className="mb-6 border-blue-200/50 bg-blue-950/35 text-blue-50 backdrop-blur-md">
               <Sparkles className="h-3 w-3 mr-1" /> Powered by Solidus Holdings (Pty) Ltd
             </Badge>
-            <h1 className="text-4xl sm:text-5xl lg:text-7xl font-black tracking-tight leading-[1.05]">
+            <h1 className="text-4xl font-black leading-[1.05] tracking-tight drop-shadow-xl sm:text-5xl lg:text-7xl">
               The hybrid ecosystem for
-              <span className="block mt-2 bg-gradient-to-r from-emerald-600 via-emerald-500 to-amber-500 bg-clip-text text-transparent">
+              <span className="mt-2 block bg-gradient-to-r from-[#69c5ff] via-white to-[#ff9d13] bg-clip-text text-transparent">
                 community wealth.
               </span>
             </h1>
-            <p className="mt-6 text-lg sm:text-xl text-muted-foreground max-w-2xl mx-auto leading-relaxed">
+            <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-blue-50 sm:text-xl">
               KaSiHUB is the central point connecting members to a 5×6 Eco-System, KasiShares,
               the KasiMarketPlace, KasiMall, and the Roots CO-OP Bank — all in one app.
             </p>
             <div className="mt-10 flex flex-col sm:flex-row gap-3 justify-center">
-              <Button size="lg" onClick={openRegistration} className="bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-700 hover:to-emerald-600 text-white shadow-lg shadow-emerald-500/25">
+              <Button size="lg" onClick={openRegistration} className="bg-gradient-to-r from-[#ff9d13] to-[#ff641e] text-white shadow-xl shadow-orange-950/30 hover:from-[#ffad32] hover:to-[#ff7435]">
                 Become a member <ArrowRight className="ml-2 h-5 w-5" />
               </Button>
-              <Button size="lg" variant="outline" onClick={handleEnter}>
-                Explore the demo
+              <Button size="lg" variant="outline" onClick={handleEnter} disabled={demoLoading} className="border-white !bg-white font-bold !text-[#075bb8] shadow-xl hover:!bg-blue-50 hover:!text-[#ff641e]">
+                {demoLoading ? <LoaderCircle className="mr-2 h-5 w-5 animate-spin" /> : <PlayCircle className="mr-2 h-5 w-5" />}
+                {demoLoading ? "Opening demo…" : "Explore the demo"}
               </Button>
             </div>
-            <p className="mt-4 text-xs text-muted-foreground">
+            {loginError && <p role="alert" className="mx-auto mt-4 max-w-xl rounded-xl border border-orange-300/50 bg-[#2a1208]/80 px-4 py-3 text-sm font-semibold text-orange-100 backdrop-blur">{loginError}</p>}
+            <p className="mt-4 text-xs text-blue-100">
               R140/mo individual · R300/mo company · No recruitment required to earn
             </p>
           </motion.div>
@@ -227,10 +240,10 @@ export function Landing() {
             className="mt-16 grid grid-cols-2 lg:grid-cols-4 gap-4"
           >
             {STATS.map((s) => (
-              <Card key={s.label} className="p-5 text-center border-border/60 bg-card/80 backdrop-blur">
+              <Card key={s.label} className="border-white/20 bg-[#06192d]/72 p-5 text-center text-white shadow-xl backdrop-blur-xl">
                 <s.icon className="h-5 w-5 mx-auto mb-2 text-emerald-600" />
                 <p className="text-2xl sm:text-3xl font-black tracking-tight">{s.value}</p>
-                <p className="text-xs text-muted-foreground mt-1">{s.label}</p>
+                <p className="mt-1 text-xs text-blue-100">{s.label}</p>
               </Card>
             ))}
           </motion.div>
@@ -238,7 +251,7 @@ export function Landing() {
       </section>
 
       {/* Pillars */}
-      <section id="pillars" className="py-16 lg:py-24 bg-muted/30">
+      <section id="pillars" className="bg-background/94 py-16 backdrop-blur-xl lg:py-24 dark:bg-[#07111d]/94">
         <div className="container mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="max-w-2xl mx-auto text-center mb-12">
             <Badge variant="secondary" className="mb-3">The 5 Pillars</Badge>
@@ -307,7 +320,7 @@ export function Landing() {
       </section>
 
       {/* How it works */}
-      <section id="flow" className="py-16 lg:py-24">
+      <section id="flow" className="bg-blue-50/94 py-16 backdrop-blur-xl lg:py-24 dark:bg-[#0a1725]/94">
         <div className="container mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="max-w-2xl mx-auto text-center mb-12">
             <Badge variant="secondary" className="mb-3">How it works</Badge>
@@ -339,7 +352,7 @@ export function Landing() {
       </section>
 
       {/* Pioneer CTA */}
-      <section id="pioneer" className="py-16 lg:py-24 bg-gradient-to-br from-amber-50 via-emerald-50 to-amber-50 dark:from-amber-950/20 dark:via-emerald-950/20 dark:to-amber-950/20">
+      <section id="pioneer" className="bg-gradient-to-br from-orange-50/95 via-blue-50/95 to-orange-50/95 py-16 backdrop-blur-xl dark:from-[#241609]/95 dark:via-[#091827]/95 dark:to-[#241609]/95 lg:py-24">
         <div className="container mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="grid lg:grid-cols-2 gap-12 items-center">
             <div>
@@ -468,7 +481,7 @@ export function Landing() {
         </div>
       </footer>
       <Dialog open={loginOpen} onOpenChange={setLoginOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="border-blue-200 bg-background/95 shadow-2xl backdrop-blur-xl dark:border-blue-900 sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Sign in to KaSiHUB</DialogTitle>
           </DialogHeader>
