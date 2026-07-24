@@ -594,4 +594,11 @@ Author: Klaasvaakie ( |╲ )
 - Published the complete KasiPay public information surface to GitHub main and successfully deployed that revision to Encore staging.
 - Closed the production dependency advisories by pinning Next.js 16.2.11, Sharp 0.35.3, and PostCSS 8.5.22.
 - Re-ran the full release gate: lint, TypeScript, 43 automated tests, production audit with zero vulnerabilities, production build, and five browser security tests all passed. `( |╲ )` — Klaasvaakie
+
+## 2026-07-24 — KasiPay production release
+
+- GitHub quality gates and Encore staging both passed for exact revision `fc88a49`.
+- Built and canaried Forge image `kasihub:20260724-kasipay-fc88a49`, then switched the live container while preserving `kasihub-rollback-20260724-pre-kasipay`.
+- Verified public HTTPS for Home, Gini, Merchant, Pricing, FAQ, About, and Contact; the removed Developers route correctly returns 404 and a sampled local asset returns 200.
+- Removed the temporary runtime environment file after deployment. `( |╲ )` — Klaasvaakie
 - TypeScript, lint and production build passed; browser verification found no overflow, broken images or local console errors on expanded desktop/mobile pages. `( |╲ )` — Klaasvaakie
