@@ -588,4 +588,10 @@ Author: Klaasvaakie ( |╲ )
 - Expanded Gini with the complete observed public journey: licensed investment-administration structure, onboarding, zero monthly application fee, eligible interest up to 6% subject to terms, savings, cashback, offers, airtime/data, bill payments, vouchers and transfers.
 - Expanded Merchant with the complete observed public journey: onboarding, mobile operations, Tap to Pay, QR codes, payment links, online gateway use, Plus and Pro card machines, reporting and controls.
 - Increased the local authorised asset set to 124 files, with no hotlinked visuals.
+
+## 2026-07-24 — KasiPay release hardening
+
+- Published the complete KasiPay public information surface to GitHub main and successfully deployed that revision to Encore staging.
+- Closed the production dependency advisories by pinning Next.js 16.2.11, Sharp 0.35.3, and PostCSS 8.5.22.
+- Re-ran the full release gate: lint, TypeScript, 43 automated tests, production audit with zero vulnerabilities, production build, and five browser security tests all passed. `( |╲ )` — Klaasvaakie
 - TypeScript, lint and production build passed; browser verification found no overflow, broken images or local console errors on expanded desktop/mobile pages. `( |╲ )` — Klaasvaakie
