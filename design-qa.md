@@ -1,65 +1,82 @@
-# KaSiHUB mobile dashboard design QA
+# KasiPay public information site — design QA
 
-- Source visual truth: `C:\Users\wimpi\AppData\Local\Temp\codex-clipboard-0544247f-e65c-4ae4-bdae-e344416b11b1.png`
-- Supporting source assets: `C:\Users\wimpi\Downloads\1784231197361-g9hh8r9u0tf.webp`, `C:\Users\wimpi\Downloads\Untitled design (2).png`
-- Implementation screenshot: `C:\Users\wimpi\Downloads\Kasihub\output\mobile-dashboard-final-393x852.png`
-- Side-by-side comparison: `C:\Users\wimpi\Downloads\Kasihub\output\design-qa-comparison.png`
-- Browser viewport override: 393 × 852 CSS px
-- Source pixels: 425 × 870
-- Browser capture pixels: 378 × 820; normalized to 393 × 852 for the comparison board
-- Density: 1× browser capture; both sides normalized to an equal 393 × 852 comparison frame
-- State: authenticated member dashboard, default light content surface with dark image-led hero
+> ( |╲ ) — Author: Klaasvaakie
 
-## Findings
+## Evidence
 
-- No actionable P0, P1, or P2 mismatches remain.
-- [P3] The reference's grocery basket and member illustration are represented by matching library iconography over the supplied KaSiHUB backgrounds. The hierarchy, color, placement, and action affordances are preserved while keeping the UI sharp and responsive.
+- Source visual truth:
+  - `tmp/instapay-source-capture/home-desktop.png`
+  - `tmp/instapay-source-capture/home-mobile-top-final.png`
+  - desktop captures for Gini, Merchant, Pricing, About, FAQ, and Contact
+- Rendered implementation:
+  - `tmp/instapay-source-capture/kasipay-desktop.png`
+  - `tmp/instapay-source-capture/kasipay-desktop-top.png`
+  - `tmp/instapay-source-capture/kasipay-mobile-top.png`
+  - `tmp/instapay-source-capture/kasipay-faq-mobile.png`
+- Combined comparison:
+  - `tmp/instapay-source-capture/source-vs-kasipay-desktop.png`
+  - `tmp/instapay-source-capture/source-vs-kasipay-mobile.png`
+- Desktop viewport: 1440 × 900 CSS pixels at device scale 1.
+- Mobile viewport: 390 × 844 CSS pixels at device scale 1.
+- Source desktop page: 1425 × 7398 pixels after capture.
+- Implementation desktop page: 1440 × 5178 pixels after capture.
+- State: signed-out public information home; mobile navigation closed for fidelity comparison; FAQ first answer expanded for interaction evidence.
+
+## Full-view comparison
+
+The implementation preserves the source’s light lilac ground, deep navy typography, orange conversion color, rounded white navigation, paired consumer/merchant device imagery, alternating product sections, dark platform band, purple closing CTA, and information-dense footer. The KasiPay version deliberately uses KasiHub branding and a clearer custodian disclosure while retaining the visual structure and public product story.
+
+The implementation is shorter than the source because repeated app-store prompts, duplicated partner sliders, and repeated signup blocks were consolidated. This is an intentional content-architecture constraint rather than missing product information.
+
+## Focused comparison
+
+The hero was compared side-by-side on desktop and mobile. The implementation retains the same hierarchy and responsive transformation: logo and menu, large message, “with or without a bank” line, consumer/merchant description, orange primary action, and paired product-device imagery. Text remains readable without horizontal overflow at 390 pixels.
 
 ## Required fidelity surfaces
 
-- Fonts and typography: bold condensed hierarchy, compact labels, uppercase banner copy, and small navigation captions visually match the reference.
-- Spacing and layout rhythm: hero, two balance cards, four quick actions, promotional banners, categories, and persistent bottom dock follow the source order and proportions.
-- Colors and visual tokens: black/blue image field, vivid green cashback card, yellow-orange membership card, royal-blue marketplace banner, and orange elevated wallet action match the source palette.
-- Image quality and asset fidelity: the supplied energy and township backgrounds are served directly as responsive raster assets; the existing KaSiHUB logo remains crisp and correctly contained.
-- Copy and content: source-aligned labels are backed by live dashboard values and existing application routes.
+- Fonts and typography: source uses Roboto; implementation uses the system Arial/Roboto stack to avoid a remote font dependency. Weight, hierarchy, condensed display scale, line height, and wrapping match the source character while supporting the KasiPay wordmark.
+- Spacing and layout rhythm: desktop two-column sections and mobile single-column stacking are consistent. No horizontal overflow was found. Header, hero, section padding, cards, CTA, and footer maintain the source’s broad spacing rhythm.
+- Colors and visual tokens: navy, lilac, white, orange, peach, and purple tokens visually align with the source. CTA contrast remains clear.
+- Image quality and asset fidelity: 124 authorised source image assets were copied locally, including the complete observed Gini and Merchant sets. No hotlinked visual assets remain. Browser validation found no broken images after lazy loading.
+- Copy and content: public Gini, merchant, pricing, developer, FAQ, partner, security, and support information is represented. KasiPay-specific copy explicitly avoids claiming custody, live API completion, or an approved final fee schedule.
+
+## Interaction and browser checks
+
+- Desktop home rendered at `/kasipay`.
+- Mobile navigation opened and reported `aria-expanded="true"`.
+- Navigation reached `/kasipay/faq`.
+- The first FAQ answer expanded and reported `aria-expanded="true"`.
+- Gini and Merchant returned HTTP 200; the removed Developers route returned HTTP 404 as intended.
+- No horizontal overflow at desktop or mobile widths.
+- No implementation console errors were observed.
+- The existing Next.js logo aspect-ratio development warning is visual-only and does not affect production rendering.
+
+## Findings
+
+- No actionable P0, P1, or P2 differences remain.
+- P3: a future pass can replace the compact KasiHub logo lockup with a dedicated vector KasiPay brand asset once the final sub-brand artwork is approved.
+- P3: final commercial fee tables should replace the current transparent “pending approved schedule” copy when the signed InstaPay schedule is supplied.
 
 ## Comparison history
 
-1. Initial capture found desktop charts mounted inside a hidden mobile container, producing zero-width warnings. Fixed by mounting only the dashboard appropriate to the active breakpoint.
-2. Initial capture lacked the source's top-corner menu and notification controls. Added both controls and verified the menu drawer opens.
-3. Post-fix evidence shows the source and implementation aligned in the side-by-side comparison with no P0/P1/P2 differences.
-4. Theme pass verified the supplied blue township artwork as the computed app-shell and hero background in light mode, and the supplied energy artwork as the computed app-shell and hero background in dark mode. Page data remained visible in both states.
-5. Annotation pass replaced the dashboard's white lower slab with a black-blue dark surface, propagated blue/orange tokens through shared UI and legacy gradients, and added translucent secondary-view canvases for readable text over both supplied backgrounds.
+1. Initial implementation:
+   - TypeScript rejected readonly tuple destructuring in two mapped content collections.
+   - Fix: replaced mutable destructuring callbacks with indexed readonly tuple access.
+   - Post-fix evidence: typecheck and production build passed.
+2. Initial browser pass:
+   - Several below-fold images appeared unloaded in the immediate DOM check.
+   - Fix: exercised the page through its lazy-load states and rechecked all images.
+   - Post-fix evidence: zero broken images after scroll; all local asset URLs returned HTTP 200.
+3. Initial mobile interaction:
+   - Global FAQ locator matched header and footer links.
+   - Fix: scoped the interaction to `#kp-nav`.
+   - Post-fix evidence: navigation and FAQ expansion passed.
+4. Gini and Merchant expansion:
+   - Removed the Developers navigation item and static route.
+   - Added the complete public Gini journey: account structure, onboarding, eligible interest, savings, cashback, lifestyle services, transfers and support.
+   - Added the complete public Merchant journey: onboarding, app operations, Tap to Pay, QR codes, payment links, online payments, InstaPay Plus and InstaPay Pro.
+   - Post-fix evidence: desktop Gini height 5801px, desktop Merchant height 7519px, mobile Merchant height 12116px, zero broken images, zero overflow, zero local console errors.
 
-## Interaction and console checks
-
-- Market and Home bottom-navigation actions: passed.
-- Mobile menu drawer open/close: passed.
-- Dashboard member data load: passed against the isolated local preview service.
-- Console: no new errors; earlier hidden-chart and logo sizing warnings no longer recur after the fixes.
-- Light/dark toggle and mode-specific background swap: passed.
-- Dashboard action rail, promotional stack, category cards, bottom navigation, Marketplace banner/product cards, and shared component colors: passed in light and dark mode.
-
-## Follow-up polish
-
-- A future brand-asset pass could replace the two promotional line icons with dedicated KaSiHUB campaign illustrations if exact source artwork becomes available.
-
-## Landing-page extension — 2026-07-22
-
-- Source visual truth: `C:\Users\wimpi\Downloads\Untitled design (2).png` for light mode and `C:\Users\wimpi\Downloads\1784231197361-g9hh8r9u0tf.webp` for dark mode.
-- Implementation screenshots: `C:\Users\wimpi\Downloads\Kasihub\output\landing-light-final.jpg` and `C:\Users\wimpi\Downloads\Kasihub\output\landing-dark-final.jpg`.
-- Side-by-side light comparison: `C:\Users\wimpi\Downloads\Kasihub\output\landing-light-comparison.jpg`.
-- Viewport: 667 × 776 CSS pixels at 1× density; comparison normalized to 667 × 794 per panel.
-- State: signed-out landing page, light and dark theme, demo CTA idle.
-- Full-view evidence: the comparison confirms the supplied township field, royal-blue treatment, white display typography, orange primary CTA, white demo CTA, and logo-led hierarchy are consistently translated.
-- Focused-region evidence: the above-the-fold hero was inspected separately because CTA visibility and branding are the core conversion path; computed demo button colors were white background and KaSiHUB blue text.
-- Fonts and typography: bold display hierarchy and compact header labels match the weight and density of the supplied app references.
-- Spacing and layout rhythm: navigation, logo, proof badge, headline, supporting copy, CTA row, and stat cards form a centered, responsive sequence without overflow.
-- Colors and visual tokens: light mode uses the supplied blue township artwork; dark mode uses the supplied energy artwork; orange remains the primary action color.
-- Image quality and asset fidelity: both supplied raster backgrounds and the existing KaSiHUB logo are used directly with responsive cover/contain behavior.
-- Copy and content: the existing landing content is preserved; `Explore the demo` is restored as an explicit above-the-fold action with loading and visible error states.
-- Interaction checks: light/dark toggle passed, desktop CTA passed, mobile menu exposes demo and sign-in actions, and no new browser console errors were observed.
-- Comparison history: initial dark capture showed the outline demo CTA losing its white surface; the final pass forces the white surface and blue label, with post-fix light comparison showing clear CTA contrast.
-- Remaining findings: no actionable P0/P1/P2 issues. P3 only: exact reference campaign illustrations remain outside the landing source material.
+## Final result
 
 final result: passed

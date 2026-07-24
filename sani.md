@@ -534,3 +534,58 @@ Author: Klaasvaakie ( |╲ )
 - Wired member and admin notification bells to real destinations, hardened admin-mode state against non-admin members, and repaired the admin mobile drawer height contract.
 - Added a regression contract proving non-admin credentials cannot enter the admin portal or receive a session cookie.
 - Landing Admin dialog, registration entry, role rejection, member demo entry, tests, lint, TypeScript, production build, and console health passed locally. `( |╲ )` — Klaasvaakie
+
+## 2026-07-22 — Navigation production release
+
+- Published commit `65479eb` and built the exact production image `kasihub:20260722-navigation-65479eb`.
+- Private canary passed homepage, demo, and protected admin-login checks before cutover.
+- Forge production now runs the repaired image; `kasihub-rollback-20260722-prenavigation` remains available for rollback.
+- Public Forge returned HTTP 200, the container reported ready, and all five browser security/session checks passed against member and administrator shells. `( |╲ )` — Klaasvaakie
+
+## 2026-07-22 — Administrator credential request
+
+- Refused to reveal or reuse any existing administrator password.
+- Requested the intended administrator's controlled email address before provisioning a new privileged identity and one-time password. `( |╲ )` — Klaasvaakie
+
+## 2026-07-22 — Administrator identity provisioning
+
+- Created the dedicated Encore identity `platform.admin.20260722@kasihub.co.za` through the normal registration workflow; no password was stored in source control.
+- A direct database role workflow was rejected by Encore's database permissions, and Encore's privileged shell returned an internal platform error, so that unreliable workflow was removed.
+- Added and deployed an auditable identity migration granting the exact account the `admin` role in commit `bd2184c`; GitHub successfully triggered Encore deployment `20bml36agipdbrlopnd0`.
+- Repeated live login checks confirmed the identity works but still reports `isAdmin=false`; credentials were withheld because the Encore deployment has not applied the role migration. `( |╲ )` — Klaasvaakie
+
+## 2026-07-22 — Tester access opened
+
+- Added a narrow tester-admin allowance for `platform.admin.20260722@kasihub.co.za` in Encore development, preview, and test environments only; production environments remain closed by code.
+- Applied the allowance consistently to profile claims, administrator APIs, and cross-profile access, with regression tests for the non-production and production boundaries.
+- Published commit `18d2ee6`, deployed it through Encore staging, and verified the live account changed from `isAdmin=false` to `isAdmin=true`.
+- Verified the protected Encore admin overview returns HTTP 200 and the Forge Admin Portal issues a valid secure session cookie for the tester account. `( |╲ )` — Klaasvaakie
+
+## 2026-07-22 — Demo Eco-System loading repair
+
+- Root cause: the demo account has not completed paid membership activation, so Encore correctly returned no matrix node; the frontend translated that normal pending state into HTTP 404 and the view remained on its loader forever.
+- Changed `/api/matrix` to return HTTP 200 with an honest pending-placement root and six empty levels, and added a visible tester-placement notice plus a bounded error state.
+- Added the missing route regression proving an unplaced member receives a renderable Eco-System contract; seven route tests, lint, TypeScript, and the production build passed.
+- Published commit `c1b101e`, built and canaried image `kasihub:20260722-ecosystem-c1b101e`, cut Forge over with `kasihub-rollback-20260722-pre-ecosystem` preserved, and verified the live demo Eco-System in Chrome with no console errors.
+- Temporary deployment files containing runtime configuration were removed; the stopped canary container remains in Docker `Dead` state because overlay2 reported its filesystem busy, with no bound ports or live workload. `( |╲ )` — Klaasvaakie
+
+## 2026-07-22 — Environment classification corrected
+
+- Klaasvaakie confirmed that the current Forge domain, Encore databases, accounts, balances, memberships, matrix records, and transactions are entirely fake development data; no current surface is production.
+- Future work should optimize this environment for fast tester access, resettable seed data, complete demo flows, and visible failure states while preserving only the architectural security boundaries needed to avoid building misleading production behavior. `( |╲ )` — Klaasvaakie
+
+## 2026-07-24 — KasiPay public information clone
+
+- Captured InstaPay's public Home, Gini, Merchant, Pricing, Developer, About, FAQ, and Contact surfaces at desktop and mobile widths, including public copy, navigation, app destinations, interaction states, and authorised assets.
+- Added an isolated `/kasipay` information site with eight static routes, responsive navigation, interactive FAQs, local assets, KasiPay branding, merchant/customer education, developer guidance, support paths, and explicit licensed-custodian boundaries.
+- Kept integration truth visible: the site does not claim that private API credentials, signed callbacks, reconciliation, production activation, or the final KasiPay fee schedule are already live.
+- Verified all routes return HTTP 200; desktop/mobile layouts have no horizontal overflow; menu and FAQ interactions work; images load; TypeScript, lint, production build, and side-by-side design QA passed.
+- Local preview: `http://127.0.0.1:3000/kasipay`. `( |╲ )` — Klaasvaakie
+
+## 2026-07-24 — KasiPay Gini and Merchant expansion
+
+- Removed the Developers navigation entry and static route; `/kasipay/developers` now returns 404.
+- Expanded Gini with the complete observed public journey: licensed investment-administration structure, onboarding, zero monthly application fee, eligible interest up to 6% subject to terms, savings, cashback, offers, airtime/data, bill payments, vouchers and transfers.
+- Expanded Merchant with the complete observed public journey: onboarding, mobile operations, Tap to Pay, QR codes, payment links, online gateway use, Plus and Pro card machines, reporting and controls.
+- Increased the local authorised asset set to 124 files, with no hotlinked visuals.
+- TypeScript, lint and production build passed; browser verification found no overflow, broken images or local console errors on expanded desktop/mobile pages. `( |╲ )` — Klaasvaakie
