@@ -37,6 +37,40 @@ test("KaSiHub navigation opens the fully branded KaSiPay pages", async ({ page }
   }
 });
 
+test("Become a member uses KaSiPay throughout the South African registration flow", async ({ page }) => {
+  // Author: Klaasvaakie ( |╲ )
+  await page.route("**/api/auth/session", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ authenticated: false, member: null }),
+  }));
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "Join KaSiHUB", exact: true }).first().click();
+  const registration = page.getByRole("dialog");
+  await expect(registration).toContainText("Become a member of the Eco-System");
+  await expect(registration).not.toContainText(/InstaPay/i);
+
+  await registration.getByText("SA Citizen in SA", { exact: true }).click();
+  await registration.getByLabel("I confirm that I am joining via bulk registration").click();
+  await registration.getByRole("button", { name: "Continue", exact: true }).click();
+
+  await expect(registration.getByRole("heading", { name: "KaSiPay Gini setup" })).toBeVisible();
+  await expect(registration).not.toContainText(/InstaPay/i);
+  await expect(registration.locator('a[href*="instapay" i]')).toHaveCount(0);
+  await expect(registration.getByRole("link", { name: /KaSiPay Gini/ })).toHaveAttribute("href", "/kasipay/gini");
+  await expect(registration.getByRole("link", { name: /Contact KaSiPay/ })).toHaveAttribute("href", "/kasipay/contact");
+});
+
+test("KaSiPay status endpoints never return legacy-branded links or copy", async ({ request }) => {
+  // Author: Klaasvaakie ( |╲ )
+  for (const endpoint of ["/api/kasipay/status", "/api/instapay/status"]) {
+    const response = await request.get(endpoint);
+    await expect(response).toBeOK();
+    expect(JSON.stringify(await response.json())).not.toMatch(/instapay/i);
+  }
+});
+
 test("public KaSiHub assistant answers approved topics and protects private support", async ({ page }) => {
   // Author: Klaasvaakie ( |╲ )
   await page.route("**/api/auth/session", (route) => route.fulfill({

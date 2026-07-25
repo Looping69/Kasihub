@@ -179,7 +179,7 @@ export function ProfileView() {
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <InfoRow label="Account reference" value={m.instapayAccountRef} mono />
-                  <InfoRow label="Verified on" value={m.instapayVerifiedAt ? formatInstapayDate(m.instapayVerifiedAt) : "—"} />
+                  <InfoRow label="Verified on" value={m.instapayVerifiedAt ? formatKaSiPayDate(m.instapayVerifiedAt) : "—"} />
                 </div>
               </div>
             )}
@@ -355,7 +355,7 @@ export function ProfileView() {
   );
 }
 
-function formatInstapayDate(iso: string): string {
+function formatKaSiPayDate(iso: string): string {
   if (!iso) return "—";
   const d = new Date(iso);
   if (isNaN(d.getTime())) return iso;

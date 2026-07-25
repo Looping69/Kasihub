@@ -24,11 +24,11 @@ import { BrandLogo } from "@/components/brand-logo";
 import { useKasiStore } from "@/lib/store";
 import type { CitizenshipType, MembershipType } from "@/lib/types";
 
-type Step = "type" | "instapay" | "subscription" | "details" | "review" | "done";
+type Step = "type" | "kasipay" | "subscription" | "details" | "review" | "done";
 
-type InstapayStatus = "NONE" | "PENDING" | "VERIFIED";
+type KaSiPayStatus = "NONE" | "PENDING" | "VERIFIED";
 
-const INSTAPAY_CITIZENSHIPS: CitizenshipType[] = ["SA_CITIZEN_SA", "SA_NPO_NGO"];
+const KASIPAY_CITIZENSHIPS: CitizenshipType[] = ["SA_CITIZEN_SA", "SA_NPO_NGO"];
 const INTL_CITIZENSHIPS: CitizenshipType[] = [
   "SA_CITIZEN_ABROAD",
   "FOREIGN_CITIZEN_ABROAD",
@@ -41,11 +41,12 @@ interface FormData {
   uplineProfileNumber: string;
   uplineConfirmed: boolean;
   uplineName: string | null;
-  instapayStatus: InstapayStatus;
-  instapayAccountRef: string | null;
-  instapayVerifiedAt: string | null;
-  instapayOption: "download" | "have" | null;
-  // InstaPay verify form
+  kasiPayStatus: KaSiPayStatus;
+  kasiPayAccountRef: string | null;
+  kasiPayVerifiedAt: string | null;
+  kasiPayOption: "setup" | "have" | null;
+  // Author: Klaasvaakie ( |╲ )
+  // KaSiPay verification fields
   idNumber: string;
   passportNumber: string;
   asylumNumber: string;
@@ -79,10 +80,10 @@ const INITIAL: FormData = {
   uplineProfileNumber: "",
   uplineConfirmed: false,
   uplineName: null,
-  instapayStatus: "NONE",
-  instapayAccountRef: null,
-  instapayVerifiedAt: null,
-  instapayOption: null,
+  kasiPayStatus: "NONE",
+  kasiPayAccountRef: null,
+  kasiPayVerifiedAt: null,
+  kasiPayOption: null,
   idNumber: "",
   passportNumber: "",
   asylumNumber: "",
@@ -167,8 +168,8 @@ function getSteps(c: CitizenshipType | null): { key: Step; label: string }[] {
   const steps: { key: Step; label: string }[] = [
     { key: "type", label: "Citizenship" },
   ];
-  if (c && INSTAPAY_CITIZENSHIPS.includes(c)) {
-    steps.push({ key: "instapay", label: "KaSiPay" });
+  if (c && KASIPAY_CITIZENSHIPS.includes(c)) {
+    steps.push({ key: "kasipay", label: "KaSiPay" });
   }
   steps.push({ key: "subscription", label: "Membership" });
   steps.push({ key: "details", label: "Details" });
@@ -204,11 +205,12 @@ export function RegistrationWizard() {
       ...d,
       citizenshipType: c,
       membershipType: null,
-      // Reset InstaPay state when changing citizenship
-      instapayStatus: INSTAPAY_CITIZENSHIPS.includes(c) ? "PENDING" : "NONE",
-      instapayAccountRef: null,
-      instapayVerifiedAt: null,
-      instapayOption: null,
+      // Author: Klaasvaakie ( |╲ )
+      // Reset KaSiPay state when changing citizenship.
+      kasiPayStatus: KASIPAY_CITIZENSHIPS.includes(c) ? "PENDING" : "NONE",
+      kasiPayAccountRef: null,
+      kasiPayVerifiedAt: null,
+      kasiPayOption: null,
       // Adjust default country for international types
       country: isInternational(c) && d.country === "South Africa" ? "" : d.country,
     }));
@@ -247,9 +249,11 @@ export function RegistrationWizard() {
         membershipType: data.membershipType,
         uplineProfileNumber: data.uplineProfileNumber || null,
         uplineConfirmed: data.uplineConfirmed,
-        instapayStatus: data.instapayStatus,
-        instapayAccountRef: data.instapayAccountRef,
-        instapayVerifiedAt: data.instapayVerifiedAt,
+        // Author: Klaasvaakie ( |╲ )
+        // These payload keys preserve the existing backend contract; KaSiPay is the product shown to members.
+        instapayStatus: data.kasiPayStatus,
+        instapayAccountRef: data.kasiPayAccountRef,
+        instapayVerifiedAt: data.kasiPayVerifiedAt,
         email: data.email,
         password: data.password,
         country: data.country,
@@ -384,8 +388,8 @@ export function RegistrationWizard() {
                   update={update}
                 />
               )}
-              {step === "instapay" && (
-                <InstaPayStep data={data} update={update} />
+              {step === "kasipay" && (
+                <KaSiPayStep data={data} update={update} />
               )}
               {step === "subscription" && (
                 <SubscriptionStep data={data} update={update} />
@@ -446,9 +450,10 @@ function canProceed(step: Step, data: FormData): boolean {
     if (!data.uplineConfirmed) return false;
     return true;
   }
-  if (step === "instapay") {
-    // Must have verified InstaPay or have chosen the download option
-    return data.instapayStatus === "VERIFIED" || data.instapayOption === "download";
+  if (step === "kasipay") {
+    // Author: Klaasvaakie ( |╲ )
+    // Continue after verification or acknowledgement of the KaSiPay setup path.
+    return data.kasiPayStatus === "VERIFIED" || data.kasiPayOption === "setup";
   }
   if (step === "subscription") {
     return !!data.membershipType;
@@ -632,26 +637,14 @@ function TypeStep({
 
 // ============ STEP 2: KASIPAY ============
 
-function InstaPayStep({
+function KaSiPayStep({
   data,
   update,
 }: {
   data: FormData;
   update: <K extends keyof FormData>(k: K, v: FormData[K]) => void;
 }) {
-  const [androidUrl, setAndroidUrl] = useState<string | null>(null);
-  const [iosUrl, setIosUrl] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
-
-  useEffect(() => {
-    fetch("/api/instapay/status")
-      .then((r) => r.json())
-      .then((d) => {
-        setAndroidUrl(d.androidUrl || null);
-        setIosUrl(d.iosUrl || null);
-      })
-      .catch(() => {});
-  }, []);
 
   const isNpo = isNpoNgoType(data.citizenshipType);
 
@@ -670,10 +663,10 @@ function InstaPayStep({
     try {
       // Author: Klaasvaakie ( |╲ )
       // Provider verification is submitted only after Encore creates the member identity.
-      update("instapayStatus", "PENDING");
-      update("instapayAccountRef", null);
-      update("instapayVerifiedAt", null);
-      update("instapayOption", "download");
+      update("kasiPayStatus", "PENDING");
+      update("kasiPayAccountRef", null);
+      update("kasiPayVerifiedAt", null);
+      update("kasiPayOption", "setup");
       toast.success("Details captured. Verification will continue after registration.");
     } catch {
       toast.error("Verification failed. Please try again.");
@@ -682,7 +675,7 @@ function InstaPayStep({
     }
   }
 
-  const verified = data.instapayStatus === "VERIFIED";
+  const verified = data.kasiPayStatus === "VERIFIED";
 
   return (
     <div>
@@ -700,10 +693,10 @@ function InstaPayStep({
             <div className="flex-1">
               <p className="font-bold text-emerald-700 dark:text-emerald-400">KaSiPay account verified</p>
               <p className="text-sm text-muted-foreground mt-1">
-                Account reference: <span className="font-mono font-semibold">{data.instapayAccountRef}</span>
+                Account reference: <span className="font-mono font-semibold">{data.kasiPayAccountRef}</span>
               </p>
               <p className="text-xs text-muted-foreground mt-1">
-                Verified at {data.instapayVerifiedAt ? new Date(data.instapayVerifiedAt).toLocaleString() : "—"}
+                Verified at {data.kasiPayVerifiedAt ? new Date(data.kasiPayVerifiedAt).toLocaleString() : "—"}
               </p>
             </div>
             <Badge className="bg-emerald-600 text-white">Verified</Badge>
@@ -711,21 +704,21 @@ function InstaPayStep({
         </Card>
       ) : (
         <RadioGroup
-          value={data.instapayOption || ""}
-          onValueChange={(v) => update("instapayOption", v as "download" | "have")}
+          value={data.kasiPayOption || ""}
+          onValueChange={(v) => update("kasiPayOption", v as "setup" | "have")}
           className="grid gap-4"
         >
-          {/* Download option */}
+          {/* Author: Klaasvaakie ( |╲ ) — KaSiPay setup option */}
           <div className="relative">
             <RadioGroupItem
-              value="download"
-              id="ip-download"
+              value="setup"
+              id="kasipay-setup"
               className="absolute top-5 right-5 z-10 data-[state=checked]:border-emerald-600 data-[state=checked]:text-emerald-600"
             />
-            <label htmlFor="ip-download" className="block cursor-pointer">
+            <label htmlFor="kasipay-setup" className="block cursor-pointer">
               <Card
                 className={`p-5 transition-all ${
-                  data.instapayOption === "download"
+                  data.kasiPayOption === "setup"
                     ? "border-emerald-500 ring-2 ring-emerald-500/30"
                     : "hover:border-border"
                 }`}
@@ -735,35 +728,24 @@ function InstaPayStep({
                     <Download className="h-5 w-5" />
                   </div>
                   <div className="flex-1">
-                    <p className="font-bold">Download KaSiPay Gini app</p>
+                    <p className="font-bold">Set up KaSiPay Gini</p>
                     <p className="text-xs text-muted-foreground mt-1 mb-4">
-                      Install the app on your phone, create an account, then return here to continue.
+                      Review the official KaSiPay Gini information, then return here to continue.
                     </p>
                     <div className="flex flex-wrap gap-2">
                       <a
-                        href={androidUrl || "#"}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => {
-                          if (!androidUrl) e.preventDefault();
-                        }}
+                        href="/kasipay/gini"
                         className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-black text-white text-xs font-semibold hover:opacity-90 transition-opacity"
                       >
                         <Smartphone className="h-4 w-4" />
-                        Google Play
+                        KaSiPay Gini
                         <ExternalLink className="h-3 w-3 opacity-60" />
                       </a>
                       <a
-                        href={iosUrl || "#"}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => {
-                          if (!iosUrl) e.preventDefault();
-                        }}
-                        className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-black text-white text-xs font-semibold hover:opacity-90 transition-opacity"
+                        href="/kasipay/contact"
+                        className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-border bg-background text-xs font-semibold hover:bg-muted transition-colors"
                       >
-                        <Smartphone className="h-4 w-4" />
-                        App Store
+                        Contact KaSiPay
                         <ExternalLink className="h-3 w-3 opacity-60" />
                       </a>
                     </div>
@@ -777,13 +759,13 @@ function InstaPayStep({
           <div className="relative">
             <RadioGroupItem
               value="have"
-              id="ip-have"
+              id="kasipay-have"
               className="absolute top-5 right-5 z-10 data-[state=checked]:border-emerald-600 data-[state=checked]:text-emerald-600"
             />
-            <label htmlFor="ip-have" className="block cursor-pointer">
+            <label htmlFor="kasipay-have" className="block cursor-pointer">
               <Card
                 className={`p-5 transition-all ${
-                  data.instapayOption === "have"
+                  data.kasiPayOption === "have"
                     ? "border-emerald-500 ring-2 ring-emerald-500/30"
                     : "hover:border-border"
                 }`}
@@ -805,7 +787,7 @@ function InstaPayStep({
         </RadioGroup>
       )}
 
-      {data.instapayOption === "have" && !verified && (
+      {data.kasiPayOption === "have" && !verified && (
         <Card className="mt-4 p-5 border-dashed">
           <p className="text-sm font-semibold mb-1">Verify your KaSiPay account</p>
           <p className="text-xs text-muted-foreground mb-4">
@@ -874,7 +856,7 @@ function InstaPayStep({
           <Info className="h-5 w-5 text-amber-600 mt-0.5 flex-shrink-0" />
           <p className="text-xs text-amber-800 dark:text-amber-300">
             Subscription is processed via KaSiPay Gini with Adamo subscription integration.
-            {data.instapayOption === "download" && " You can complete this step later — KaSiPay setup is required before your first subscription payment."}
+            {data.kasiPayOption === "setup" && " You can complete this step later — KaSiPay setup is required before your first subscription payment."}
           </p>
         </div>
       </div>
@@ -1141,10 +1123,10 @@ function ReviewStep({ data }: { data: FormData }) {
           <Row
             label="KaSiPay status"
             value={
-              INSTAPAY_CITIZENSHIPS.includes(c as CitizenshipType)
-                ? data.instapayStatus === "VERIFIED"
-                  ? `Verified (${data.instapayAccountRef})`
-                  : "Pending / Download app"
+              KASIPAY_CITIZENSHIPS.includes(c as CitizenshipType)
+                ? data.kasiPayStatus === "VERIFIED"
+                  ? `Verified (${data.kasiPayAccountRef})`
+                  : "Pending / setup required"
                 : "N/A"
             }
           />
