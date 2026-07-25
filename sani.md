@@ -602,3 +602,10 @@ Author: Klaasvaakie ( |╲ )
 - Verified public HTTPS for Home, Gini, Merchant, Pricing, FAQ, About, and Contact; the removed Developers route correctly returns 404 and a sampled local asset returns 200.
 - Removed the temporary runtime environment file after deployment. `( |╲ )` — Klaasvaakie
 - TypeScript, lint and production build passed; browser verification found no overflow, broken images or local console errors on expanded desktop/mobile pages. `( |╲ )` — Klaasvaakie
+
+## 2026-07-25 — Website-only KaSiHub public assistant
+
+- Added a native, dependency-free public information assistant to the KaSiHub landing page with exact `KaSiHub` branding, a visible responsive entry point, approved topic prompts, and source labels tied to the public website.
+- Kept the assistant deterministic so it cannot invent answers; it covers the public overview, ecosystem features, getting started, Roots CO-OP Bank separation, website-only/WhatsApp scope, and support contact.
+- Added hard boundaries for account support, payments, financial advice, eligibility decisions, and personal data, with safe escalation to `support@kasihub.co.za`.
+- Verified 56 automated tests, full lint, TypeScript, production build, and desktop/mobile browser behavior; the assistant rendered without overflow, console errors, or framework overlays. No deployment was performed. `( |╲ )` — Klaasvaakie

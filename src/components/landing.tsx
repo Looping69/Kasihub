@@ -17,6 +17,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { BrandLogo } from "@/components/brand-logo";
 import { useKasiStore } from "@/lib/store";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { PublicAssistant } from "@/components/public-assistant";
 
 // Author: Klaasvaakie ( |╲ )
 const PILLARS = [
@@ -495,6 +496,8 @@ export function Landing() {
           </form>
         </DialogContent>
       </Dialog>
+      {/* Author: Klaasvaakie ( |╲ ) — public, website-only KaSiHub information assistant. */}
+      <PublicAssistant />
     </div>
   );
 }

@@ -10,6 +10,26 @@ test("landing page boots from server session truth", async ({ page }) => {
   expect(await session.json()).toMatchObject({ authenticated: false, member: null });
 });
 
+test("public KaSiHub assistant answers approved topics and protects private support", async ({ page }) => {
+  // Author: Klaasvaakie ( |╲ )
+  await page.route("**/api/auth/session", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ authenticated: false, member: null }),
+  }));
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "Ask KaSiHub" }).click();
+  await expect(page.getByRole("heading", { name: "Ask KaSiHub" })).toBeVisible();
+  await page.getByRole("button", { name: "How do I get started?" }).click();
+  await expect(page.getByText(/Use “Join KaSiHub” on this website/)).toBeVisible();
+
+  await page.getByLabel("Ask a public question about KaSiHub").fill("Can you check my account?");
+  await page.getByRole("button", { name: "Send question" }).click();
+  await expect(page.getByText(/I cannot access accounts/)).toBeVisible();
+  await expect(page.getByText(/Do not share passwords, ID numbers, banking details/)).toBeVisible();
+});
+
 test("cross-site state-changing requests are rejected", async ({ request }) => {
   const response = await request.post("/api/auth/login", {
     headers: { Origin: "https://attacker.invalid", "Sec-Fetch-Site": "cross-site" },
