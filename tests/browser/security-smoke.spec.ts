@@ -26,7 +26,7 @@ test("public KaSiHub assistant answers approved topics and protects private supp
 
   await page.getByLabel("Ask a public question about KaSiHub").fill("Can you check my account?");
   await page.getByRole("button", { name: "Send question" }).click();
-  await expect(page.getByText(/I cannot access accounts/)).toBeVisible();
+  await expect(page.getByText(/^I can only explain public KaSiHub information\. I cannot access accounts/)).toBeVisible();
   await expect(page.getByText(/Do not share passwords, ID numbers, banking details/)).toBeVisible();
 });
 
