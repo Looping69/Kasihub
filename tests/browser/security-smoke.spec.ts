@@ -10,6 +10,33 @@ test("landing page boots from server session truth", async ({ page }) => {
   expect(await session.json()).toMatchObject({ authenticated: false, member: null });
 });
 
+test("KaSiHub navigation opens the fully branded KaSiPay pages", async ({ page }) => {
+  // Author: Klaasvaakie ( |╲ )
+  await page.route("**/api/auth/session", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ authenticated: false, member: null }),
+  }));
+
+  await page.goto("/");
+  await page.locator('header nav.hidden a[href="/kasipay"]').click();
+  await expect(page).toHaveURL(/\/kasipay$/);
+  await expect(page.getByRole("heading", { name: "Your money. Your business. Simplified." })).toBeVisible();
+  const primaryNavigation = page.getByRole("navigation", { name: "Primary navigation" });
+  await expect(primaryNavigation.getByRole("link", { name: "Gini", exact: true })).toBeVisible();
+  await expect(primaryNavigation.getByRole("link", { name: "Merchant", exact: true })).toBeVisible();
+  await expect(primaryNavigation.getByRole("link", { name: "Pricing", exact: true })).toBeVisible();
+  await expect(primaryNavigation.getByRole("link", { name: "FAQ", exact: true })).toBeVisible();
+  await expect(primaryNavigation.getByRole("link", { name: "About", exact: true })).toBeVisible();
+  await expect(page.locator("body")).not.toContainText(/InstaPay/i);
+
+  for (const route of ["gini", "merchant", "pricing", "faq", "about", "contact"]) {
+    await page.goto(`/kasipay/${route}`);
+    await expect(page.locator("body")).toContainText("KaSiPay");
+    await expect(page.locator("body")).not.toContainText(/InstaPay/i);
+  }
+});
+
 test("public KaSiHub assistant answers approved topics and protects private support", async ({ page }) => {
   // Author: Klaasvaakie ( |╲ )
   await page.route("**/api/auth/session", (route) => route.fulfill({
@@ -21,11 +48,18 @@ test("public KaSiHub assistant answers approved topics and protects private supp
   await page.goto("/");
   await page.getByRole("button", { name: "Ask KaSiHub" }).click();
   await expect(page.getByRole("heading", { name: "Ask KaSiHub" })).toBeVisible();
+  const conversation = page.getByRole("log", { name: "KaSiHub conversation" });
   await page.getByRole("button", { name: "How do I get started?" }).click();
+  await expect(conversation).toHaveAttribute("aria-busy", "true");
+  await expect(page.getByText("Source: KaSiHub public website — How it works")).toHaveCount(0);
+  await expect(conversation).toHaveAttribute("aria-busy", "false");
   await expect(page.getByText(/Use “Join KaSiHub” on this website/)).toBeVisible();
+  await expect(page.getByText("Source: KaSiHub public website — How it works")).toBeVisible();
 
   await page.getByLabel("Ask a public question about KaSiHub").fill("Can you check my account?");
   await page.getByRole("button", { name: "Send question" }).click();
+  await expect(conversation).toHaveAttribute("aria-busy", "true");
+  await expect(conversation).toHaveAttribute("aria-busy", "false");
   await expect(page.getByText(/^I can only explain public KaSiHub information\. I cannot access accounts/)).toBeVisible();
   await expect(page.getByText(/Do not share passwords, ID numbers, banking details/)).toBeVisible();
 });

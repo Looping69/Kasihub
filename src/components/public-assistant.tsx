@@ -6,6 +6,7 @@ import { Bot, ExternalLink, MessageCircle, Send, ShieldCheck, X } from "lucide-r
 import {
   PUBLIC_ASSISTANT_SUGGESTIONS,
   answerPublicQuestion,
+  splitPublicAnswerForStreaming,
   type PublicAssistantAnswer,
 } from "@/lib/public-assistant";
 
@@ -14,6 +15,7 @@ interface ChatMessage {
   role: "assistant" | "user";
   text: string;
   source?: string;
+  streaming?: boolean;
 }
 
 const WELCOME_MESSAGE: ChatMessage = {
@@ -27,9 +29,12 @@ export function PublicAssistant() {
   const [open, setOpen] = useState(false);
   const [question, setQuestion] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([WELCOME_MESSAGE]);
+  const [isStreaming, setIsStreaming] = useState(false);
   const nextId = useRef(1);
   const inputRef = useRef<HTMLInputElement>(null);
   const logRef = useRef<HTMLDivElement>(null);
+  const streamTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const streamingRef = useRef(false);
 
   useEffect(() => {
     if (open) inputRef.current?.focus();
@@ -39,24 +44,74 @@ export function PublicAssistant() {
     if (open) logRef.current?.scrollTo({ top: logRef.current.scrollHeight });
   }, [messages, open]);
 
+  useEffect(
+    () => () => {
+      if (streamTimerRef.current) clearTimeout(streamTimerRef.current);
+    },
+    [],
+  );
+
   function addExchange(prompt: string, answer: PublicAssistantAnswer) {
     const userId = nextId.current++;
     const answerId = nextId.current++;
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    if (reduceMotion) {
+      setMessages((current) => [
+        ...current,
+        { id: userId, role: "user", text: prompt },
+        { id: answerId, role: "assistant", text: answer.message, source: answer.source },
+      ]);
+      return;
+    }
+
+    const chunks = splitPublicAnswerForStreaming(answer.message);
+    if (chunks.length === 0) return;
+
+    streamingRef.current = true;
+    setIsStreaming(true);
     setMessages((current) => [
       ...current,
       { id: userId, role: "user", text: prompt },
       {
         id: answerId,
         role: "assistant",
-        text: answer.message,
+        text: "",
         source: answer.source,
+        streaming: true,
       },
     ]);
+
+    let chunkIndex = 0;
+    const revealNextChunk = () => {
+      const chunk = chunks[chunkIndex];
+      chunkIndex += 1;
+      const finished = chunkIndex === chunks.length;
+
+      setMessages((current) =>
+        current.map((message) =>
+          message.id === answerId
+            ? { ...message, text: `${message.text}${chunk}`, streaming: !finished }
+            : message,
+        ),
+      );
+
+      if (finished) {
+        streamingRef.current = false;
+        setIsStreaming(false);
+        streamTimerRef.current = null;
+        return;
+      }
+
+      streamTimerRef.current = setTimeout(revealNextChunk, 32);
+    };
+
+    streamTimerRef.current = setTimeout(revealNextChunk, 180);
   }
 
   function ask(prompt: string) {
     const cleanPrompt = prompt.trim();
-    if (!cleanPrompt) return;
+    if (!cleanPrompt || streamingRef.current) return;
     addExchange(cleanPrompt, answerPublicQuestion(cleanPrompt));
     setQuestion("");
   }
@@ -98,9 +153,12 @@ export function PublicAssistant() {
           </div>
 
           <div
+            aria-busy={isStreaming}
+            aria-label="KaSiHub conversation"
             aria-live="polite"
             className="scrollbar-kasi flex-1 space-y-3 overflow-y-auto px-4 py-4"
             ref={logRef}
+            role="log"
           >
             {messages.map((message) => (
               <div
@@ -114,8 +172,15 @@ export function PublicAssistant() {
                       : "max-w-[92%] rounded-2xl rounded-bl-md border border-border bg-muted/65 px-3.5 py-2.5 text-sm leading-relaxed text-foreground"
                   }
                 >
-                  <p>{message.text}</p>
-                  {message.source && (
+                  <p>
+                    {message.text}
+                    {message.streaming && (
+                      <span aria-hidden="true" className="ml-0.5 inline-block animate-pulse font-black text-[#087fe8]">
+                        ▍
+                      </span>
+                    )}
+                  </p>
+                  {message.source && !message.streaming && (
                     <p className="mt-2 border-t border-current/10 pt-2 text-[10px] font-semibold opacity-65">
                       Source: {message.source}
                     </p>
@@ -130,6 +195,7 @@ export function PublicAssistant() {
               {PUBLIC_ASSISTANT_SUGGESTIONS.map((suggestion) => (
                 <button
                   className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1.5 text-left text-xs font-semibold text-blue-900 transition hover:border-[#087fe8] hover:bg-blue-100 dark:border-blue-900 dark:bg-blue-950/35 dark:text-blue-100"
+                  disabled={isStreaming}
                   key={suggestion}
                   onClick={() => ask(suggestion)}
                   type="button"
@@ -150,15 +216,16 @@ export function PublicAssistant() {
                 className="h-10 min-w-0 flex-1 rounded-xl border border-input bg-background px-3 text-sm outline-none transition placeholder:text-muted-foreground focus:border-[#087fe8] focus:ring-2 focus:ring-[#087fe8]/20"
                 id="kasihub-public-question"
                 maxLength={240}
+                disabled={isStreaming}
                 onChange={(event) => setQuestion(event.target.value)}
-                placeholder="Ask about KaSiHub…"
+                placeholder={isStreaming ? "KaSiHub is answering…" : "Ask about KaSiHub…"}
                 ref={inputRef}
                 value={question}
               />
               <button
                 aria-label="Send question"
                 className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-r from-[#ff9d13] to-[#ff641e] text-white shadow transition hover:from-[#ffad32] hover:to-[#ff7435] disabled:cursor-not-allowed disabled:opacity-50"
-                disabled={!question.trim()}
+                disabled={isStreaming || !question.trim()}
                 type="submit"
               >
                 <Send aria-hidden="true" className="h-4 w-4" />

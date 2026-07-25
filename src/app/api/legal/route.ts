@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
           },
           {
             heading: "3. Subscription Fees",
-            body: "South African members pay monthly subscription fees via InstaPay Gini: Individual R140, Company/Sole Proprietor R300, NPO/NGO R250. International members pay via Bankus: Individual Adult $30, Individual Kid $30, Company $50. Free membership is available with limited features. Subscription fees are non-refundable once processed.",
+            body: "South African members pay monthly subscription fees via KaSiPay Gini: Individual R140, Company/Sole Proprietor R300, NPO/NGO R250. International members pay via Bankus: Individual Adult $30, Individual Kid $30, Company $50. Free membership is available with limited features. Subscription fees are non-refundable once processed.",
           },
           {
             heading: "4. Eco-System (5×6 Structure)",
@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
           },
           {
             heading: "6. KasiPool Distributions",
-            body: "The Platform operates three distribution pools: (1) Pioneer KasiPool — 1% of KasiMall and KasiMarketplace profits shared among the 200 Roots Bank pioneers; (2) KasiMarketplace Pool — shared among paid enablers; (3) Kasi Shareholders Pool — shared among KasiShare holders. Distributions are paid nightly at 12:00 SAST into members' Roots Bank or InstaPay accounts.",
+            body: "The Platform operates three distribution pools: (1) Pioneer KasiPool — 1% of KasiMall and KasiMarketplace profits shared among the 200 Roots Bank pioneers; (2) KasiMarketplace Pool — shared among paid enablers; (3) Kasi Shareholders Pool — shared among KasiShare holders. Distributions are paid nightly at 12:00 SAST into members' Roots Bank or KaSiPay accounts.",
           },
           {
             heading: "7. Tax Compliance",
@@ -89,15 +89,15 @@ export async function GET(req: NextRequest) {
         content: [
           {
             heading: "Information We Collect",
-            body: "KaSiHUB collects personal information including: name, ID/passport number, SARS number, email address, mobile number, residential address, and beneficiary details. We also collect transaction data, Eco-System placement information, share ownership records, and pool distribution history. For SA members, we collect InstaPay Gini account verification status.",
+            body: "KaSiHUB collects personal information including: name, ID/passport number, SARS number, email address, mobile number, residential address, and beneficiary details. We also collect transaction data, Eco-System placement information, share ownership records, and pool distribution history. For SA members, we collect KaSiPay Gini account verification status.",
           },
           {
             heading: "How We Use Your Information",
-            body: "Your information is used to: (1) create and manage your KaSiHUB membership; (2) place you in the Eco-System structure; (3) process subscription payments via InstaPay Gini or Bankus; (4) distribute KasiPool, PioneerPool, and ShareholderPool payouts; (5) issue KasiShare certificates; (6) comply with SARS tax reporting requirements; (7) verify your identity for FICA compliance.",
+            body: "Your information is used to: (1) create and manage your KaSiHUB membership; (2) place you in the Eco-System structure; (3) process subscription payments via KaSiPay Gini or Bankus; (4) distribute KasiPool, PioneerPool, and ShareholderPool payouts; (5) issue KasiShare certificates; (6) comply with SARS tax reporting requirements; (7) verify your identity for FICA compliance.",
           },
           {
             heading: "Information Sharing",
-            body: "We share your information with: (1) Roots CO-OP Bank for account opening and payment processing; (2) InstaPay Gini for subscription payment verification; (3) Bankus for international payment processing; (4) our appointed auditors when earnings exceed R7,000/month; (5) SARS as required by law. We do not sell your personal information to third parties.",
+            body: "We share your information with: (1) Roots CO-OP Bank for account opening and payment processing; (2) the authorised KaSiPay payment provider for subscription payment verification; (3) Bankus for international payment processing; (4) our appointed auditors when earnings exceed R7,000/month; (5) SARS as required by law. We do not sell your personal information to third parties.",
           },
           {
             heading: "Data Security",

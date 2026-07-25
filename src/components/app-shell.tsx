@@ -213,7 +213,7 @@ function MobileBottomNavigation() {
 }
 
 function SidebarContent({ mobile = false }: { mobile?: boolean }) {
-  const { activeView, setView, currentMember, logout } = useKasiStore();
+  const { activeView, setView, currentMember, logout, setSidebarOpen } = useKasiStore();
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {/* Logo */}
@@ -245,6 +245,18 @@ function SidebarContent({ mobile = false }: { mobile?: boolean }) {
             </button>
           );
         })}
+        <a
+          href="/kasipay"
+          onClick={() => setSidebarOpen(false)}
+          className="group flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-sidebar-foreground/80 transition-all duration-200 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+        >
+          <Wallet className="h-4.5 w-4.5 flex-shrink-0 transition-transform group-hover:scale-110" />
+          <div className="min-w-0 flex-1 text-left">
+            <p className="font-medium leading-none">KaSiPay</p>
+            <p className="mt-1 text-[10px] text-sidebar-foreground/50">Payments & merchant tools</p>
+          </div>
+          <ChevronRight className="h-4 w-4" />
+        </a>
       </nav>
 
       <Separator className="bg-sidebar-border" />

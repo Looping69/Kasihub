@@ -1,10 +1,10 @@
 // ( |╲ ) — Author: Klaasvaakie
 export const kasipayPages = {
   gini: {
-    eyebrow: "KasiPay Gini",
+    eyebrow: "KaSiPay Gini",
     title: "Pay. Send. Save. Earn.",
     intro:
-      "A free financial interface for everyday payments, contributions, disbursements and savings administration—built on InstaPay’s public platform information.",
+      "A free financial interface for everyday payments, contributions, disbursements and savings administration—presented through the approved KaSiPay platform.",
     image: "/kasipay-assets/images/customer-app-landing-new.png",
     cards: [
       ["Digital onboarding", "Open and manage your profile through a simple digital process.", "/kasipay-assets/customer/digital-onboarding.svg"],
@@ -20,13 +20,13 @@ export const kasipayPages = {
       },
       {
         title: "Save more, worry less",
-        body: "Contributions are routed into an account held with a licensed custodian or nominee institution. KasiPay and InstaPay provide the interface; they do not hold or custody customer funds.",
+        body: "Contributions are routed into an account held with a licensed custodian or nominee institution. KaSiPay provides the interface; it does not hold or custody customer funds.",
         bullets: ["Your funds remain with the appointed custodian", "Settlement follows custodian rules and timelines", "You retain ownership of your underlying funds"],
       },
     ],
   },
   merchant: {
-    eyebrow: "KasiPay Merchant",
+    eyebrow: "KaSiPay Merchant",
     title: "Power up your business",
     intro:
       "Accept payments, manage sales, track inventory, sell value-added services and understand your cash flow from one merchant platform.",
@@ -54,7 +54,7 @@ export const kasipayPages = {
     eyebrow: "Transparent pricing",
     title: "Low fees. High value.",
     intro:
-      "KasiPay follows InstaPay’s pay-as-you-use principle: no platform fantasy, just clear costs tied to the services and transactions you actually use.",
+      "KaSiPay follows a pay-as-you-use principle: clear costs tied to the services and transactions you actually use.",
     image: "/kasipay-assets/images/merchant-portal-insights.png",
     cards: [
       ["Instant access", "Funds and transaction status are reflected through the platform subject to settlement rules.", "/kasipay-assets/pricing/instant-access.svg"],
@@ -65,12 +65,12 @@ export const kasipayPages = {
     sections: [
       {
         title: "Pay only when you transact",
-        body: "Public InstaPay material separates receiving-payment fees from making-payment fees and notes that quoted fees exclude VAT and may change. Final KasiPay fees will be published only after the commercial schedule is approved.",
+        body: "Public platform material separates receiving-payment fees from making-payment fees and notes that quoted fees exclude VAT and may change. Final KaSiPay fees will be published only after the commercial schedule is approved.",
         bullets: ["No invented fee figures", "VAT treatment shown where applicable", "Full schedule supplied before activation", "Provider changes reflected transparently"],
       },
       {
         title: "Merchant plans",
-        body: "InstaPay publicly advertises merchant solutions from R299 monthly, alongside no-additional-cost QR acceptance and optional devices. KasiPay plan names, inclusions and exact fees remain subject to the signed custodian and merchant agreement.",
+        body: "The source platform publicly advertises merchant solutions from R299 monthly, alongside no-additional-cost QR acceptance and optional devices. KaSiPay plan names, inclusions and exact fees remain subject to the signed custodian and merchant agreement.",
         bullets: ["QR payment acceptance", "Payment links", "Android Tap to Pay", "Optional payment devices"],
       },
     ],
@@ -140,14 +140,14 @@ export const merchantJourney = [
   {
     eyebrow: "Online payments",
     title: "Accept payments on your website",
-    body: "The InstaPay gateway supports online acceptance through WordPress and other integration paths. Availability and certification depend on the approved merchant configuration.",
+    body: "The KaSiPay gateway supports online acceptance through WordPress and other integration paths. Availability and certification depend on the approved merchant configuration.",
     image: "/kasipay-assets/merchant-accordion/online-payment.png",
     bullets: ["WordPress/WooCommerce path", "Hosted or integrated checkout", "Multiple payment methods", "Merchant transaction reporting"],
   },
   {
     eyebrow: "Payment devices",
     title: "Choose the card machine that fits the floor",
-    body: "InstaPay Plus is positioned as a portable device for smaller and mobile businesses. InstaPay Pro is aimed at higher-volume retail and restaurant environments with advanced point-of-sale capability.",
+    body: "KaSiPay Plus is positioned as a portable device for smaller and mobile businesses. KaSiPay Pro is aimed at higher-volume retail and restaurant environments with advanced point-of-sale capability.",
     image: "/kasipay-assets/merchant-accordion/get-card-machine.png",
     bullets: ["Dip, tap and swipe", "Portable Plus option", "High-volume Pro option", "Barcode and receipt capability on supported devices"],
   },
@@ -157,8 +157,8 @@ export const faqGroups = [
   {
     title: "Gini and customer funds",
     items: [
-      ["Does KasiPay hold my money?", "No. KasiPay/InstaPay is an interface. Customer funds are held by licensed custodians or nominee institutions under the applicable account arrangement."],
-      ["How do I add funds?", "Supported contribution methods may include bank transfer, card and other approved methods. Funds are routed to the custodial account, not held by KasiPay."],
+      ["Does KaSiPay hold my money?", "No. KaSiPay is an interface. Customer funds are held by licensed custodians or nominee institutions under the applicable account arrangement."],
+      ["How do I add funds?", "Supported contribution methods may include bank transfer, card and other approved methods. Funds are routed to the custodial account, not held by KaSiPay."],
       ["Are transfers instant?", "The interface may update quickly, but actual movement and availability remain subject to the custodian’s rules, settlement times and third-party rails."],
       ["What can I buy?", "Publicly described services include merchant payments, airtime, data, electricity, supported bills, gift cards and transfers."],
     ],
@@ -169,7 +169,7 @@ export const faqGroups = [
       ["What is the merchant platform?", "A business-management and payment interface with transaction analytics, payment requests, internal controls, value-added services and customer engagement tools."],
       ["Which payment methods are supported?", "Public material describes EFT, QR codes, payment links, cards, Tap on Glass/NFC, cash-in/out partners and online gateway options. Availability depends on approval and configuration."],
       ["Can I export transactions?", "Yes. The public portal guidance describes Excel, CSV and PDF exports from transaction history."],
-      ["Where do I get support?", "Use the contact page or email support@instapay.co.za for current InstaPay platform support while KasiPay support channels are being commissioned."],
+      ["Where do I get support?", "Use the contact page or email support@kasihub.co.za for current KaSiPay support."],
     ],
   },
 ] as const;

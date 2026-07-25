@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   PUBLIC_ASSISTANT_SUGGESTIONS,
   answerPublicQuestion,
+  splitPublicAnswerForStreaming,
 } from "./public-assistant";
 
 describe("KaSiHub public assistant", () => {
@@ -43,6 +44,15 @@ describe("KaSiHub public assistant", () => {
 
     expect(answer.topic).toBe("fallback");
     expect(answer.message).toContain("do not have an approved public");
+  });
+
+  it("streams approved answers in exact, readable word chunks", () => {
+    const answer = answerPublicQuestion("What is KaSiHub?").message;
+    const chunks = splitPublicAnswerForStreaming(answer);
+
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(chunks.join("")).toBe(answer);
+    expect(splitPublicAnswerForStreaming("")).toEqual([]);
   });
 
   it("uses exact KaSiHub product branding in every user-facing string", () => {

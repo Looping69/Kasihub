@@ -609,3 +609,24 @@ Author: Klaasvaakie ( |╲ )
 - Kept the assistant deterministic so it cannot invent answers; it covers the public overview, ecosystem features, getting started, Roots CO-OP Bank separation, website-only/WhatsApp scope, and support contact.
 - Added hard boundaries for account support, payments, financial advice, eligibility decisions, and personal data, with safe escalation to `support@kasihub.co.za`.
 - Verified 56 automated tests, full lint, TypeScript, production build, and desktop/mobile browser behavior; the assistant rendered without overflow, console errors, or framework overlays. No deployment was performed. `( |╲ )` — Klaasvaakie
+
+## 2026-07-25 — KaSiHub public assistant Forge release
+
+- Published exact app revision `55636512ec797fe2d0bb24afa5a7581e998b43fb`; GitHub quality run `30150440983` passed frontend lint, types, tests, audit, build, Playwright, Encore check, and Encore tests.
+- Built and canaried Forge image `kasihub:20260725-chatbot-5563651`, then cut over `kasihub-live` with local HTTP 200, zero restarts, and the previous `fc88a49` image preserved as `kasihub-rollback-20260725-pre-chatbot`.
+- Verified the real public HTTPS site in a visible browser: `Ask KaSiHub` appeared, onboarding returned its public-website source label, and an account/payment/personal-data request returned the restricted safe-support response and support-boundary source label.
+- Confirmed no browser console errors, Next.js error overlay, or horizontal overflow; removed only the temporary canary, transferred archive, and build artifacts after verification. `( |╲ )` — Klaasvaakie
+
+## 2026-07-25 — KaSiPay navigation and public branding
+
+- Added direct KaSiPay navigation from the KaSiHub desktop header, mobile menu, footer, and authenticated sidebar; the KaSiPay header now links back to KaSiHub and across every public KaSiPay page.
+- Replaced all user-facing InstaPay wording across the public microsite, registration, profile, mall, administration, and legal content with exact `KaSiPay` branding while preserving internal API and database compatibility identifiers.
+- Updated KaSiPay support destinations to `support@kasihub.co.za` and retained the explicit licensed-custodian boundary without inventing activation claims.
+- Passed lint, TypeScript, 56 automated tests, production build, and all 7 Playwright browser tests, including navigation through every KaSiPay route and a regression check that no page renders the former brand. `( |╲ )` — Klaasvaakie
+
+## 2026-07-25 — KaSiHub assistant streamed answers
+
+- Changed the website-only assistant to reveal each approved deterministic answer progressively while retaining the same source-backed answer catalogue and restricted-topic boundaries.
+- Locked input during an active response, deferred source labels until completion, exposed an accessible busy state, and returned the full answer immediately for reduced-motion users.
+- Added exact chunk-reassembly coverage and browser checks for both supported and restricted streamed responses.
+- Passed lint, TypeScript, 57 automated tests, production build, and all 7 Playwright browser tests before release preparation. `( |╲ )` — Klaasvaakie

@@ -87,6 +87,10 @@ function includesAny(input: string, phrases: readonly string[]): boolean {
   return phrases.some((phrase) => input.includes(phrase));
 }
 
+export function splitPublicAnswerForStreaming(answer: string): string[] {
+  return answer.match(/\S+(?:\s+|$)/g) ?? [];
+}
+
 export function answerPublicQuestion(question: string): PublicAssistantAnswer {
   const normalized = question.trim().toLocaleLowerCase("en-ZA");
 

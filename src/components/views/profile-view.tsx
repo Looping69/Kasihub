@@ -163,10 +163,10 @@ export function ProfileView() {
             </div>
           </Card>
 
-          {/* InstaPay Gini account card */}
+          {/* KaSiPay Gini account card */}
           <Card className="p-5">
             <h3 className="font-bold mb-4 flex items-center gap-2">
-              <Smartphone className="h-4 w-4 text-emerald-600" /> InstaPay Gini Account
+              <Smartphone className="h-4 w-4 text-emerald-600" /> KaSiPay Gini Account
             </h3>
 
             {m.instapayStatus === "VERIFIED" && (
@@ -175,7 +175,7 @@ export function ProfileView() {
                   <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-900">
                     <ShieldCheck className="h-3 w-3 mr-1" /> VERIFIED
                   </Badge>
-                  <span className="text-xs text-muted-foreground">InstaPay Gini account linked</span>
+                  <span className="text-xs text-muted-foreground">KaSiPay Gini account linked</span>
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <InfoRow label="Account reference" value={m.instapayAccountRef} mono />
@@ -196,7 +196,7 @@ export function ProfileView() {
                   <Button
                     size="sm"
                     className="bg-amber-500 hover:bg-amber-600 text-white"
-                    onClick={() => toast.info("InstaPay verification wizard will open here")}
+                    onClick={() => toast.info("KaSiPay verification wizard will open here")}
                   >
                     <ShieldCheck className="h-3.5 w-3.5 mr-1.5" /> Verify now
                   </Button>
@@ -214,14 +214,14 @@ export function ProfileView() {
                     <Badge variant="outline" className="bg-muted text-muted-foreground border-border">
                       Not connected
                     </Badge>
-                    <span className="text-xs text-muted-foreground">No InstaPay Gini account linked yet</span>
+                    <span className="text-xs text-muted-foreground">No KaSiPay Gini account linked yet</span>
                   </div>
                   <Button
                     size="sm"
                     className="bg-emerald-600 hover:bg-emerald-700 text-white"
-                    onClick={() => toast.info("InstaPay Gini connection flow will open here")}
+                    onClick={() => toast.info("KaSiPay Gini connection flow will open here")}
                   >
-                    <Smartphone className="h-3.5 w-3.5 mr-1.5" /> Connect InstaPay
+                    <Smartphone className="h-3.5 w-3.5 mr-1.5" /> Connect KaSiPay
                   </Button>
                 </div>
               </div>
@@ -230,10 +230,10 @@ export function ProfileView() {
             <Separator className="my-4" />
             <div className="rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900 p-3 text-xs text-emerald-800 dark:text-emerald-300">
               <p className="font-semibold mb-1 flex items-center gap-1.5">
-                <Smartphone className="h-3.5 w-3.5" /> About InstaPay Gini
+                <Smartphone className="h-3.5 w-3.5" /> About KaSiPay Gini
               </p>
               <p className="leading-relaxed">
-                InstaPay Gini is used for subscription payments and KasiPool distributions. Download the app from
+                KaSiPay Gini is used for subscription payments and KasiPool distributions. Download the app from
                 Google Play or App Store.
               </p>
             </div>
@@ -346,7 +346,7 @@ export function ProfileView() {
             </div>
             <div className="mt-3 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900 p-3 text-xs text-emerald-800 dark:text-emerald-300 flex items-start gap-2">
               <MessageCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
-              <p>Reminders are sent to your WhatsApp number ({m.mobile}) via WABlast. Ensure your InstaPay Gini account is funded to avoid interruption.</p>
+              <p>Reminders are sent to your WhatsApp number ({m.mobile}) via WABlast. Ensure your KaSiPay Gini account is funded to avoid interruption.</p>
             </div>
           </Card>
         </TabsContent>

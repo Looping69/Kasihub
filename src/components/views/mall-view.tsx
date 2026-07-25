@@ -229,7 +229,7 @@ export function MallView() {
             <p className="font-semibold mb-2">About KasiMall</p>
             <ul className="space-y-1.5 text-xs text-muted-foreground">
               <li className="flex items-start gap-2"><TrendingUp className="h-3.5 w-3.5 text-emerald-600 mt-0.5 flex-shrink-0" /> Malls are built in designated areas once 5,000 KasiHub members register.</li>
-              <li className="flex items-start gap-2"><Wallet className="h-3.5 w-3.5 text-emerald-600 mt-0.5 flex-shrink-0" /> 100% Cashless — pay with your Instapay Gini App.</li>
+              <li className="flex items-start gap-2"><Wallet className="h-3.5 w-3.5 text-emerald-600 mt-0.5 flex-shrink-0" /> 100% Cashless — pay with your KaSiPay Gini App.</li>
             </ul>
           </div>
         </div>

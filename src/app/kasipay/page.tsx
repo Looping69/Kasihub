@@ -14,10 +14,10 @@ export default function KasiPayHome() {
     <>
       <section className="kp-hero">
         <div className="kp-hero-copy">
-          <span className="kp-eyebrow">Powered through the InstaPay ecosystem</span>
+          <span className="kp-eyebrow">Part of the KaSiHub ecosystem</span>
           <h1>Your money. Your business. <em>Simplified.</em></h1>
           <h2>With or without a bank.</h2>
-          <p>From paying and saving to accepting and growing, KasiPay brings consumer and merchant tools together to move money, build trust and unlock opportunity.</p>
+          <p>From paying and saving to accepting and growing, KaSiPay brings consumer and merchant tools together to move money, build trust and unlock opportunity.</p>
           <div className="kp-actions">
             <Link className="kp-btn kp-btn-primary" href="/kasipay/gini">Explore Gini</Link>
             <Link className="kp-btn kp-btn-ghost" href="/kasipay/merchant">For merchants</Link>
@@ -26,7 +26,7 @@ export default function KasiPayHome() {
         </div>
         <div className="kp-hero-visual">
           <Image className="kp-phone kp-phone-left" src="/kasipay-assets/images/customer-app-landing-new.png" alt="Gini consumer app" width={316} height={736} priority />
-          <Image className="kp-phone kp-phone-right" src="/kasipay-assets/images/merchant_app_landing-new.png" alt="InstaPay merchant app" width={342} height={750} priority />
+          <Image className="kp-phone kp-phone-right" src="/kasipay-assets/images/merchant_app_landing-new.png" alt="KaSiPay merchant app" width={342} height={750} priority />
         </div>
       </section>
 
@@ -58,7 +58,7 @@ export default function KasiPayHome() {
         <div className="kp-section-copy">
           <span className="kp-eyebrow">One connected platform</span>
           <h2>The platform that gives you more.</h2>
-          <p>Affordable, secure and designed for South Africa, the public InstaPay model supports a pay-as-you-use consumer experience and flexible merchant payment solutions without pretending the interface itself is the bank or custodian.</p>
+          <p>Affordable, secure and designed for South Africa, the public KaSiPay model supports a pay-as-you-use consumer experience and flexible merchant payment solutions without pretending the interface itself is the bank or custodian.</p>
           <div className="kp-stat-row">
             <div><strong>500k+</strong><span>transactions flow through the apps each year</span></div>
             <div><strong>R1bn+</strong><span>publicly reported annual payment processing</span></div>
@@ -72,7 +72,7 @@ export default function KasiPayHome() {
         <div className="kp-section-copy">
           <span className="kp-eyebrow kp-eyebrow-orange">Security and clarity</span>
           <h2>Your money deserves clean boundaries.</h2>
-          <p>Transactions and personal information require strong safeguards, clear authorisation and a traceable reconciliation trail. KasiPay will expose only services that have been approved and connected to the authorised custodian account.</p>
+          <p>Transactions and personal information require strong safeguards, clear authorisation and a traceable reconciliation trail. KaSiPay will expose only services that have been approved and connected to the authorised custodian account.</p>
           <ul className="kp-checks">
             <li>Licensed custodian holds customer funds</li>
             <li>KYC and AML controls before activation</li>
@@ -99,7 +99,7 @@ export default function KasiPayHome() {
         <div>
           <span className="kp-eyebrow kp-eyebrow-light">Put money in your hands</span>
           <h2>Join the ecosystem.</h2>
-          <p>Explore the public service model now. Account activation and live transaction access will follow the approved KasiPay rollout.</p>
+          <p>Explore the public service model now. Account activation and live transaction access will follow the approved KaSiPay rollout.</p>
           <Link className="kp-btn kp-btn-light" href="/kasipay/contact">Talk to the team</Link>
         </div>
       </section>

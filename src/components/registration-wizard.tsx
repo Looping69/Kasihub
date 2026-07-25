@@ -168,7 +168,7 @@ function getSteps(c: CitizenshipType | null): { key: Step; label: string }[] {
     { key: "type", label: "Citizenship" },
   ];
   if (c && INSTAPAY_CITIZENSHIPS.includes(c)) {
-    steps.push({ key: "instapay", label: "InstaPay" });
+    steps.push({ key: "instapay", label: "KaSiPay" });
   }
   steps.push({ key: "subscription", label: "Membership" });
   steps.push({ key: "details", label: "Details" });
@@ -630,7 +630,7 @@ function TypeStep({
   );
 }
 
-// ============ STEP 2: INSTAPAY ============
+// ============ STEP 2: KASIPAY ============
 
 function InstaPayStep({
   data,
@@ -686,9 +686,9 @@ function InstaPayStep({
 
   return (
     <div>
-      <h3 className="text-lg font-bold mb-1">InstaPay Gini setup</h3>
+      <h3 className="text-lg font-bold mb-1">KaSiPay Gini setup</h3>
       <p className="text-sm text-muted-foreground mb-6">
-        Your SA membership subscription is processed via InstaPay Gini. Choose an option below.
+        Your SA membership subscription is processed via KaSiPay Gini. Choose an option below.
       </p>
 
       {verified ? (
@@ -698,7 +698,7 @@ function InstaPayStep({
               <ShieldCheck className="h-6 w-6" />
             </div>
             <div className="flex-1">
-              <p className="font-bold text-emerald-700 dark:text-emerald-400">InstaPay account verified</p>
+              <p className="font-bold text-emerald-700 dark:text-emerald-400">KaSiPay account verified</p>
               <p className="text-sm text-muted-foreground mt-1">
                 Account reference: <span className="font-mono font-semibold">{data.instapayAccountRef}</span>
               </p>
@@ -735,7 +735,7 @@ function InstaPayStep({
                     <Download className="h-5 w-5" />
                   </div>
                   <div className="flex-1">
-                    <p className="font-bold">Download InstaPay Gini app</p>
+                    <p className="font-bold">Download KaSiPay Gini app</p>
                     <p className="text-xs text-muted-foreground mt-1 mb-4">
                       Install the app on your phone, create an account, then return here to continue.
                     </p>
@@ -793,7 +793,7 @@ function InstaPayStep({
                     <Wallet className="h-5 w-5" />
                   </div>
                   <div className="flex-1">
-                    <p className="font-bold">I already have an InstaPay Gini or Merchant Account</p>
+                    <p className="font-bold">I already have a KaSiPay Gini or Merchant Account</p>
                     <p className="text-xs text-muted-foreground mt-1">
                       Verify your existing account by providing one of the identifiers below.
                     </p>
@@ -807,9 +807,9 @@ function InstaPayStep({
 
       {data.instapayOption === "have" && !verified && (
         <Card className="mt-4 p-5 border-dashed">
-          <p className="text-sm font-semibold mb-1">Verify your InstaPay account</p>
+          <p className="text-sm font-semibold mb-1">Verify your KaSiPay account</p>
           <p className="text-xs text-muted-foreground mb-4">
-            Provide <span className="font-semibold">one</span> of the following identifiers that matches your InstaPay account.
+            Provide <span className="font-semibold">one</span> of the following identifiers that matches your KaSiPay account.
           </p>
           <div className="grid gap-4 sm:grid-cols-2">
             {!isNpo && (
@@ -873,8 +873,8 @@ function InstaPayStep({
         <div className="flex items-start gap-3">
           <Info className="h-5 w-5 text-amber-600 mt-0.5 flex-shrink-0" />
           <p className="text-xs text-amber-800 dark:text-amber-300">
-            Subscription is processed via InstaPay Gini with Adamo subscription integration.
-            {data.instapayOption === "download" && " You can complete this step later — InstaPay setup is required before your first subscription payment."}
+            Subscription is processed via KaSiPay Gini with Adamo subscription integration.
+            {data.instapayOption === "download" && " You can complete this step later — KaSiPay setup is required before your first subscription payment."}
           </p>
         </div>
       </div>
@@ -930,7 +930,7 @@ function SubscriptionStep({
       <p className="text-sm text-muted-foreground mb-6">
         {intl
           ? "International members pay via the Bankus platform in USD."
-          : "SA members pay via InstaPay Gini in ZAR."}
+          : "SA members pay via KaSiPay Gini in ZAR."}
       </p>
 
       <RadioGroup
@@ -983,12 +983,12 @@ function SubscriptionStep({
           </div>
           <div className="text-sm">
             <p className="font-semibold">
-              Payment method: {intl ? "Bankus Platform" : "InstaPay Gini"}
+              Payment method: {intl ? "Bankus Platform" : "KaSiPay Gini"}
             </p>
             <p className="text-xs text-muted-foreground mt-1">
               {intl
                 ? "You will be redirected to Bankus to complete your payment."
-                : "Subscription is processed via InstaPay Gini with Adamo subscription integration."}
+                : "Subscription is processed via KaSiPay Gini with Adamo subscription integration."}
             </p>
           </div>
         </div>
@@ -1139,7 +1139,7 @@ function ReviewStep({ data }: { data: FormData }) {
             value={data.uplineProfileNumber ? (data.uplineName || data.uplineProfileNumber) : "Bulk registration"}
           />
           <Row
-            label="InstaPay status"
+            label="KaSiPay status"
             value={
               INSTAPAY_CITIZENSHIPS.includes(c as CitizenshipType)
                 ? data.instapayStatus === "VERIFIED"
@@ -1150,7 +1150,7 @@ function ReviewStep({ data }: { data: FormData }) {
           />
           <Row
             label="Payment method"
-            value={intl ? "Bankus Platform" : "InstaPay Gini"}
+            value={intl ? "Bankus Platform" : "KaSiPay Gini"}
           />
           {isCompany && (
             <>

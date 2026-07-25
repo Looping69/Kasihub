@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { motion } from "framer-motion";
 import {
   ArrowRight, Users, Network, ShoppingBag, Building2, Landmark,
@@ -151,6 +152,7 @@ export function Landing() {
               <a href="#pillars" className="px-3 py-2 text-sm font-medium text-blue-100 hover:text-white transition-colors">Ecosystem</a>
               <a href="#flow" className="px-3 py-2 text-sm font-medium text-blue-100 hover:text-white transition-colors">How it works</a>
               <a href="#pioneer" className="px-3 py-2 text-sm font-medium text-blue-100 hover:text-white transition-colors">Pioneer Pool</a>
+              <Link href="/kasipay" className="px-3 py-2 text-sm font-semibold text-orange-200 transition-colors hover:text-white">KaSiPay</Link>
               <a href="#contact" className="px-3 py-2 text-sm font-medium text-blue-100 hover:text-white transition-colors">Contact</a>
             </nav>
 
@@ -177,6 +179,7 @@ export function Landing() {
               <a href="#pillars" onClick={() => setMobileMenu(false)} className="px-3 py-2 text-sm font-medium hover:bg-muted rounded-md">Ecosystem</a>
               <a href="#flow" onClick={() => setMobileMenu(false)} className="px-3 py-2 text-sm font-medium hover:bg-muted rounded-md">How it works</a>
               <a href="#pioneer" onClick={() => setMobileMenu(false)} className="px-3 py-2 text-sm font-medium hover:bg-muted rounded-md">Pioneer Pool</a>
+              <Link href="/kasipay" onClick={() => setMobileMenu(false)} className="px-3 py-2 text-sm font-semibold text-orange-200 hover:bg-muted rounded-md">KaSiPay</Link>
               <a href="#contact" onClick={() => setMobileMenu(false)} className="px-3 py-2 text-sm font-medium hover:bg-muted rounded-md">Contact</a>
               <button onClick={() => { setMobileMenu(false); void handleEnter(); }} className="rounded-md px-3 py-2 text-left text-sm font-bold text-orange-200 hover:bg-white/10">Explore demo</button>
               <button onClick={() => { setMobileMenu(false); openLogin("member"); }} className="rounded-md px-3 py-2 text-left text-sm font-medium hover:bg-white/10">Sign in</button>
@@ -455,6 +458,7 @@ export function Landing() {
                 <li><a href="#pillars" className="hover:text-sidebar-foreground">KasiShares</a></li>
                 <li><a href="#pillars" className="hover:text-sidebar-foreground">KasiMarketPlace</a></li>
                 <li><a href="#pillars" className="hover:text-sidebar-foreground">KasiMall</a></li>
+                <li><Link href="/kasipay" className="hover:text-sidebar-foreground">KaSiPay</Link></li>
                 <li><a href="#pioneer" className="hover:text-sidebar-foreground">Roots Bank Pioneers</a></li>
               </ul>
             </div>

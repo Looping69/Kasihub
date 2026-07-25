@@ -4,8 +4,8 @@ import { KasiPayShell } from "./kasipay-shell";
 import "./kasipay.css";
 
 export const metadata: Metadata = {
-  title: { default: "KasiPay | Payments, Savings & Merchant Tools", template: "%s | KasiPay" },
-  description: "KasiPay payment, merchant and savings-administration information powered through an authorised InstaPay custodian relationship.",
+  title: { default: "KaSiPay | Payments, Savings & Merchant Tools", template: "%s | KaSiPay" },
+  description: "KaSiPay payment, merchant and savings-administration information delivered through an authorised custodian relationship.",
   icons: { icon: "/kasipay-assets/favicon/favicon-32x32.png" },
 };
 

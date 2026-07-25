@@ -27,7 +27,7 @@ export default async function KasiPayInfoPage({ params }: { params: Params }) {
   if (slug === "faq") {
     return (
       <>
-        <PageHero eyebrow="Support" title="Questions, answered clearly." intro="The public InstaPay guidance, stripped of ambiguity and presented around the real custodian boundary." image="/kasipay-assets/images/faq.png" />
+        <PageHero eyebrow="Support" title="Questions, answered clearly." intro="Public KaSiPay guidance, stripped of ambiguity and presented around the real custodian boundary." image="/kasipay-assets/images/faq.png" />
         <section className="kp-faq-section kp-section">
           {faqGroups.map((group) => (
             <div className="kp-faq-group" key={group.title}>
@@ -43,14 +43,14 @@ export default async function KasiPayInfoPage({ params }: { params: Params }) {
   if (slug === "about") {
     return (
       <>
-        <PageHero eyebrow="About KasiPay" title="Local access. Proven payment infrastructure." intro="KasiPay is the customer-facing payment and savings-administration experience being built through an authorised InstaPay custodian account and API relationship." image="/kasipay-assets/images/customer-app-pop.png" />
+        <PageHero eyebrow="About KaSiPay" title="Local access. Proven payment infrastructure." intro="KaSiPay is the customer-facing payment and savings-administration experience being built through an authorised custodian account and API relationship." image="/kasipay-assets/images/customer-app-pop.png" />
         <section className="kp-prose kp-section">
           <h2>Built on a clear division of responsibility</h2>
-          <p>InstaPay is the result of combined expertise and technology from Omnea and Amber Pay. KasiPay will use the approved platform capability and public educational material while keeping its own customer experience, operational controls and integration records explicit.</p>
+          <p>KaSiPay uses approved platform capability and public educational material while keeping its customer experience, operational controls and integration records explicit.</p>
           <div className="kp-value-grid">
-            <article><h3>Provider infrastructure</h3><p>InstaPay supplies approved payment and merchant-platform capability under the commercial and technical agreement.</p></article>
+            <article><h3>Provider infrastructure</h3><p>The approved provider supplies payment and merchant-platform capability under the commercial and technical agreement.</p></article>
             <article><h3>Custodian authority</h3><p>The appointed licensed custodian or nominee institution holds customer funds and governs settlement.</p></article>
-            <article><h3>KasiPay experience</h3><p>KasiPay presents the local user journey, service information, support entry points and auditable product integration.</p></article>
+            <article><h3>KaSiPay experience</h3><p>KaSiPay presents the local user journey, service information, support entry points and auditable product integration.</p></article>
           </div>
         </section>
       </>
@@ -63,7 +63,7 @@ export default async function KasiPayInfoPage({ params }: { params: Params }) {
         <PageHero eyebrow="Contact" title="Start with the right conversation." intro="Choose the path that matches what you actually need. Live account onboarding will open when the authorised integration is ready." image="/kasipay-assets/images/pay-receipt-services.png" />
         <section className="kp-contact kp-section">
           <article><span>Consumer interest</span><h2>Explore Gini</h2><p>Understand everyday payments, savings administration, cashback and supported lifestyle services.</p><Link className="kp-btn kp-btn-primary" href="/kasipay/gini">View Gini</Link></article>
-          <article><span>Merchant onboarding</span><h2>Grow your business</h2><p>Review in-store, online, QR, link, gateway and point-of-sale options.</p><a className="kp-btn kp-btn-primary" href="mailto:sales@instapay.co.za">Contact platform sales</a></article>
+          <article><span>Merchant onboarding</span><h2>Grow your business</h2><p>Review in-store, online, QR, link, gateway and point-of-sale options.</p><a className="kp-btn kp-btn-primary" href="mailto:support@kasihub.co.za">Contact KaSiPay</a></article>
           <article><span>Need answers?</span><h2>Read the full FAQ</h2><p>Get direct answers about customer funds, settlement, merchant tools, payment methods and support.</p><Link className="kp-btn kp-btn-primary" href="/kasipay/faq">View FAQ</Link></article>
         </section>
       </>

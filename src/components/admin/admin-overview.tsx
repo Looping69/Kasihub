@@ -32,7 +32,7 @@ interface AdminStats {
     totalReferrals: number; registeredReferrals: number; referralConversionRate: number; totalReferralRewards: number;
     // Notifications
     totalNotifications: number; sent5Days: number; sent3Days: number; sent1Day: number;
-    // InstaPay
+    // KaSiPay
     instapayVerifiedCount: number; instapayPendingCount: number;
   };
   memberGrowth: { date: string; count: number }[];
@@ -98,12 +98,12 @@ export function AdminOverview() {
         <MiniKpi icon={AlertCircle} label="Tax-eligible members" value={stats.totals.taxEligibleMembers} color="rose" sub="earning > R7k/mo" />
       </div>
 
-      {/* Tertiary KPIs — Vouchers, Referrals, Notifications, InstaPay */}
+      {/* Tertiary KPIs — Vouchers, Referrals, Notifications, KaSiPay */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <MiniKpi icon={Ticket} label="Active vouchers" value={stats.totals.activeVouchers} color="emerald" sub={`${stats.totals.expiringVouchers} expiring`} onClick={() => setAdminView("vouchers")} />
         <MiniKpi icon={UserPlus} label="Referrals" value={`${stats.totals.registeredReferrals}/${stats.totals.totalReferrals}`} color="emerald" sub={`${stats.totals.referralConversionRate}% conversion`} onClick={() => setAdminView("referrals")} />
         <MiniKpi icon={MessageCircle} label="WhatsApp reminders" value={stats.totals.totalNotifications} color="teal" sub="5/3/1 day sent" onClick={() => setAdminView("notifications")} />
-        <MiniKpi icon={ShieldCheck} label="InstaPay verified" value={stats.totals.instapayVerifiedCount} color="emerald" sub={`${stats.totals.instapayPendingCount} pending`} />
+        <MiniKpi icon={ShieldCheck} label="KaSiPay verified" value={stats.totals.instapayVerifiedCount} color="emerald" sub={`${stats.totals.instapayPendingCount} pending`} />
       </div>
 
       {/* Charts row 1 */}
