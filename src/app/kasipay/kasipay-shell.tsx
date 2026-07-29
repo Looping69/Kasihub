@@ -11,6 +11,7 @@ const nav = [
   ["/kasipay/gini", "Gini"],
   ["/kasipay/merchant", "Merchant"],
   ["/kasipay/pricing", "Pricing"],
+  ["/kasipay/developer", "Developers"],
   ["/kasipay/faq", "FAQ"],
   ["/kasipay/about", "About"],
 ] as const;
@@ -52,6 +53,7 @@ export function KasiPayShell({ children }: { children: ReactNode }) {
             <Link href="/kasipay/gini">Gini app</Link>
             <Link href="/kasipay/merchant">Merchant services</Link>
             <Link href="/kasipay/pricing">Pricing</Link>
+            <Link href="/kasipay/developer">Developer guide</Link>
           </div>
           <div>
             <h3>Help</h3>

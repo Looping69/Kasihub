@@ -27,7 +27,7 @@ export default async function KasiPayInfoPage({ params }: { params: Params }) {
   if (slug === "faq") {
     return (
       <>
-        <PageHero eyebrow="Support" title="Questions, answered clearly." intro="Public KaSiPay guidance, stripped of ambiguity and presented around the real custodian boundary." image="/kasipay-assets/images/faq.png" />
+        <PageHero eyebrow="Support" title="Questions, answered clearly." intro="Everything customers and merchants need to know about KaSiPay services, onboarding and support." image="/kasipay-assets/images/faq.png" />
         <section className="kp-faq-section kp-section">
           {faqGroups.map((group) => (
             <div className="kp-faq-group" key={group.title}>
@@ -43,14 +43,14 @@ export default async function KasiPayInfoPage({ params }: { params: Params }) {
   if (slug === "about") {
     return (
       <>
-        <PageHero eyebrow="About KaSiPay" title="Local access. Proven payment infrastructure." intro="KaSiPay is the customer-facing payment and savings-administration experience being built through an authorised custodian account and API relationship." image="/kasipay-assets/images/customer-app-pop.png" />
+        <PageHero eyebrow="About KaSiPay" title="Powering progress through financial inclusion." intro="KaSiPay brings consumer and merchant payment tools together so people and businesses can pay, save and grow with confidence." image="/kasipay-assets/images/customer-app-pop.png" />
         <section className="kp-prose kp-section">
-          <h2>Built on a clear division of responsibility</h2>
-          <p>KaSiPay uses approved platform capability and public educational material while keeping its customer experience, operational controls and integration records explicit.</p>
+          <h2>Built for everyday commerce</h2>
+          <p>KaSiPay is the result of combined payment expertise and technology, created to make digital commerce more accessible for consumers and merchants.</p>
           <div className="kp-value-grid">
-            <article><h3>Provider infrastructure</h3><p>The approved provider supplies payment and merchant-platform capability under the commercial and technical agreement.</p></article>
-            <article><h3>Custodian authority</h3><p>The appointed licensed custodian or nominee institution holds customer funds and governs settlement.</p></article>
-            <article><h3>KaSiPay experience</h3><p>KaSiPay presents the local user journey, service information, support entry points and auditable product integration.</p></article>
+            <article><h3>Consumer tools</h3><p>Everyday payments, savings, cashbacks and essential services through Gini.</p></article>
+            <article><h3>Merchant tools</h3><p>In-store, online, QR and payment-link tools that help businesses run and grow.</p></article>
+            <article><h3>Trusted infrastructure</h3><p>Customer-fund custody, settlement and compliance are handled through the appointed regulated institutions.</p></article>
           </div>
         </section>
       </>

@@ -15,7 +15,7 @@ export default function KasiPayHome() {
       <section className="kp-hero">
         <div className="kp-hero-copy">
           <span className="kp-eyebrow">Part of the KaSiHub ecosystem</span>
-          <h1>Your money. Your business. <em>Simplified.</em></h1>
+          <h1>Smart Payments. Smarter Business. <em>Simplified.</em></h1>
           <h2>With or without a bank.</h2>
           <p>From paying and saving to accepting and growing, KaSiPay brings consumer and merchant tools together to move money, build trust and unlock opportunity.</p>
           <div className="kp-actions">
