@@ -13,6 +13,9 @@ export const sharesDb = new SQLDatabase("shares", { migrations: { path: "migrati
 export const commerceDb = new SQLDatabase("commerce", { migrations: { path: "migrations/commerce" } });
 export const engagementDb = new SQLDatabase("engagement", { migrations: { path: "migrations/engagement" } });
 export const auditDb = new SQLDatabase("audit", { migrations: { path: "migrations/audit" } });
+// Isolated presale records can be reconciled and incorporated without sharing the live share ledger.
+// Author: Klaasvaakie ( |╲ )
+export const presaleDb = new SQLDatabase("presale", { migrations: { path: "migrations/presale" } });
 
 export const documentsBucket = new Bucket("documents", { public: false });
 

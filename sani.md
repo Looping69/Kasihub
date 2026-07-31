@@ -636,3 +636,7 @@ Author: Klaasvaakie ( |╲ )
 - Generated and visually verified a three-page PDF under `output/pdf/`; retained the Markdown source for maintainable future updates.
 - Kept the report on a clean branch from current GitHub main so the detached dirty checkout and unrelated product edits remain untouched. Author: Klaasvaakie ( |╲ )
 - Passed lint, TypeScript, 57 automated tests, production build, and all 7 Playwright browser tests before release preparation. `( |╲ )` — Klaasvaakie
+
+## 2026-07-31 — Isolated USDT presale branch
+
+- Created `Klaasvaakie/usdt-share-presale` from the clean parent of an accidental broad workspace commit, restoring only the isolated presale database/domain, invitation-gated UI, administrative gateways, signed USDT verification contract, incorporation manifest, tests, runbook, and exact Encore v1.57.13 dependency. Excluded `.env`, generated output, temporary archives, local Encore binaries, and unrelated UI changes from the scoped feature commit. `( |╲ )` — Klaasvaakie

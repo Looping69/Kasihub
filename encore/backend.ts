@@ -11,5 +11,6 @@ import "./domains/identity/api";
 import "./domains/kyc/api";
 import "./domains/membership/api";
 import "./domains/network/api";
+import "./domains/presale/api";
 import "./domains/shares/api";
 import "./domains/wallets/api";
