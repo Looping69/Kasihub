@@ -20,8 +20,8 @@ export const kasipayPages = {
       },
       {
         title: "Save more, worry less",
-        body: "Contributions are routed into an account held with a licensed custodian or nominee institution. KaSiPay provides the interface; it does not hold or custody customer funds.",
-        bullets: ["Your funds remain with the appointed custodian", "Settlement follows custodian rules and timelines", "You retain ownership of your underlying funds"],
+        body: "KaSiPay Gini is presented as a wallet for simplicity, but it is an investment-administration account managed by a licensed Category III Financial Services Provider. Funds are held in the customer’s name in segregated nominee accounts with South African banks.",
+        bullets: ["Up to 6% interest on eligible positive balances", "Zero monthly app fee", "Participating-retailer cashbacks and offers", "Customer funds remain with the appointed custodian"],
       },
     ],
   },
@@ -40,8 +40,8 @@ export const kasipayPages = {
     sections: [
       {
         title: "Run, grow and scale",
-        body: "The merchant platform combines transaction history, business controls, payment requests, analytics, VAS sales, customer engagement and payout preferences.",
-        bullets: ["In-store and online sales", "Single and bulk payment requests", "Transaction exports", "Internal authorisation controls", "Business analytics", "Value-added services"],
+        body: "Open a free merchant iAccount, complete the required business checks and manage sales, inventory, analytics, value-added services and customer engagement through the app and portal.",
+        bullets: ["Zero monthly fees", "Instant payouts", "Low transaction fees", "In-store and online sales", "Transaction exports and analytics", "Value-added services"],
       },
       {
         title: "Ways to accept payment",
@@ -65,13 +65,37 @@ export const kasipayPages = {
     sections: [
       {
         title: "Pay only when you transact",
-        body: "Public platform material separates receiving-payment fees from making-payment fees and notes that quoted fees exclude VAT and may change. Final KaSiPay fees will be published only after the commercial schedule is approved.",
-        bullets: ["No invented fee figures", "VAT treatment shown where applicable", "Full schedule supplied before activation", "Provider changes reflected transparently"],
+        body: "The published schedule separates receiving-payment fees from making-payment fees. Fees exclude VAT and may change from time to time.",
+        bullets: ["Credit and debit cards: 2%", "International cards: 3%", "Instant EFT: from 1.5%", "Retail deposits: from 0.7% + R7", "QR payments: from 2%", "Subscription payments: 2.95% + R1"],
       },
       {
-        title: "Merchant plans",
-        body: "The source platform publicly advertises merchant solutions from R299 monthly, alongside no-additional-cost QR acceptance and optional devices. KaSiPay plan names, inclusions and exact fees remain subject to the signed custodian and merchant agreement.",
-        bullets: ["QR payment acceptance", "Payment links", "Android Tap to Pay", "Optional payment devices"],
+        title: "Making payments and merchant tools",
+        body: "Use the tools that suit your business, including QR codes, payment links, Android Tap to Pay and optional card machines from R299 monthly.",
+        bullets: ["EFT to an external bank: R3.40", "EFT to another KaSiPay account: 0.5%, capped at R2.50", "Bulk payments to KaSiPay accounts: R0.25 per instruction", "Bulk payments to external banks: R5 per instruction", "QR acceptance at no additional cost", "Payment links from the merchant portal"],
+      },
+    ],
+  },
+  developer: {
+    eyebrow: "Developer guide",
+    title: "Build payments into your business.",
+    intro: "Implementation guidance for teams integrating KaSiPay e-commerce payment services.",
+    image: "/kasipay-assets/images/plotform-images.png",
+    cards: [
+      ["Introduction", "Understand the payment services and the value they bring to an e-commerce platform.", "/kasipay-assets/images/store-icon.png"],
+      ["Implementation support", "Get support through the integration and onboarding process.", "/kasipay-assets/images/reg-success2-services.png"],
+      ["Integration options", "Choose direct integration or a shopping-cart route such as WooCommerce.", "/kasipay-assets/images/payment-process.svg"],
+      ["Testing and launch", "Validate payment flows before moving an approved integration live.", "/kasipay-assets/images/pay-receipt-services.png"],
+    ],
+    sections: [
+      {
+        title: "Developer guide highlights",
+        body: "The guide covers the full e-commerce payment journey, from the service overview to implementation, onboarding, testing and going live.",
+        bullets: ["Implementation support", "Basic e-commerce payment flow", "Sandbox registration and security keys", "Direct and shopping-cart integrations", "Debit/credit cards, Instant EFT, Scan to Pay, CHIPS, SnapScan and Pay@ Deposit", "Launch readiness"],
+      },
+      {
+        title: "Integrate with confidence",
+        body: "Use the approved technical route for your merchant configuration. Production access follows successful testing and operational approval.",
+        bullets: ["Direct integration method", "WooCommerce and shopping-cart integrations", "Sandbox validation", "Production go-live support"],
       },
     ],
   },
@@ -90,7 +114,7 @@ export const giniJourney = [
     title: "Save more. Worry less.",
     body: "The public Gini proposition offers interest designed to beat inflation on eligible positive balances. Returns, availability and settlement remain subject to the underlying product terms and custodian rules.",
     image: "/kasipay-assets/customer/blend.png",
-    bullets: ["Positive-balance growth potential", "Funds remain with the appointed custodian", "No claim of guaranteed returns", "Product terms apply"],
+    bullets: ["Up to 6% interest on eligible positive balances", "Funds remain with the appointed custodian", "No claim of guaranteed returns", "Product terms apply"],
   },
   {
     eyebrow: "Everyday rewards",
@@ -157,8 +181,8 @@ export const faqGroups = [
   {
     title: "Gini and customer funds",
     items: [
-      ["Does KaSiPay hold my money?", "No. KaSiPay is an interface. Customer funds are held by licensed custodians or nominee institutions under the applicable account arrangement."],
-      ["How do I add funds?", "Supported contribution methods may include bank transfer, card and other approved methods. Funds are routed to the custodial account, not held by KaSiPay."],
+      ["Is Gini a bank account or wallet?", "No. It is an investment-administration account managed through a licensed Category III Financial Services Provider. Customer funds are held in segregated nominee accounts with South African banks."],
+      ["Does KaSiPay hold my money?", "No. KaSiPay is the interface. Customer funds are held by the appointed custodian or nominee institution under the applicable account arrangement."],
       ["Are transfers instant?", "The interface may update quickly, but actual movement and availability remain subject to the custodian’s rules, settlement times and third-party rails."],
       ["What can I buy?", "Publicly described services include merchant payments, airtime, data, electricity, supported bills, gift cards and transfers."],
     ],

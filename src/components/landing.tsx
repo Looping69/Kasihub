@@ -5,7 +5,7 @@ import Link from "next/link";
 import { motion } from "framer-motion";
 import {
   ArrowRight, Users, Network, ShoppingBag, Building2, Landmark,
-  Sparkles, Wallet, TrendingUp, Coins, QrCode,
+  Sparkles, Wallet, TrendingUp, Coins,
   CheckCircle2, Phone, Mail, MapPin, Menu, X, ChevronRight,
   ShieldCheck, LoaderCircle, PlayCircle,
 } from "lucide-react";
@@ -151,7 +151,6 @@ export function Landing() {
             <nav className="hidden md:flex items-center gap-1">
               <a href="#pillars" className="px-3 py-2 text-sm font-medium text-blue-100 hover:text-white transition-colors">Ecosystem</a>
               <a href="#flow" className="px-3 py-2 text-sm font-medium text-blue-100 hover:text-white transition-colors">How it works</a>
-              <a href="#pioneer" className="px-3 py-2 text-sm font-medium text-blue-100 hover:text-white transition-colors">Pioneer Pool</a>
               <Link href="/kasipay" className="px-3 py-2 text-sm font-semibold text-orange-200 transition-colors hover:text-white">KaSiPay</Link>
               <a href="#contact" className="px-3 py-2 text-sm font-medium text-blue-100 hover:text-white transition-colors">Contact</a>
             </nav>
@@ -178,7 +177,6 @@ export function Landing() {
             <nav className="container mx-auto max-w-7xl px-4 py-3 flex flex-col gap-1">
               <a href="#pillars" onClick={() => setMobileMenu(false)} className="px-3 py-2 text-sm font-medium hover:bg-muted rounded-md">Ecosystem</a>
               <a href="#flow" onClick={() => setMobileMenu(false)} className="px-3 py-2 text-sm font-medium hover:bg-muted rounded-md">How it works</a>
-              <a href="#pioneer" onClick={() => setMobileMenu(false)} className="px-3 py-2 text-sm font-medium hover:bg-muted rounded-md">Pioneer Pool</a>
               <Link href="/kasipay" onClick={() => setMobileMenu(false)} className="px-3 py-2 text-sm font-semibold text-orange-200 hover:bg-muted rounded-md">KaSiPay</Link>
               <a href="#contact" onClick={() => setMobileMenu(false)} className="px-3 py-2 text-sm font-medium hover:bg-muted rounded-md">Contact</a>
               <button onClick={() => { setMobileMenu(false); void handleEnter(); }} className="rounded-md px-3 py-2 text-left text-sm font-bold text-orange-200 hover:bg-white/10">Explore demo</button>
@@ -202,9 +200,6 @@ export function Landing() {
             className="max-w-4xl mx-auto text-center"
           >
             <BrandLogo className="mx-auto mb-5 h-32 w-auto max-w-[340px] drop-shadow-2xl sm:h-40" priority />
-            <Badge variant="outline" className="mb-6 border-blue-200/50 bg-blue-950/35 text-blue-50 backdrop-blur-md">
-              <Sparkles className="h-3 w-3 mr-1" /> Powered by Solidus Holdings (Pty) Ltd
-            </Badge>
             <h1 className="text-4xl font-black leading-[1.05] tracking-tight drop-shadow-xl sm:text-5xl lg:text-7xl">
               The hybrid ecosystem for
               <span className="mt-2 block bg-gradient-to-r from-[#69c5ff] via-white to-[#ff9d13] bg-clip-text text-transparent">
@@ -350,6 +345,7 @@ export function Landing() {
       </section>
 
       {/* Pioneer CTA */}
+      {false && (
       <section id="pioneer" className="bg-gradient-to-br from-orange-50/95 via-blue-50/95 to-orange-50/95 py-16 backdrop-blur-xl dark:from-[#241609]/95 dark:via-[#091827]/95 dark:to-[#241609]/95 lg:py-24">
         <div className="container mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="grid lg:grid-cols-2 gap-12 items-center">
@@ -435,6 +431,7 @@ export function Landing() {
           </div>
         </div>
       </section>
+      )}
 
       {/* Contact / Footer */}
       <footer id="contact" className="border-t border-border/40 bg-sidebar text-sidebar-foreground mt-auto">
@@ -446,10 +443,6 @@ export function Landing() {
                 The central point of a hybrid ecosystem connecting members, shares, marketplace,
                 mall and the Roots CO-OP Bank. Operated by Solidus Holdings (Pty) Ltd.
               </p>
-              <div className="mt-4 space-y-2 text-sm text-sidebar-foreground/70">
-                <p className="flex items-center gap-2"><Building2 className="h-4 w-4" /> Solidus Holdings (Pty) Ltd · FNB Gold Business</p>
-                <p className="flex items-center gap-2"><QrCode className="h-4 w-4" /> Account: 63212306319 · Branch: 210835</p>
-              </div>
             </div>
             <div>
               <p className="font-semibold mb-3">Ecosystem</p>
@@ -459,7 +452,6 @@ export function Landing() {
                 <li><a href="#pillars" className="hover:text-sidebar-foreground">KasiMarketPlace</a></li>
                 <li><a href="#pillars" className="hover:text-sidebar-foreground">KasiMall</a></li>
                 <li><Link href="/kasipay" className="hover:text-sidebar-foreground">KaSiPay</Link></li>
-                <li><a href="#pioneer" className="hover:text-sidebar-foreground">Roots Bank Pioneers</a></li>
               </ul>
             </div>
             <div>

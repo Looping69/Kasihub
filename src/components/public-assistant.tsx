@@ -134,7 +134,7 @@ export function PublicAssistant() {
               <Bot aria-hidden="true" className="h-5 w-5" />
             </div>
             <div className="min-w-0 flex-1">
-              <h2 className="font-bold">Ask KaSiHub</h2>
+              <h2 className="font-bold">KasiBuddy</h2>
               <p className="text-xs text-blue-100">Verified public information only</p>
             </div>
             <button
@@ -244,13 +244,13 @@ export function PublicAssistant() {
 
       <button
         aria-expanded={open}
-        aria-label={open ? "Close KaSiHub assistant" : "Ask KaSiHub"}
+        aria-label={open ? "Close KasiBuddy" : "Open KasiBuddy"}
         className="group inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-[#075bb8] to-[#087fe8] px-4 py-3 font-bold text-white shadow-xl shadow-blue-950/30 transition hover:-translate-y-0.5 hover:shadow-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff9d13] focus-visible:ring-offset-2"
         onClick={() => setOpen((current) => !current)}
         type="button"
       >
         <MessageCircle aria-hidden="true" className="h-5 w-5 transition group-hover:scale-110" />
-        <span>Ask KaSiHub</span>
+        <span>KasiBuddy</span>
       </button>
     </div>
   );
