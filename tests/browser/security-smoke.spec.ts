@@ -21,10 +21,11 @@ test("KaSiHub navigation opens the fully branded KaSiPay pages", async ({ page }
   await page.goto("/");
   await page.locator('header nav.hidden a[href="/kasipay"]').click();
   await expect(page).toHaveURL(/\/kasipay$/);
-  await expect(page.getByRole("heading", { name: "Your money. Your business. Simplified." })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Shop at Participating Retailers & Earn Cashback" })).toBeVisible();
   const primaryNavigation = page.getByRole("navigation", { name: "Primary navigation" });
-  await expect(primaryNavigation.getByRole("link", { name: "Gini", exact: true })).toBeVisible();
-  await expect(primaryNavigation.getByRole("link", { name: "Merchant", exact: true })).toBeVisible();
+  await expect(primaryNavigation.getByRole("link", { name: "Home", exact: true })).toBeVisible();
+  await expect(primaryNavigation.getByRole("link", { name: "KaSiPayOne", exact: true })).toBeVisible();
+  await expect(primaryNavigation.getByRole("link", { name: "KaSiPayBiz", exact: true })).toBeVisible();
   await expect(primaryNavigation.getByRole("link", { name: "Pricing", exact: true })).toBeVisible();
   await expect(primaryNavigation.getByRole("link", { name: "FAQ", exact: true })).toBeVisible();
   await expect(primaryNavigation.getByRole("link", { name: "About", exact: true })).toBeVisible();
