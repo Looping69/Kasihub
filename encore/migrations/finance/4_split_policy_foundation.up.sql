@@ -60,6 +60,7 @@ CREATE TABLE settlement_allocations (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   allocation_run_id UUID NOT NULL REFERENCES settlement_allocation_runs(id) ON DELETE RESTRICT,
   rule_code TEXT NOT NULL,
+  source_recipient_type TEXT NOT NULL,
   recipient_type TEXT NOT NULL,
   recipient_ref TEXT NOT NULL,
   amount_minor BIGINT NOT NULL CHECK (amount_minor >= 0),
