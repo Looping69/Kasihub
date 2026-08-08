@@ -8,6 +8,15 @@ import {
 } from "@/lib/encore-client";
 import type { Member } from "@/lib/types";
 
+type RegistrationPolicy = {
+  isInternational: boolean;
+  kycRail: "instapay" | "kasihub_international";
+  paymentRail: "instapay" | "usdt";
+  profileType: "individual" | "company" | "minor";
+  membershipPlanCode: "INDIVIDUAL_LOCAL" | "INDIVIDUAL_INTERNATIONAL" | "COMPANY_LOCAL" | "COMPANY_INTERNATIONAL";
+  kycRequired: true;
+};
+
 type RegisterResponse = {
   registrationId: string;
   status: string;
@@ -16,26 +25,35 @@ type RegisterResponse = {
 };
 type LoginResponse = { token: string };
 type ProfileResponse = { member: Member };
+type KycCaseResponse = { id: string; status: string };
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    if (!body.email || !body.password || !body.membershipType) {
+    if (!body.email || !body.password || !body.membershipType || !body.citizenshipType) {
       return NextResponse.json(
-        { error: "Email, password and membership type are required" },
+        { error: "Email, password, membership type and citizenship type are required" },
         { status: 400 },
       );
     }
-    const profileType = body.membershipType === "COMPANY" || body.membershipType === "SOLE_PROPRIETOR" || body.membershipType === "NPO_NGO"
-      ? "company"
-      : body.membershipType === "INDIVIDUAL_KIDS" ? "minor" : "individual";
+
+    // Server-authoritative policy. The browser may describe the applicant but may
+    // not select profile type, membership plan, KYC provider, or payment rail.
+    const policy = await encoreRequest<RegistrationPolicy>("/routing/registration", {
+      method: "POST",
+      body: JSON.stringify({
+        citizenshipType: body.citizenshipType,
+        membershipType: body.membershipType,
+      }),
+    });
+
     const registered = await encoreRequest<RegisterResponse>("/registration/start", {
       method: "POST",
       body: JSON.stringify({
         email: body.email,
         password: body.password,
         phone: body.mobile,
-        profileType,
+        profileType: policy.profileType,
         firstName: body.firstName,
         surname: body.lastName,
         companyName: body.companyName,
@@ -43,8 +61,8 @@ export async function POST(req: NextRequest) {
         idOrPassportNumber: body.idPassport,
         sarsNumber: body.sarsNumber,
         country: body.country,
-        membershipPlanCode: membershipPlanCode(body.membershipType, body.citizenshipType),
-        createKyc: body.instapayStatus === "PENDING",
+        membershipPlanCode: policy.membershipPlanCode,
+        createKyc: policy.kycRail === "instapay",
         membershipType: body.membershipType,
         citizenshipType: body.citizenshipType,
         addressLine: body.addressLine,
@@ -53,16 +71,29 @@ export async function POST(req: NextRequest) {
         beneficiaryName: body.beneficiaryName,
         beneficiaryId: body.beneficiaryId,
         guardianName: body.guardianName,
-        instapayAccountRef: body.instapayAccountRef,
-        instapayVerifiedAt: body.instapayVerifiedAt,
+        // InstaPay verification state is intentionally not accepted from the browser.
+        // Provider verification must update authoritative backend state separately.
         uplineProfileNumber: body.uplineProfileNumber,
         uplineConfirmed: Boolean(body.uplineConfirmed),
       }),
     });
+
     const login = await encoreRequest<LoginResponse>("/auth/login", {
       method: "POST",
       body: JSON.stringify({ email: body.email, password: body.password }),
     });
+
+    let internationalKyc: KycCaseResponse | null = null;
+    if (policy.kycRail === "kasihub_international") {
+      internationalKyc = await encoreRequest<KycCaseResponse>("/kyc/cases", {
+        method: "POST",
+        body: JSON.stringify({
+          profileId: registered.user.profileId,
+          provider: "kasihub_international",
+        }),
+      }, login.token);
+    }
+
     const profile = await encoreRequest<ProfileResponse>("/profiles/me", {}, login.token);
     const response = NextResponse.json(
       {
@@ -71,6 +102,11 @@ export async function POST(req: NextRequest) {
         registrationId: registered.registrationId,
         status: registered.status,
         nextAction: registered.nextAction,
+        routing: {
+          kycRail: policy.kycRail,
+          paymentRail: policy.paymentRail,
+        },
+        internationalKyc,
       },
       { status: 201 },
     );
@@ -78,10 +114,12 @@ export async function POST(req: NextRequest) {
     return response;
   } catch (error) {
     const status = error instanceof EncoreRequestError ? error.status : 500;
-    return NextResponse.json(
-      { error: status === 409 ? "A member with these identity details already exists." : "Encore registration failed" },
-      { status },
-    );
+    const message = status === 409
+      ? "A member with these identity details already exists."
+      : status === 400
+        ? "Registration details are not supported."
+        : "Encore registration failed";
+    return NextResponse.json({ error: message }, { status });
   }
 }
 
@@ -95,12 +133,6 @@ export async function GET() {
     const status = error instanceof EncoreRequestError ? error.status : 500;
     return NextResponse.json({ error: "Unable to load member from Encore" }, { status });
   }
-}
-
-function membershipPlanCode(membershipType: string, citizenshipType?: string): string {
-  const international = ["SA_CITIZEN_ABROAD", "FOREIGN_CITIZEN_ABROAD", "INTL_COMPANY"].includes(citizenshipType ?? "");
-  const company = ["COMPANY", "SOLE_PROPRIETOR", "NPO_NGO"].includes(membershipType);
-  return `${company ? "COMPANY" : "INDIVIDUAL"}_${international ? "INTERNATIONAL" : "LOCAL"}`;
 }
 
 function setSessionCookie(response: NextResponse, token: string) {
