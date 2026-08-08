@@ -1,10 +1,12 @@
 // Author: Klaasvaakie ( |╲ )
 
 export type SplitPolicyStatus = "draft" | "approved" | "active" | "suspended" | "retired";
+export type RecipientMode = "system" | "dynamic";
 
 export type SplitRule = {
   code: string;
   recipientType: string;
+  recipientMode: RecipientMode;
   basisPoints: number;
   fallbackRecipientType?: string;
 };
@@ -22,6 +24,7 @@ export type SplitPolicy = {
 export type SplitAllocation = {
   ruleCode: string;
   recipientType: string;
+  recipientMode: RecipientMode;
   basisPoints: number;
   amountMinor: bigint;
   remainderMinor: bigint;
@@ -30,6 +33,7 @@ export type SplitAllocation = {
 export type FixedAllocationRule = {
   code: string;
   recipientType: string;
+  recipientMode: RecipientMode;
   amountMinor: bigint;
   fallbackRecipientType?: string;
 };
@@ -42,6 +46,18 @@ export type FixedSplitPolicy = {
   minorUnitScale: number;
   expectedTotalMinor: bigint;
   rules: readonly FixedAllocationRule[];
+};
+
+export type RecipientResolution = {
+  ruleCode: string;
+  recipientType: string;
+  recipientRef: string | null;
+  fallbackApplied: boolean;
+};
+
+export type ResolvedAllocation = SplitAllocation & {
+  recipientRef: string;
+  fallbackApplied: boolean;
 };
 
 const BASIS_POINT_DENOMINATOR = 10_000n;
@@ -61,6 +77,10 @@ function validatePolicyIdentity(policy: {
   }
 }
 
+function validateRecipientMode(mode: RecipientMode): void {
+  if (mode !== "system" && mode !== "dynamic") throw new Error("invalid_split_policy_recipient_mode");
+}
+
 export function validateSplitPolicy(policy: SplitPolicy): void {
   validatePolicyIdentity(policy);
   if (policy.rules.length === 0) throw new Error("split_policy_rules_required");
@@ -73,6 +93,7 @@ export function validateSplitPolicy(policy: SplitPolicy): void {
   for (const rule of policy.rules) {
     if (!rule.code.trim() || seenRuleCodes.has(rule.code)) throw new Error("invalid_split_policy_rule_code");
     if (!rule.recipientType.trim()) throw new Error("invalid_split_policy_recipient");
+    validateRecipientMode(rule.recipientMode);
     if (!Number.isSafeInteger(rule.basisPoints) || rule.basisPoints < 0 || rule.basisPoints > 10_000) {
       throw new Error("invalid_split_policy_basis_points");
     }
@@ -95,6 +116,7 @@ export function validateFixedSplitPolicy(policy: FixedSplitPolicy): void {
   for (const rule of policy.rules) {
     if (!rule.code.trim() || seenRuleCodes.has(rule.code)) throw new Error("invalid_fixed_policy_rule_code");
     if (!rule.recipientType.trim()) throw new Error("invalid_fixed_allocation_recipient");
+    validateRecipientMode(rule.recipientMode);
     if (rule.amountMinor < 0n) throw new Error("invalid_fixed_allocation_amount");
     if (rule.fallbackRecipientType !== undefined && !rule.fallbackRecipientType.trim()) {
       throw new Error("invalid_fixed_policy_fallback_recipient");
@@ -112,6 +134,7 @@ export function allocateBySplitPolicy(totalMinor: bigint, policy: SplitPolicy): 
   const allocations = policy.rules.map((rule) => ({
     ruleCode: rule.code,
     recipientType: rule.recipientType,
+    recipientMode: rule.recipientMode,
     basisPoints: rule.basisPoints,
     amountMinor: (totalMinor * BigInt(rule.basisPoints)) / BASIS_POINT_DENOMINATOR,
     remainderMinor: 0n,
@@ -141,6 +164,7 @@ export function allocateByFixedPolicy(totalMinor: bigint, policy: FixedSplitPoli
   const allocations = policy.rules.map((rule) => ({
     ruleCode: rule.code,
     recipientType: rule.recipientType,
+    recipientMode: rule.recipientMode,
     basisPoints: 0,
     amountMinor: rule.amountMinor,
     remainderMinor: 0n,
@@ -150,4 +174,39 @@ export function allocateByFixedPolicy(totalMinor: bigint, policy: FixedSplitPoli
     throw new Error("fixed_allocation_not_conserved");
   }
   return allocations;
+}
+
+export function resolveAllocations(
+  allocations: readonly SplitAllocation[],
+  resolutions: readonly RecipientResolution[],
+): ResolvedAllocation[] {
+  const byRule = new Map<string, RecipientResolution>();
+  for (const resolution of resolutions) {
+    if (!resolution.ruleCode.trim() || byRule.has(resolution.ruleCode)) throw new Error("invalid_recipient_resolution");
+    if (!resolution.recipientType.trim()) throw new Error("invalid_recipient_resolution");
+    byRule.set(resolution.ruleCode, resolution);
+  }
+
+  return allocations.map((allocation) => {
+    if (allocation.recipientMode === "system") {
+      return {
+        ...allocation,
+        recipientRef: allocation.recipientType,
+        fallbackApplied: false,
+      };
+    }
+
+    const resolution = byRule.get(allocation.ruleCode);
+    if (!resolution) throw new Error(`recipient_resolution_required:${allocation.ruleCode}`);
+    if (resolution.recipientType !== allocation.recipientType) {
+      throw new Error(`recipient_resolution_type_mismatch:${allocation.ruleCode}`);
+    }
+    if (!resolution.recipientRef?.trim()) throw new Error(`recipient_resolution_required:${allocation.ruleCode}`);
+
+    return {
+      ...allocation,
+      recipientRef: resolution.recipientRef,
+      fallbackApplied: resolution.fallbackApplied,
+    };
+  });
 }
