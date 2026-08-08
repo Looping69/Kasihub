@@ -30,7 +30,7 @@ function post(body: unknown) {
 }
 
 const member = {
-  id: "profile", profileNumber: "KSI-1", membershipType: "INDIVIDUAL",
+  id: "profile", profileNumber: "KSI-1", membershipType: "INDIVIDUAL_ADULT",
   firstName: "Test", lastName: "Member", email: "member@example.test", isAdmin: false,
   monthlyEarnings: 10, taxThreshold: false,
 };
@@ -47,26 +47,61 @@ describe("registration and dashboard contracts", () => {
     expect(mocks.encoreRequest).not.toHaveBeenCalled();
   });
 
-  test("registration resumes Encore workflow, logs in, and returns durable state", async () => {
+  test("registration uses the server-authoritative coordinator and returns durable routing state", async () => {
     mocks.encoreRequest
-      .mockResolvedValueOnce({ registrationId: "registration", status: "awaiting_payment", nextAction: "payment", user: { profileId: "profile", profileNumber: "KSI-1" } })
+      .mockResolvedValueOnce({
+        registrationId: "registration",
+        status: "kyc_pending",
+        nextAction: "kyc",
+        routing: { kycRail: "kasihub_international", paymentRail: "usdt" },
+        user: { profileId: "profile", profileNumber: "KSI-1" },
+      })
       .mockResolvedValueOnce({ token: "token" })
       .mockResolvedValueOnce({ member });
     const response = await register(post({
-      email: "member@example.test", password: "strong-password", membershipType: "INDIVIDUAL",
-      citizenshipType: "SA_CITIZEN", firstName: "Test", lastName: "Member",
+      email: "member@example.test",
+      password: "strong-password",
+      membershipType: "INDIVIDUAL_ADULT",
+      citizenshipType: "FOREIGN_CITIZEN_ABROAD",
+      firstName: "Test",
+      lastName: "Member",
+      // These hostile/legacy fields must never be forwarded as authority.
+      profileType: "company",
+      membershipPlanCode: "COMPANY_LOCAL",
+      createKyc: false,
+      instapayVerifiedAt: "2026-01-01T00:00:00.000Z",
+      instapayAccountRef: "forged-ref",
     }));
     expect(response.status).toBe(201);
-    expect(await response.json()).toMatchObject({ registrationId: "registration", status: "awaiting_payment", nextAction: "payment" });
+    expect(await response.json()).toMatchObject({
+      registrationId: "registration",
+      status: "kyc_pending",
+      nextAction: "kyc",
+      routing: { kycRail: "kasihub_international", paymentRail: "usdt" },
+    });
     expect(response.headers.get("set-cookie")).toContain("kasihub_session=token");
-    expect(mocks.encoreRequest.mock.calls[0][0]).toBe("/registration/start");
+    expect(mocks.encoreRequest.mock.calls[0][0]).toBe("/registration/secure-start");
+
+    const forwarded = JSON.parse(mocks.encoreRequest.mock.calls[0][1].body as string);
+    expect(forwarded).toMatchObject({
+      membershipType: "INDIVIDUAL_ADULT",
+      citizenshipType: "FOREIGN_CITIZEN_ABROAD",
+    });
+    expect(forwarded).not.toHaveProperty("profileType");
+    expect(forwarded).not.toHaveProperty("membershipPlanCode");
+    expect(forwarded).not.toHaveProperty("createKyc");
+    expect(forwarded).not.toHaveProperty("instapayVerifiedAt");
+    expect(forwarded).not.toHaveProperty("instapayAccountRef");
   });
 
   test("registration maps identity conflicts without leaking upstream details", async () => {
     const { EncoreRequestError } = await import("@/lib/encore-client");
     mocks.encoreRequest.mockRejectedValue(new EncoreRequestError("duplicate identity", 409, null));
     const response = await register(post({
-      email: "member@example.test", password: "strong-password", membershipType: "COMPANY",
+      email: "member@example.test",
+      password: "strong-password",
+      membershipType: "COMPANY",
+      citizenshipType: "INTL_COMPANY",
     }));
     expect(response.status).toBe(409);
     expect(await response.json()).toEqual({ error: "A member with these identity details already exists." });
