@@ -25,7 +25,7 @@ type RegisterResponse = {
 };
 type LoginResponse = { token: string };
 type ProfileResponse = { member: Member };
-type KycCaseResponse = { id: string; status: string };
+type KycCaseResponse = { id: string; status: string; provider: "kasihub_international" };
 
 export async function POST(req: NextRequest) {
   try {
@@ -85,12 +85,9 @@ export async function POST(req: NextRequest) {
 
     let internationalKyc: KycCaseResponse | null = null;
     if (policy.kycRail === "kasihub_international") {
-      internationalKyc = await encoreRequest<KycCaseResponse>("/kyc/cases", {
+      internationalKyc = await encoreRequest<KycCaseResponse>("/kyc/international/cases", {
         method: "POST",
-        body: JSON.stringify({
-          profileId: registered.user.profileId,
-          provider: "kasihub_international",
-        }),
+        body: JSON.stringify({ profileId: registered.user.profileId }),
       }, login.token);
     }
 
