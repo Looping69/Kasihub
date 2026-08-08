@@ -117,6 +117,62 @@ KYC evidence is private, size-limited, type-allowlisted and validated by file si
 
 **Required fix before broad production rollout:** introduce an asynchronous scan/quarantine state or equivalent trusted malware-analysis control. Admin download/review should be restricted to evidence that has passed scanning, or the operations runbook must explicitly define a compensating control for the pilot.
 
+### KIP-012 - Generic admin KYC approval could bypass international evidence policy
+**Status:** RESOLVED
+**Severity:** Critical
+**Category:** Compliance / Data Integrity
+
+Legacy admin KYC endpoints can update a case status directly. Without a lower-level guard, a future or legacy code path could approve an international case without evaluating the required evidence policy.
+
+**Resolution:** migration `4_international_approval_guard.up.sql` adds a database trigger that rejects a transition to `approved` for `kasihub_international` unless `result_payload.policySatisfied` is true and a non-empty `policyVersion` is recorded. Until KIP-009 is implemented, international approval therefore fails closed regardless of API path.
+
+### KIP-013 - Underpaid payment intents could not expire
+**Status:** RESOLVED
+**Severity:** Medium
+**Category:** Payments / State Machine
+
+The initial state machine allowed an underpaid intent to be retried or manually reviewed, but not to expire or be cancelled. This could leave stale underpaid intents permanently live and block replacement intents.
+
+**Resolution:** `underpaid -> expired` and `underpaid -> cancelled` transitions were added and covered by state-machine tests.
+
+### KIP-014 - Payment obligation foreign key requires eventual validation
+**Status:** WATCH
+**Severity:** Medium
+**Category:** Payments / Migration
+
+The new `payment_intents.order_id -> payment_obligations.id` foreign key is created `NOT VALID` so an unknown preview database with historical branch-only intent rows cannot break the migration. PostgreSQL still enforces the constraint for new/updated rows, but historical rows are not scanned.
+
+**Required follow-up:** after inspecting the deployed payments database and confirming/backfilling any historical orphan intent rows, run `VALIDATE CONSTRAINT fk_payment_intent_obligation` in a follow-up migration.
+
+### KIP-015 - Production receiving/network configuration is not defined
+**Status:** OPEN
+**Severity:** High
+**Category:** Payments / Operations
+
+Payment intent creation deliberately fails closed unless an active receiving configuration exists for the requested network and USDT, including receiving address, approved token contract, decimals, confirmation threshold and intent TTL.
+
+**Required decision/configuration:** approve and enter production values for TRON and BSC. Do not hard-code these values in source. Configuration rotation is admin-only and transactionally audited in the payments database.
+
+### KIP-016 - Global audit database cannot commit atomically with payment configuration
+**Status:** MITIGATED
+**Severity:** Medium
+**Category:** Architecture / Audit
+
+`paymentsDb` and `auditDb` are separate databases, so a receiving-wallet rotation and a global audit-log insert cannot be one atomic transaction. Reporting failure after the payment configuration committed would be misleading; writing the audit first could create a false audit record if the configuration later rolled back.
+
+**Mitigation implemented:** every receiving configuration mutation writes `payment_configuration_events` in the same `paymentsDb` transaction as the configuration change. The global audit database is a secondary mirror; mirror failures are logged and do not invalidate the already-committed authoritative payment configuration.
+
+**Long-term option:** standardize critical cross-domain audit through a durable outbox/event consumer if global audit completeness must be synchronous from an operational perspective.
+
+### KIP-017 - Raw KYC endpoint error mapping needs compiler/runtime verification
+**Status:** WATCH
+**Severity:** Medium
+**Category:** Encore / API Handling
+
+The KYC evidence raw endpoints manually serialize API errors. Encore's documented TypeScript error model exposes structured error codes; the new raw handlers must be verified by CI/runtime to ensure they do not depend on an unsupported error property or raw-handler type assumption.
+
+**Required follow-up:** resolve any PR compiler feedback, use an explicit error-code-to-HTTP mapping if required, and smoke-test unauthorized, invalid-file and not-found responses before rollout.
+
 ## Rules for adding future issues
 1. Assign the next sequential `KIP-###` identifier.
 2. Record status, severity and category.
