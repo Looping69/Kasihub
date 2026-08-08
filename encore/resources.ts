@@ -7,6 +7,7 @@ export const identityDb = new SQLDatabase("identity", { migrations: { path: "mig
 export const membershipDb = new SQLDatabase("membership", { migrations: { path: "migrations/membership" } });
 export const networkDb = new SQLDatabase("network", { migrations: { path: "migrations/network" } });
 export const financeDb = new SQLDatabase("finance", { migrations: { path: "migrations/finance" } });
+export const paymentsDb = new SQLDatabase("payments", { migrations: { path: "migrations/payments" } });
 export const kycDb = new SQLDatabase("kyc", { migrations: { path: "migrations/kyc" } });
 export const sharesDb = new SQLDatabase("shares", { migrations: { path: "migrations/shares" } });
 export const commerceDb = new SQLDatabase("commerce", { migrations: { path: "migrations/commerce" } });
