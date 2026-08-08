@@ -186,6 +186,28 @@ The payment blueprint correctly separates inbound verification, settlement and f
 
 **Implementation reference:** `docs/settlement-splits-payouts-architecture.md`.
 
+### KIP-019 - Six-level upline relationship source is not yet explicit
+**Status:** OPEN
+**Severity:** High
+**Category:** Financial Architecture / Network Integration
+
+The approved R53 policy defines six fixed level amounts and directs missing/ineligible level value to KasiHuB Custodian. The network model, however, stores both `parent_node_id` and `sponsor_profile_id`. The approved business document says only "levels above the member" and does not explicitly state which relationship is authoritative for financial upline resolution.
+
+**Impact:** the R53 policy and fallback mechanics can be implemented safely, but wiring them to the network graph without this decision could pay the correct amounts to the wrong hierarchy.
+
+**Required decision:** explicitly designate the authoritative six-level traversal source (matrix parent chain, sponsor/referral chain, or another approved relationship). Until then, recipient resolution must remain an explicit input and fail closed rather than infer the hierarchy.
+
+### KIP-020 - Legacy pool distribution endpoint conflicts with approved pool policy
+**Status:** OPEN
+**Severity:** High
+**Category:** Financial Architecture / Pool Distribution
+
+The existing admin pool distribution path distributes a caller-supplied amount across all active subscriptions. The approved policy now defines named pool-specific eligibility groups, accumulation while empty, a minimum R50 available per eligible member before distribution, equal payments to every eligible member, and retention of indivisible remainder in the pool.
+
+**Impact:** the legacy endpoint does not represent the approved financial policy and must not become the execution path for the new pool balances.
+
+**Required fix:** implement pool-specific eligibility resolution and ledger-backed distribution using the approved R50/equal-share/remainder-retention policy, then retire or refactor the legacy admin distribution endpoint so it cannot bypass those rules.
+
 ## Rules for adding future issues
 1. Assign the next sequential `KIP-###` identifier.
 2. Record status, severity and category.
