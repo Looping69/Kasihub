@@ -1,5 +1,6 @@
 // Author: Klaasvaakie ( |╲ )
 import { financeDb } from "../../resources";
+import { sha256 } from "../workflows/contracts";
 import type { ResolvedAllocation } from "./split-policy";
 
 export type ApplyAllocationRunInput = {
@@ -30,6 +31,7 @@ type ExistingRunRow = {
   version: number;
   source_amount_minor: string;
   currency: string;
+  allocation_fingerprint: string;
   allocation_count: string;
 };
 
@@ -58,6 +60,22 @@ function validateApplyInput(input: ApplyAllocationRunInput): void {
   if (total !== input.sourceAmountMinor) throw new Error("allocation_run_not_conserved");
 }
 
+export function allocationFingerprint(input: ApplyAllocationRunInput): string {
+  const canonical = [...input.allocations]
+    .sort((a, b) => a.ruleCode.localeCompare(b.ruleCode))
+    .map((item) => ({
+      ruleCode: item.ruleCode,
+      sourceRecipientType: item.sourceRecipientType,
+      recipientType: item.recipientType,
+      recipientRef: item.recipientRef,
+      amountMinor: item.amountMinor.toString(),
+      basisPoints: item.basisPoints,
+      remainderMinor: item.remainderMinor.toString(),
+      fallbackApplied: item.fallbackApplied,
+    }));
+  return sha256(JSON.stringify(canonical));
+}
+
 function mapExisting(row: ExistingRunRow, idempotentReplay: boolean): AppliedAllocationRun {
   return {
     runId: row.id,
@@ -71,26 +89,22 @@ function mapExisting(row: ExistingRunRow, idempotentReplay: boolean): AppliedAll
   };
 }
 
-function assertReplayCompatible(row: ExistingRunRow, input: ApplyAllocationRunInput): void {
+function assertReplayCompatible(row: ExistingRunRow, input: ApplyAllocationRunInput, fingerprint: string): void {
   if (
     row.policy_key !== input.policyKey ||
     row.version !== input.policyVersion ||
     BigInt(row.source_amount_minor) !== input.sourceAmountMinor ||
-    row.currency !== input.currency
+    row.currency !== input.currency ||
+    row.allocation_fingerprint !== fingerprint
   ) {
     throw new Error("settlement_allocation_replay_conflict");
   }
 }
 
-/**
- * Commits one economic allocation event atomically inside financeDb.
- *
- * The settlement reference is the idempotency boundary. A retry with identical
- * policy/source terms returns the original run; a conflicting retry fails closed.
- * Every allocation and payable credit commits in the same SQL transaction.
- */
+/** Commits allocations and payable credits atomically inside financeDb. */
 export async function applyAllocationRun(input: ApplyAllocationRunInput): Promise<AppliedAllocationRun> {
   validateApplyInput(input);
+  const fingerprint = allocationFingerprint(input);
   const tx = await financeDb.begin();
   try {
     await tx.rawExec("SELECT pg_advisory_xact_lock(hashtext($1))", `split-allocation:${input.settlementRef}`);
@@ -98,7 +112,7 @@ export async function applyAllocationRun(input: ApplyAllocationRunInput): Promis
     const existing = await tx.rawQueryRow<ExistingRunRow>(
       `SELECT r.id, r.settlement_ref, p.policy_key, p.version,
               r.source_amount_minor::text AS source_amount_minor, r.currency,
-              COUNT(a.id)::text AS allocation_count
+              r.allocation_fingerprint, COUNT(a.id)::text AS allocation_count
          FROM settlement_allocation_runs r
          JOIN split_policies p ON p.id = r.policy_id
          LEFT JOIN settlement_allocations a ON a.allocation_run_id = r.id
@@ -107,16 +121,14 @@ export async function applyAllocationRun(input: ApplyAllocationRunInput): Promis
       input.settlementRef,
     );
     if (existing) {
-      assertReplayCompatible(existing, input);
+      assertReplayCompatible(existing, input, fingerprint);
       await tx.commit();
       return mapExisting(existing, true);
     }
 
-    const policy = await tx.rawQueryRow<{ id: string; status: string; currency: string; minor_unit_scale: number }>(
-      `SELECT id, status, currency, minor_unit_scale
-         FROM split_policies
-        WHERE policy_key = $1 AND version = $2
-        FOR SHARE`,
+    const policy = await tx.rawQueryRow<{ id: string; status: string; currency: string }>(
+      `SELECT id, status, currency FROM split_policies
+        WHERE policy_key = $1 AND version = $2 FOR SHARE`,
       input.policyKey,
       input.policyVersion,
     );
@@ -127,14 +139,10 @@ export async function applyAllocationRun(input: ApplyAllocationRunInput): Promis
     const runId = crypto.randomUUID();
     await tx.rawExec(
       `INSERT INTO settlement_allocation_runs
-        (id, settlement_ref, policy_id, source_amount_minor, currency, metadata)
-       VALUES ($1, $2, $3, $4::bigint, $5, $6::jsonb)`,
-      runId,
-      input.settlementRef,
-      policy.id,
-      input.sourceAmountMinor.toString(),
-      input.currency,
-      JSON.stringify(input.metadata ?? {}),
+        (id, settlement_ref, policy_id, source_amount_minor, currency, allocation_fingerprint, metadata)
+       VALUES ($1, $2, $3, $4::bigint, $5, $6, $7::jsonb)`,
+      runId, input.settlementRef, policy.id, input.sourceAmountMinor.toString(), input.currency,
+      fingerprint, JSON.stringify(input.metadata ?? {}),
     );
 
     for (const allocation of input.allocations) {
@@ -144,29 +152,19 @@ export async function applyAllocationRun(input: ApplyAllocationRunInput): Promis
           (id, allocation_run_id, rule_code, source_recipient_type, recipient_type, recipient_ref,
            amount_minor, basis_points, remainder_minor, fallback_applied, metadata)
          VALUES ($1, $2, $3, $4, $5, $6, $7::bigint, $8, $9::bigint, $10, '{}'::jsonb)`,
-        allocationId,
-        runId,
-        allocation.ruleCode,
-        allocation.sourceRecipientType,
-        allocation.recipientType,
-        allocation.recipientRef,
-        allocation.amountMinor.toString(),
-        allocation.basisPoints,
-        allocation.remainderMinor.toString(),
-        allocation.fallbackApplied,
+        allocationId, runId, allocation.ruleCode, allocation.sourceRecipientType,
+        allocation.recipientType, allocation.recipientRef, allocation.amountMinor.toString(),
+        allocation.basisPoints, allocation.remainderMinor.toString(), allocation.fallbackApplied,
       );
 
       if (allocation.amountMinor === 0n) continue;
-
       const account = await tx.rawQueryRow<{ id: string }>(
         `INSERT INTO payable_accounts (owner_type, owner_ref, currency)
          VALUES ($1, $2, $3)
          ON CONFLICT (owner_type, owner_ref, currency)
          DO UPDATE SET updated_at = payable_accounts.updated_at
          RETURNING id`,
-        allocation.recipientType,
-        allocation.recipientRef,
-        input.currency,
+        allocation.recipientType, allocation.recipientRef, input.currency,
       );
       if (!account) throw new Error("payable_account_not_resolved");
 
@@ -176,10 +174,7 @@ export async function applyAllocationRun(input: ApplyAllocationRunInput): Promis
            reference_type, reference_id, idempotency_key, metadata)
          VALUES ($1, $2, 'credit', $3::bigint, 1,
                  'settlement_allocation', $2::text, $4, '{}'::jsonb)`,
-        account.id,
-        allocationId,
-        allocation.amountMinor.toString(),
-        `allocation-credit:${allocationId}`,
+        account.id, allocationId, allocation.amountMinor.toString(), `allocation-credit:${allocationId}`,
       );
     }
 
