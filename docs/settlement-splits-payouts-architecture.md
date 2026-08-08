@@ -604,7 +604,7 @@ The architecture is complete only when the following are true:
 Kasihub financial truth flows in this order:
 
 ```text
-Payment -> Settlement -> Allocation -> Ledger -> Payable -> Payout -> Reconciliation
+Payment -> Settlement -> Allocation -> Ledger -> Payable -> Payout Aggregation -> Outbound Payout Provider -> Reconciliation
 ```
 
 Payment rails prove value arrived.
