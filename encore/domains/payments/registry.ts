@@ -5,6 +5,16 @@ import { z } from "zod";
 import { auditDb, paymentsDb } from "../../resources";
 import { requireAdminAccess } from "../auth/access";
 
+export interface ReceivingConfigurationRequest {
+  network: "tron" | "bsc";
+  currency: "USDT";
+  addressReference: string;
+  tokenContract: string;
+  decimals: number;
+  minimumConfirmations: number;
+  intentTtlSeconds: number;
+}
+
 const receivingConfigRequest = z.object({
   network: z.enum(["tron", "bsc"]),
   currency: z.literal("USDT"),
@@ -66,7 +76,7 @@ function mapConfig(row: ReceivingConfigRow): ReceivingConfigResponse {
  * changing them is privileged because they define where money is expected.
  */
 export const rotateReceivingConfiguration = api<
-  z.input<typeof receivingConfigRequest>,
+  ReceivingConfigurationRequest,
   ReceivingConfigResponse
 >(
   { method: "POST", path: "/admin/payments/receiving-config", expose: true },
@@ -151,9 +161,13 @@ export const rotateReceivingConfiguration = api<
   },
 );
 
+export interface ListReceivingConfigurationsResponse {
+  configurations: ReceivingConfigResponse[];
+}
+
 export const listReceivingConfigurations = api<
   void,
-  { configurations: ReceivingConfigResponse[] }
+  ListReceivingConfigurationsResponse
 >(
   { method: "GET", path: "/admin/payments/receiving-config", expose: true },
   async () => {
