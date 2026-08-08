@@ -103,7 +103,7 @@ export const productCampaignGroupPolicyV1: SplitPolicy = {
 export const ecosystemUplineR53PolicyV1: FixedSplitPolicy = {
   key: "ecosystem_upline_r53",
   version: 1,
-  status: "approved",
+  status: "active",
   currency: "ZAR",
   minorUnitScale: ZAR_MINOR_UNIT_SCALE,
   expectedTotalMinor: 5300n,
