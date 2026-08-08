@@ -3,6 +3,16 @@ import { api, APIError } from "encore.dev/api";
 import { z } from "zod";
 import { paymentsDb } from "../../resources";
 
+export interface CreatePaymentObligationRequest {
+  subjectType: string;
+  subjectReference: string;
+  payerProfileId: string;
+  beneficiaryProfileId: string;
+  settlementCurrency: string;
+  settlementAmount: string;
+  metadata?: Record<string, unknown>;
+}
+
 const createObligationRequest = z.object({
   subjectType: z.string().min(1).max(100),
   subjectReference: z.string().min(1).max(200),
@@ -53,7 +63,7 @@ function mapObligation(row: PaymentObligationRow): PaymentObligationResponse {
  * create the obligation. Browser-facing payment APIs can only reference it.
  */
 export const createPaymentObligation = api<
-  z.input<typeof createObligationRequest>,
+  CreatePaymentObligationRequest,
   PaymentObligationResponse
 >(
   { method: "POST", path: "/internal/payments/obligations", expose: false },
@@ -114,9 +124,19 @@ export const createPaymentObligation = api<
   },
 );
 
+export interface CancelPaymentObligationRequest {
+  obligationId: string;
+  reason?: string;
+}
+
+export interface CancelPaymentObligationResponse {
+  obligationId: string;
+  status: "cancelled";
+}
+
 export const cancelPaymentObligation = api<
-  { obligationId: string; reason?: string },
-  { obligationId: string; status: "cancelled" }
+  CancelPaymentObligationRequest,
+  CancelPaymentObligationResponse
 >(
   { method: "POST", path: "/internal/payments/obligations/:obligationId/cancel", expose: false },
   async (req) => {
