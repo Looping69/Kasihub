@@ -16,6 +16,13 @@ describe("payment state machine", () => {
     expect(canTransitionPayment("settling", "confirmed")).toBe(true);
   });
 
+  it("allows an underpaid intent to be retried or expire", () => {
+    expect(canTransitionPayment("underpaid", "submitted")).toBe(true);
+    expect(canTransitionPayment("underpaid", "manual_review")).toBe(true);
+    expect(canTransitionPayment("underpaid", "expired")).toBe(true);
+    expect(canTransitionPayment("underpaid", "cancelled")).toBe(true);
+  });
+
   it("rejects unsafe jumps", () => {
     expect(() => assertPaymentTransition("submitted", "settled")).toThrow("invalid_payment_transition");
     expect(() => assertPaymentTransition("awaiting_transfer", "confirmed")).toThrow("invalid_payment_transition");
