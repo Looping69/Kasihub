@@ -19,18 +19,16 @@ BEGIN
     RAISE EXCEPTION 'split policy rules are immutable once policy leaves draft';
   END IF;
 
-  IF TG_OP = 'DELETE' THEN
-    RETURN OLD;
-  END IF;
+  IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
 CREATE TRIGGER trg_split_policy_rules_locked
-BEFORE UPDATE OR DELETE ON split_policy_rules
+BEFORE INSERT OR UPDATE OR DELETE ON split_policy_rules
 FOR EACH ROW EXECUTE FUNCTION reject_locked_split_rule_mutation();
 
-CREATE OR REPLACE FUNCTION validate_split_policy_activation()
+CREATE OR REPLACE FUNCTION validate_split_policy_status_change()
 RETURNS trigger AS $$
 DECLARE
   basis_total BIGINT;
@@ -39,9 +37,18 @@ DECLARE
   fixed_rule_count BIGINT;
   remainder_rule_count BIGINT;
 BEGIN
-  IF NEW.status NOT IN ('approved', 'active') OR OLD.status = NEW.status THEN
-    RETURN NEW;
+  IF NEW.status = OLD.status THEN RETURN NEW; END IF;
+
+  IF NOT (
+    (OLD.status = 'draft' AND NEW.status IN ('approved', 'active', 'retired')) OR
+    (OLD.status = 'approved' AND NEW.status IN ('active', 'suspended', 'retired')) OR
+    (OLD.status = 'active' AND NEW.status IN ('suspended', 'retired')) OR
+    (OLD.status = 'suspended' AND NEW.status IN ('active', 'retired'))
+  ) THEN
+    RAISE EXCEPTION 'invalid split policy status transition: % -> %', OLD.status, NEW.status;
   END IF;
+
+  IF NEW.status NOT IN ('approved', 'active') THEN RETURN NEW; END IF;
 
   IF NEW.approved_by IS NULL OR btrim(NEW.approved_by) = '' OR (NEW.approved_on IS NULL AND NEW.approved_at IS NULL) THEN
     RAISE EXCEPTION 'approved/active split policy requires approval provenance';
@@ -74,9 +81,9 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER trg_split_policy_activation_guard
+CREATE TRIGGER trg_split_policy_status_guard
 BEFORE UPDATE OF status ON split_policies
-FOR EACH ROW EXECUTE FUNCTION validate_split_policy_activation();
+FOR EACH ROW EXECUTE FUNCTION validate_split_policy_status_change();
 
 CREATE OR REPLACE FUNCTION reject_locked_split_policy_economics()
 RETURNS trigger AS $$
@@ -125,9 +132,7 @@ VALUES
   ('b4a4e970-8db6-4c53-90fb-1e9eafcf1001', 4, 'shareholders_pool', 'KASI_SHAREHOLDERS_POOL', 'system', 3800);
 
 UPDATE split_policies
-SET status = 'active',
-    approved_by = 'Lelanie Retief',
-    approved_on = DATE '2026-08-08'
+SET status = 'active', approved_by = 'Lelanie Retief', approved_on = DATE '2026-08-08'
 WHERE id = 'b4a4e970-8db6-4c53-90fb-1e9eafcf1001';
 
 -- R53 six-level ecosystem split v1. Missing/ineligible dynamic recipients are
@@ -151,7 +156,5 @@ VALUES
   ('b4a4e970-8db6-4c53-90fb-1e9eafcf1002', 5, 'upline_level_6', 'UPLINE_LEVEL_6', 'dynamic', 300, 'KASIHUB_CUSTODIAN');
 
 UPDATE split_policies
-SET status = 'active',
-    approved_by = 'Lelanie Retief',
-    approved_on = DATE '2026-08-08'
+SET status = 'active', approved_by = 'Lelanie Retief', approved_on = DATE '2026-08-08'
 WHERE id = 'b4a4e970-8db6-4c53-90fb-1e9eafcf1002';
