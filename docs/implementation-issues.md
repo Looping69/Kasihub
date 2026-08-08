@@ -1,6 +1,6 @@
 # Kasihub International Payments & KYC - Implementation Issues Log
 
-This file is the durable issue register for the `feature/international-kyc-usdt-payments` implementation. Record technical, security, architecture, integration, data, deployment and tooling issues as they are discovered. Do not rely on ClickUp comments as the only record.
+This file is the durable issue register for Kasihub payment/KYC implementation. Record technical, security, architecture, integration, data, deployment and tooling issues as they are discovered. Do not rely on ClickUp comments as the only record.
 
 ## Status legend
 - OPEN - unresolved and affects implementation or rollout
@@ -173,6 +173,19 @@ The KYC evidence raw endpoints manually serialize API errors. Encore's documente
 
 **Required follow-up:** resolve any PR compiler feedback, use an explicit error-code-to-HTTP mapping if required, and smoke-test unauthorized, invalid-file and not-found responses before rollout.
 
+### KIP-018 - Settlement blueprint omitted split, payable and small-payout aggregation layer
+**Status:** OPEN
+**Severity:** Critical
+**Category:** Financial Architecture / Payouts
+
+The payment blueprint correctly separates inbound verification, settlement and future outbound provider adapters, but it does not yet model the financial ownership layer between settlement and payout. Existing Kasihub product logic already contains commissions, pool contributions and distribution allocations, so continuing without a shared model would encourage hard-coded split logic and potentially one external provider transaction per small earning.
+
+**Required architecture:** adopt `Payment -> Settlement -> Allocation -> Ledger -> Payable -> Payout -> Reconciliation` as the canonical financial flow. Settled transactions must generate balanced, versioned internal allocations. Small earnings accumulate in ledger-backed payable balances. External payout workflows reserve eligible value, submit it through a replaceable provider adapter and reconcile success/failure without altering the original earnings.
+
+**Required executive decisions:** approve split percentages/recipient rules by product, payout thresholds/frequency, fee ownership, payout limits/manual-review rules, local InstaPay payout destination model, international payout provider/destination model, tax/withholding treatment and pool distribution policy.
+
+**Implementation reference:** `docs/settlement-splits-payouts-architecture.md`.
+
 ## Rules for adding future issues
 1. Assign the next sequential `KIP-###` identifier.
 2. Record status, severity and category.
@@ -180,4 +193,4 @@ The KYC evidence raw endpoints manually serialize API errors. Encore's documente
 4. Add the required fix or next diagnostic step.
 5. Mark an issue RESOLVED only after the fix is verified.
 
-( |╲ )
+( |╲ ) / (│╲)
