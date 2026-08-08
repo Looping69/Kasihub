@@ -22,6 +22,7 @@ type PaymentIntentRow = {
   currency: string;
   network: string;
   expected_amount: string;
+  request_hash: string;
   status: string;
   expires_at: string;
   confirmed_at: string | null;
@@ -75,7 +76,7 @@ function mapIntent(row: PaymentIntentRow): PaymentIntentResponse {
 const INTENT_SELECT = `
   SELECT i.id, i.order_id, i.payer_profile_id, i.beneficiary_profile_id,
          i.currency, i.network, i.expected_amount::text AS expected_amount,
-         i.status, i.expires_at, i.confirmed_at, i.settled_at,
+         i.request_hash, i.status, i.expires_at, i.confirmed_at, i.settled_at,
          w.address_reference, w.token_contract, w.decimals, w.minimum_confirmations
     FROM payment_intents i
     JOIN payment_wallets w ON w.id = i.wallet_id`;
@@ -96,6 +97,31 @@ async function assertInternationalUsdtProfile(profileId: string): Promise<void> 
     throw APIError.failedPrecondition("USDT payment intents are only available to international profiles");
   }
   await requireInternationalKycVerified(profileId);
+}
+
+async function findIntentByIdempotency(profileId: string, idempotencyKeyHash: string) {
+  return paymentsDb.rawQueryRow<PaymentIntentRow>(
+    `${INTENT_SELECT} WHERE i.payer_profile_id = $1 AND i.idempotency_key_hash = $2`,
+    profileId,
+    idempotencyKeyHash,
+  );
+}
+
+async function findLiveIntent(obligationId: string) {
+  return paymentsDb.rawQueryRow<PaymentIntentRow>(
+    `${INTENT_SELECT}
+      WHERE i.order_id = $1
+        AND i.status NOT IN ('expired', 'failed', 'rejected', 'cancelled')
+      LIMIT 1`,
+    obligationId,
+  );
+}
+
+function assertCompatibleExistingIntent(intent: PaymentIntentRow, network: string): PaymentIntentResponse {
+  if (intent.network.toLowerCase() !== network.toLowerCase()) {
+    throw APIError.alreadyExists("A live payment intent already exists for this obligation on another network");
+  }
+  return mapIntent(intent);
 }
 
 /**
@@ -161,38 +187,20 @@ export const createPaymentIntent = api<
       network: payload.network,
     });
 
-    const idempotent = await paymentsDb.rawQueryRow<PaymentIntentRow>(
-      `${INTENT_SELECT}
-        WHERE i.payer_profile_id = $1 AND i.idempotency_key_hash = $2`,
-      payload.profileId,
-      idempotencyKeyHash,
-    );
+    const idempotent = await findIntentByIdempotency(payload.profileId, idempotencyKeyHash);
     if (idempotent) {
-      const stored = await paymentsDb.rawQueryRow<{ request_hash: string }>(
-        "SELECT request_hash FROM payment_intents WHERE id = $1",
-        idempotent.id,
-      );
-      if (stored?.request_hash !== requestFingerprint) {
+      if (idempotent.request_hash !== requestFingerprint) {
         throw APIError.alreadyExists("Idempotency-Key was already used with a different payment intent request");
       }
       return mapIntent(idempotent);
     }
 
-    const live = await paymentsDb.rawQueryRow<PaymentIntentRow>(
-      `${INTENT_SELECT}
-        WHERE i.order_id = $1
-          AND i.status NOT IN ('expired', 'failed', 'rejected', 'cancelled')
-        LIMIT 1`,
-      payload.obligationId,
-    );
-    if (live) {
-      if (live.network.toLowerCase() !== payload.network.toLowerCase()) {
-        throw APIError.alreadyExists("A live payment intent already exists for this obligation on another network");
-      }
-      return mapIntent(live);
-    }
+    const live = await findLiveIntent(payload.obligationId);
+    if (live) return assertCompatibleExistingIntent(live, payload.network);
 
     const tx = await paymentsDb.begin();
+    let createdIntentId: string | null = null;
+    let racedIntent: PaymentIntentRow | null = null;
     try {
       await tx.rawExec("SELECT pg_advisory_xact_lock(hashtext($1))", `payment-intent:${payload.obligationId}`);
       const locked = await tx.rawQueryRow<{
@@ -208,61 +216,73 @@ export const createPaymentIntent = api<
         throw APIError.failedPrecondition("Payment obligation is no longer available for payment");
       }
 
-      const raced = await tx.rawQueryRow<PaymentIntentRow>(
+      racedIntent = await tx.rawQueryRow<PaymentIntentRow>(
         `${INTENT_SELECT}
           WHERE i.order_id = $1
             AND i.status NOT IN ('expired', 'failed', 'rejected', 'cancelled')
           LIMIT 1`,
         payload.obligationId,
       );
-      if (raced) {
-        await tx.commit();
-        if (raced.network.toLowerCase() !== payload.network.toLowerCase()) {
+      if (racedIntent) {
+        if (racedIntent.network.toLowerCase() !== payload.network.toLowerCase()) {
           throw APIError.alreadyExists("A live payment intent already exists for this obligation on another network");
         }
-        return mapIntent(raced);
+        await tx.commit();
+      } else {
+        createdIntentId = crypto.randomUUID();
+        await tx.rawExec(
+          `INSERT INTO payment_intents
+            (id, order_id, payer_profile_id, beneficiary_profile_id, wallet_id, rail, currency,
+             network, expected_amount, idempotency_key_hash, request_hash, status, expires_at)
+           VALUES ($1, $2, $3, $4, $5, 'usdt', $6, $7, $8::numeric, $9, $10,
+                   'awaiting_transfer', now() + ($11::int * interval '1 second'))`,
+          createdIntentId,
+          payload.obligationId,
+          payload.profileId,
+          locked.beneficiary_profile_id,
+          wallet.id,
+          locked.settlement_currency,
+          wallet.network,
+          locked.settlement_amount,
+          idempotencyKeyHash,
+          requestFingerprint,
+          wallet.intent_ttl_seconds,
+        );
+        await tx.rawExec(
+          `INSERT INTO payment_state_history
+            (payment_intent_id, prior_status, new_status, actor_type, actor_reference, evidence)
+           VALUES
+            ($1, NULL, 'created', 'system', 'intent.create', '{}'::jsonb),
+            ($1, 'created', 'awaiting_transfer', 'system', 'intent.create', $2::jsonb)`,
+          createdIntentId,
+          JSON.stringify({ obligationId: payload.obligationId, network: wallet.network }),
+        );
+        await tx.commit();
       }
-
-      const intentId = crypto.randomUUID();
-      await tx.rawExec(
-        `INSERT INTO payment_intents
-          (id, order_id, payer_profile_id, beneficiary_profile_id, wallet_id, rail, currency,
-           network, expected_amount, idempotency_key_hash, request_hash, status, expires_at)
-         VALUES ($1, $2, $3, $4, $5, 'usdt', $6, $7, $8::numeric, $9, $10,
-                 'awaiting_transfer', now() + ($11::int * interval '1 second'))`,
-        intentId,
-        payload.obligationId,
-        payload.profileId,
-        locked.beneficiary_profile_id,
-        wallet.id,
-        locked.settlement_currency,
-        wallet.network,
-        locked.settlement_amount,
-        idempotencyKeyHash,
-        requestFingerprint,
-        wallet.intent_ttl_seconds,
-      );
-      await tx.rawExec(
-        `INSERT INTO payment_state_history
-          (payment_intent_id, prior_status, new_status, actor_type, actor_reference, evidence)
-         VALUES
-          ($1, NULL, 'created', 'system', 'intent.create', '{}'::jsonb),
-          ($1, 'created', 'awaiting_transfer', 'system', 'intent.create', $2::jsonb)`,
-        intentId,
-        JSON.stringify({ obligationId: payload.obligationId, network: wallet.network }),
-      );
-      await tx.commit();
-
-      const created = await paymentsDb.rawQueryRow<PaymentIntentRow>(
-        `${INTENT_SELECT} WHERE i.id = $1`,
-        intentId,
-      );
-      if (!created) throw new Error("payment_intent_not_created");
-      return mapIntent(created);
     } catch (error) {
-      await tx.rollback();
+      try { await tx.rollback(); } catch { /* transaction may already be closed */ }
+
+      // Recover cleanly from idempotency/order uniqueness races across concurrent requests.
+      const racedByKey = await findIntentByIdempotency(payload.profileId, idempotencyKeyHash);
+      if (racedByKey) {
+        if (racedByKey.request_hash !== requestFingerprint) {
+          throw APIError.alreadyExists("Idempotency-Key was already used with a different payment intent request");
+        }
+        return mapIntent(racedByKey);
+      }
+      const racedLive = await findLiveIntent(payload.obligationId);
+      if (racedLive) return assertCompatibleExistingIntent(racedLive, payload.network);
       throw error;
     }
+
+    if (racedIntent) return mapIntent(racedIntent);
+    if (!createdIntentId) throw new Error("payment_intent_not_created");
+    const created = await paymentsDb.rawQueryRow<PaymentIntentRow>(
+      `${INTENT_SELECT} WHERE i.id = $1`,
+      createdIntentId,
+    );
+    if (!created) throw new Error("payment_intent_not_created");
+    return mapIntent(created);
   },
 );
 
