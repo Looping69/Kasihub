@@ -8,12 +8,21 @@ DECLARE
   parent_status TEXT;
   target_policy_id UUID;
 BEGIN
-  target_policy_id := COALESCE(OLD.policy_id, NEW.policy_id);
+  IF TG_OP = 'DELETE' THEN
+    target_policy_id := OLD.policy_id;
+  ELSE
+    target_policy_id := NEW.policy_id;
+  END IF;
+
   SELECT status INTO parent_status FROM split_policies WHERE id = target_policy_id;
   IF parent_status IS DISTINCT FROM 'draft' THEN
     RAISE EXCEPTION 'split policy rules are immutable once policy leaves draft';
   END IF;
-  RETURN COALESCE(NEW, OLD);
+
+  IF TG_OP = 'DELETE' THEN
+    RETURN OLD;
+  END IF;
+  RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
@@ -34,8 +43,8 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  IF NEW.approved_by IS NULL OR btrim(NEW.approved_by) = '' OR NEW.approved_at IS NULL THEN
-    RAISE EXCEPTION 'approved/active split policy requires approval metadata';
+  IF NEW.approved_by IS NULL OR btrim(NEW.approved_by) = '' OR (NEW.approved_on IS NULL AND NEW.approved_at IS NULL) THEN
+    RAISE EXCEPTION 'approved/active split policy requires approval provenance';
   END IF;
 
   SELECT
@@ -81,9 +90,12 @@ BEGIN
     NEW.expected_total_minor IS DISTINCT FROM OLD.expected_total_minor OR
     NEW.remainder_rule_code IS DISTINCT FROM OLD.remainder_rule_code OR
     NEW.source_reference IS DISTINCT FROM OLD.source_reference OR
-    NEW.source_revision IS DISTINCT FROM OLD.source_revision
+    NEW.source_revision IS DISTINCT FROM OLD.source_revision OR
+    NEW.approved_by IS DISTINCT FROM OLD.approved_by OR
+    NEW.approved_on IS DISTINCT FROM OLD.approved_on OR
+    NEW.approved_at IS DISTINCT FROM OLD.approved_at
   ) THEN
-    RAISE EXCEPTION 'approved/active split policy economics are immutable; create a new version';
+    RAISE EXCEPTION 'approved/active split policy economics and approval provenance are immutable; create a new version';
   END IF;
   RETURN NEW;
 END;
@@ -115,8 +127,7 @@ VALUES
 UPDATE split_policies
 SET status = 'active',
     approved_by = 'Lelanie Retief',
-    approved_at = '2026-08-08T00:00:00+02:00',
-    effective_from = '2026-08-08T00:00:00+02:00'
+    approved_on = DATE '2026-08-08'
 WHERE id = 'b4a4e970-8db6-4c53-90fb-1e9eafcf1001';
 
 -- R53 six-level ecosystem split v1. Missing/ineligible dynamic recipients are
@@ -142,6 +153,5 @@ VALUES
 UPDATE split_policies
 SET status = 'active',
     approved_by = 'Lelanie Retief',
-    approved_at = '2026-08-08T00:00:00+02:00',
-    effective_from = '2026-08-08T00:00:00+02:00'
+    approved_on = DATE '2026-08-08'
 WHERE id = 'b4a4e970-8db6-4c53-90fb-1e9eafcf1002';
