@@ -104,16 +104,29 @@ describe("split policy engine", () => {
     expect(() => resolveAllocations(allocations, [])).toThrow("recipient_resolution_required:upline_level_1");
   });
 
-  it("accepts explicit fallback resolution for a missing upline", () => {
+  it("turns an approved upline fallback into a Custodian liability", () => {
     const allocations = allocateByFixedPolicy(5_300n, ecosystemUplineR53PolicyV1);
     const resolved = resolveAllocations(allocations, allocations.map((allocation, index) => ({
       ruleCode: allocation.ruleCode,
-      recipientType: allocation.recipientType,
+      recipientType: index === 5 ? KASIHUB_CUSTODIAN : allocation.recipientType,
       recipientRef: index === 5 ? KASIHUB_CUSTODIAN : `profile-${index + 1}`,
       fallbackApplied: index === 5,
     })));
     const levelSix = resolved.find((item) => item.ruleCode === "upline_level_6");
+    expect(levelSix?.sourceRecipientType).toBe("UPLINE_LEVEL_6");
+    expect(levelSix?.recipientType).toBe(KASIHUB_CUSTODIAN);
     expect(levelSix?.recipientRef).toBe(KASIHUB_CUSTODIAN);
     expect(levelSix?.fallbackApplied).toBe(true);
+  });
+
+  it("rejects an unapproved fallback target", () => {
+    const allocations = allocateByFixedPolicy(5_300n, ecosystemUplineR53PolicyV1);
+    const resolutions = allocations.map((allocation) => ({
+      ruleCode: allocation.ruleCode,
+      recipientType: allocation.ruleCode === "upline_level_1" ? "SOME_OTHER_ACCOUNT" : allocation.recipientType,
+      recipientRef: `profile-${allocation.ruleCode}`,
+      fallbackApplied: allocation.ruleCode === "upline_level_1",
+    }));
+    expect(() => resolveAllocations(allocations, resolutions)).toThrow("recipient_fallback_type_mismatch:upline_level_1");
   });
 });
