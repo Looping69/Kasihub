@@ -2,6 +2,7 @@
 import { api, APIError } from "encore.dev/api";
 import { z } from "zod";
 import { paymentsDb } from "../../resources";
+import { decimalToUnits } from "./chains/amount";
 
 export interface CreatePaymentObligationRequest {
   subjectType: string;
@@ -58,6 +59,10 @@ function mapObligation(row: PaymentObligationRow): PaymentObligationResponse {
   };
 }
 
+function sameStoredAmount(existing: string, incoming: string): boolean {
+  return decimalToUnits(existing, 6) === decimalToUnits(incoming, 6);
+}
+
 /**
  * Internal product-domain contract. Product services decide what is owed and
  * create the obligation. Browser-facing payment APIs can only reference it.
@@ -82,7 +87,7 @@ export const createPaymentObligation = api<
         existing.payer_profile_id !== payload.payerProfileId ||
         existing.beneficiary_profile_id !== payload.beneficiaryProfileId ||
         existing.settlement_currency !== payload.settlementCurrency ||
-        existing.settlement_amount !== Number(payload.settlementAmount).toFixed(6)
+        !sameStoredAmount(existing.settlement_amount, payload.settlementAmount)
       ) {
         throw APIError.alreadyExists("Payment obligation subject already exists with different terms");
       }
@@ -119,6 +124,14 @@ export const createPaymentObligation = api<
         payload.subjectReference,
       );
       if (!raced) throw error;
+      if (
+        raced.payer_profile_id !== payload.payerProfileId ||
+        raced.beneficiary_profile_id !== payload.beneficiaryProfileId ||
+        raced.settlement_currency !== payload.settlementCurrency ||
+        !sameStoredAmount(raced.settlement_amount, payload.settlementAmount)
+      ) {
+        throw APIError.alreadyExists("Payment obligation subject already exists with different terms");
+      }
       return mapObligation(raced);
     }
   },
