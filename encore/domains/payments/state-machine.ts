@@ -22,7 +22,7 @@ const transitions: Record<PaymentStatus, ReadonlySet<PaymentStatus>> = {
   submitted: new Set(["verifying"]),
   verifying: new Set(["pending_confirmations", "underpaid", "manual_review", "confirmed", "failed", "rejected"]),
   pending_confirmations: new Set(["verifying", "manual_review", "failed"]),
-  underpaid: new Set(["submitted", "manual_review", "rejected"]),
+  underpaid: new Set(["submitted", "manual_review", "rejected", "expired", "cancelled"]),
   manual_review: new Set(["verifying", "confirmed", "rejected"]),
   confirmed: new Set(["settling"]),
   settling: new Set(["settled", "confirmed"]),
