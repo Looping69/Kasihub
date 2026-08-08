@@ -25,11 +25,13 @@ CREATE INDEX idx_payment_obligations_payer
   ON payment_obligations(payer_profile_id, status, created_at DESC);
 
 -- Existing payment_intents.order_id is the canonical payment-obligation id.
--- The column name is retained for migration compatibility while the FK makes
--- the authority explicit.
+-- NOT VALID avoids breaking a preview database that may contain historical
+-- branch-only intent rows created before obligations existed, while PostgreSQL
+-- still enforces the foreign key for all new/updated rows. Validate explicitly
+-- after confirming no historical orphan rows remain.
 ALTER TABLE payment_intents
   ADD CONSTRAINT fk_payment_intent_obligation
-  FOREIGN KEY (order_id) REFERENCES payment_obligations(id);
+  FOREIGN KEY (order_id) REFERENCES payment_obligations(id) NOT VALID;
 
 -- Intent expiry is policy owned by the receiving configuration. Existing
 -- active rows without a TTL are intentionally unusable until explicitly
