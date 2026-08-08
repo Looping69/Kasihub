@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   allocateByFixedPolicy,
   allocateBySplitPolicy,
+  resolveAllocations,
   validateFixedSplitPolicy,
   validateSplitPolicy,
 } from "./split-policy";
@@ -56,7 +57,7 @@ describe("split policy engine", () => {
       currency: "ZAR",
       minorUnitScale: 2,
       remainderRuleCode: "a",
-      rules: [{ code: "a", recipientType: "A", basisPoints: 9999 }],
+      rules: [{ code: "a", recipientType: "A", recipientMode: "system", basisPoints: 9999 }],
     })).toThrow("split_policy_must_total_100_percent");
   });
 
@@ -69,8 +70,8 @@ describe("split policy engine", () => {
       minorUnitScale: 2,
       remainderRuleCode: "same",
       rules: [
-        { code: "same", recipientType: "A", basisPoints: 5000 },
-        { code: "same", recipientType: "B", basisPoints: 5000 },
+        { code: "same", recipientType: "A", recipientMode: "system", basisPoints: 5000 },
+        { code: "same", recipientType: "B", recipientMode: "system", basisPoints: 5000 },
       ],
     })).toThrow("invalid_split_policy_rule_code");
   });
@@ -90,5 +91,29 @@ describe("split policy engine", () => {
       ...ecosystemUplineR53PolicyV1,
       expectedTotalMinor: 5_301n,
     })).toThrow("fixed_policy_rules_must_equal_expected_total");
+  });
+
+  it("resolves stable system recipients without external recipient data", () => {
+    const allocations = allocateBySplitPolicy(5_900n, adultMembershipProfitPolicyV1);
+    const resolved = resolveAllocations(allocations, []);
+    expect(resolved.every((item) => item.recipientRef === item.recipientType)).toBe(true);
+  });
+
+  it("fails closed when a dynamic recipient is not resolved", () => {
+    const allocations = allocateByFixedPolicy(5_300n, ecosystemUplineR53PolicyV1);
+    expect(() => resolveAllocations(allocations, [])).toThrow("recipient_resolution_required:upline_level_1");
+  });
+
+  it("accepts explicit fallback resolution for a missing upline", () => {
+    const allocations = allocateByFixedPolicy(5_300n, ecosystemUplineR53PolicyV1);
+    const resolved = resolveAllocations(allocations, allocations.map((allocation, index) => ({
+      ruleCode: allocation.ruleCode,
+      recipientType: allocation.recipientType,
+      recipientRef: index === 5 ? KASIHUB_CUSTODIAN : `profile-${index + 1}`,
+      fallbackApplied: index === 5,
+    })));
+    const levelSix = resolved.find((item) => item.ruleCode === "upline_level_6");
+    expect(levelSix?.recipientRef).toBe(KASIHUB_CUSTODIAN);
+    expect(levelSix?.fallbackApplied).toBe(true);
   });
 });
