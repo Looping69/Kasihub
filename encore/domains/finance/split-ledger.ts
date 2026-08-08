@@ -45,7 +45,9 @@ function validateApplyInput(input: ApplyAllocationRunInput): void {
   let total = 0n;
   for (const allocation of input.allocations) {
     if (!allocation.ruleCode.trim() || seenRuleCodes.has(allocation.ruleCode)) throw new Error("invalid_allocation_rule_code");
-    if (!allocation.recipientType.trim() || !allocation.recipientRef.trim()) throw new Error("resolved_recipient_required");
+    if (!allocation.sourceRecipientType.trim() || !allocation.recipientType.trim() || !allocation.recipientRef.trim()) {
+      throw new Error("resolved_recipient_required");
+    }
     if (allocation.amountMinor < 0n || allocation.remainderMinor < 0n) throw new Error("invalid_allocation_amount");
     if (!Number.isSafeInteger(allocation.basisPoints) || allocation.basisPoints < 0 || allocation.basisPoints > 10_000) {
       throw new Error("invalid_allocation_basis_points");
@@ -139,12 +141,13 @@ export async function applyAllocationRun(input: ApplyAllocationRunInput): Promis
       const allocationId = crypto.randomUUID();
       await tx.rawExec(
         `INSERT INTO settlement_allocations
-          (id, allocation_run_id, rule_code, recipient_type, recipient_ref,
+          (id, allocation_run_id, rule_code, source_recipient_type, recipient_type, recipient_ref,
            amount_minor, basis_points, remainder_minor, fallback_applied, metadata)
-         VALUES ($1, $2, $3, $4, $5, $6::bigint, $7, $8::bigint, $9, '{}'::jsonb)`,
+         VALUES ($1, $2, $3, $4, $5, $6, $7::bigint, $8, $9::bigint, $10, '{}'::jsonb)`,
         allocationId,
         runId,
         allocation.ruleCode,
+        allocation.sourceRecipientType,
         allocation.recipientType,
         allocation.recipientRef,
         allocation.amountMinor.toString(),
