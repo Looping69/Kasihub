@@ -11,13 +11,15 @@ This file is the durable issue register for the `feature/international-kyc-usdt-
 ## Issues
 
 ### KIP-001 - Registration KYC routing is client-controlled
-**Status:** OPEN
+**Status:** MITIGATED
 **Severity:** High
 **Category:** Architecture / Security
 
-Current registration accepts a client-provided `createKyc` flag. When KYC is created, the backend hard-codes the provider to `instapay`. This allows routing decisions that should be server-authoritative to originate from the client and does not support the required split between local InstaPay KYC and international Kasihub KYC.
+The legacy registration endpoint accepts a client-provided `createKyc` flag and hard-codes the provider to `instapay` when KYC is created. This does not support the required split between local InstaPay KYC and international Kasihub KYC.
 
-**Required fix:** derive KYC and payment routing server-side from citizenship/profile policy. International categories must automatically route to Kasihub KYC; eligible local categories must route to InstaPay.
+**Mitigation implemented:** the Next registration gateway now obtains a server-derived registration policy from Encore. Local registrations request InstaPay KYC; international registrations create a dedicated Kasihub international KYC case after account creation. International KYC eligibility and provider selection are enforced by a dedicated backend endpoint.
+
+**Permanent fix still required:** refactor the exposed Encore `/registration/start` endpoint so it derives KYC routing internally and no longer accepts `createKyc` as a trust-bearing request field.
 
 ### KIP-002 - Provider credentials were stored in ClickUp task content
 **Status:** OPEN
@@ -45,6 +47,39 @@ The GitHub repository and Encore application source are accessible and writable,
 The ClickUp task-comment action failed repeatedly even though task creation and other ClickUp actions succeeded.
 
 **Mitigation:** keep implementation state and issues in GitHub as the durable technical record, with ClickUp used for project-level tracking when its comment API is available.
+
+### KIP-005 - Exposed registration endpoint accepts derived plan and profile fields
+**Status:** OPEN
+**Severity:** High
+**Category:** Security / Business Rules
+
+The exposed Encore `/registration/start` contract accepts `membershipPlanCode` and `profileType`, even though both are deterministic business-policy decisions derived from membership and citizenship classification.
+
+**Mitigation implemented:** the Next registration gateway now requests these values from Encore's server-owned routing policy and no longer derives them from browser-selected fields.
+
+**Required fix:** remove these trust-bearing fields from the exposed registration contract and derive them inside the Encore registration coordinator before persistence or pricing decisions.
+
+### KIP-006 - Registration endpoint accepts client-supplied InstaPay verification metadata
+**Status:** MITIGATED
+**Severity:** High
+**Category:** Security / KYC
+
+The legacy registration contract accepts `instapayAccountRef` and `instapayVerifiedAt`. Verification references and timestamps are provider/backend facts and must never become authoritative merely because a browser submitted them.
+
+**Mitigation implemented:** the Next registration gateway no longer forwards InstaPay verification metadata from the browser.
+
+**Permanent fix still required:** remove or ignore these fields in the Encore registration endpoint and update them only from trusted InstaPay/provider verification flows.
+
+### KIP-007 - Generic KYC case endpoint permits caller-selected provider names
+**Status:** MITIGATED
+**Severity:** Medium
+**Category:** Security / KYC
+
+The generic authenticated `/kyc/cases` endpoint accepts a provider string from the caller. Although this does not approve KYC by itself, provider selection is a policy decision and should not be user-controlled.
+
+**Mitigation implemented:** international registration now uses `/kyc/international/cases`, which verifies the persisted profile is international and hard-codes provider `kasihub_international` server-side.
+
+**Required fix:** constrain or retire generic provider selection for member-facing flows once all legitimate KYC providers have dedicated policy-controlled entry points.
 
 ## Rules for adding future issues
 1. Assign the next sequential `KIP-###` identifier.
