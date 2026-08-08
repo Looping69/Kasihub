@@ -1,112 +1,153 @@
 // Author: Klaasvaakie ( |╲ )
 
+export type SplitPolicyStatus = "draft" | "approved" | "active" | "suspended" | "retired";
+
 export type SplitRule = {
+  code: string;
   recipientType: string;
   basisPoints: number;
+  fallbackRecipientType?: string;
 };
 
 export type SplitPolicy = {
   key: string;
   version: number;
-  status: "draft" | "active" | "suspended" | "retired";
-  remainderRecipientType: string;
+  status: SplitPolicyStatus;
+  currency: string;
+  minorUnitScale: number;
+  remainderRuleCode: string;
   rules: readonly SplitRule[];
 };
 
 export type SplitAllocation = {
+  ruleCode: string;
   recipientType: string;
   basisPoints: number;
-  cents: number;
-  remainderCents: number;
+  amountMinor: bigint;
+  remainderMinor: bigint;
 };
 
 export type FixedAllocationRule = {
+  code: string;
   recipientType: string;
-  cents: number;
+  amountMinor: bigint;
+  fallbackRecipientType?: string;
+};
+
+export type FixedSplitPolicy = {
+  key: string;
+  version: number;
+  status: SplitPolicyStatus;
+  currency: string;
+  minorUnitScale: number;
+  expectedTotalMinor: bigint;
+  rules: readonly FixedAllocationRule[];
 };
 
 const BASIS_POINT_DENOMINATOR = 10_000n;
 
-export function validateSplitPolicy(policy: SplitPolicy): void {
+function validatePolicyIdentity(policy: {
+  key: string;
+  version: number;
+  currency: string;
+  minorUnitScale: number;
+}): void {
   if (!policy.key.trim() || !Number.isSafeInteger(policy.version) || policy.version <= 0) {
     throw new Error("invalid_split_policy_identity");
   }
+  if (!policy.currency.trim()) throw new Error("split_policy_currency_required");
+  if (!Number.isSafeInteger(policy.minorUnitScale) || policy.minorUnitScale < 0 || policy.minorUnitScale > 18) {
+    throw new Error("invalid_split_policy_minor_unit_scale");
+  }
+}
+
+export function validateSplitPolicy(policy: SplitPolicy): void {
+  validatePolicyIdentity(policy);
   if (policy.rules.length === 0) throw new Error("split_policy_rules_required");
-  if (!policy.rules.some((rule) => rule.recipientType === policy.remainderRecipientType)) {
-    throw new Error("split_policy_remainder_recipient_missing");
+  if (!policy.rules.some((rule) => rule.code === policy.remainderRuleCode)) {
+    throw new Error("split_policy_remainder_rule_missing");
   }
 
-  const seen = new Set<string>();
+  const seenRuleCodes = new Set<string>();
   let totalBasisPoints = 0;
   for (const rule of policy.rules) {
-    if (!rule.recipientType.trim() || seen.has(rule.recipientType)) throw new Error("invalid_split_policy_recipient");
-    if (!Number.isSafeInteger(rule.basisPoints) || rule.basisPoints < 0) throw new Error("invalid_split_policy_basis_points");
-    seen.add(rule.recipientType);
+    if (!rule.code.trim() || seenRuleCodes.has(rule.code)) throw new Error("invalid_split_policy_rule_code");
+    if (!rule.recipientType.trim()) throw new Error("invalid_split_policy_recipient");
+    if (!Number.isSafeInteger(rule.basisPoints) || rule.basisPoints < 0 || rule.basisPoints > 10_000) {
+      throw new Error("invalid_split_policy_basis_points");
+    }
+    if (rule.fallbackRecipientType !== undefined && !rule.fallbackRecipientType.trim()) {
+      throw new Error("invalid_split_policy_fallback_recipient");
+    }
+    seenRuleCodes.add(rule.code);
     totalBasisPoints += rule.basisPoints;
   }
   if (totalBasisPoints !== Number(BASIS_POINT_DENOMINATOR)) throw new Error("split_policy_must_total_100_percent");
 }
 
-export function allocateBySplitPolicy(totalCents: number, policy: SplitPolicy): SplitAllocation[] {
-  if (!Number.isSafeInteger(totalCents) || totalCents < 0) throw new Error("invalid_split_total_cents");
+export function validateFixedSplitPolicy(policy: FixedSplitPolicy): void {
+  validatePolicyIdentity(policy);
+  if (policy.expectedTotalMinor < 0n) throw new Error("invalid_fixed_policy_total");
+  if (policy.rules.length === 0) throw new Error("fixed_policy_rules_required");
+
+  const seenRuleCodes = new Set<string>();
+  let total = 0n;
+  for (const rule of policy.rules) {
+    if (!rule.code.trim() || seenRuleCodes.has(rule.code)) throw new Error("invalid_fixed_policy_rule_code");
+    if (!rule.recipientType.trim()) throw new Error("invalid_fixed_allocation_recipient");
+    if (rule.amountMinor < 0n) throw new Error("invalid_fixed_allocation_amount");
+    if (rule.fallbackRecipientType !== undefined && !rule.fallbackRecipientType.trim()) {
+      throw new Error("invalid_fixed_policy_fallback_recipient");
+    }
+    seenRuleCodes.add(rule.code);
+    total += rule.amountMinor;
+  }
+  if (total !== policy.expectedTotalMinor) throw new Error("fixed_policy_rules_must_equal_expected_total");
+}
+
+export function allocateBySplitPolicy(totalMinor: bigint, policy: SplitPolicy): SplitAllocation[] {
+  if (totalMinor < 0n) throw new Error("invalid_split_total_minor");
   validateSplitPolicy(policy);
 
-  const total = BigInt(totalCents);
   const allocations = policy.rules.map((rule) => ({
+    ruleCode: rule.code,
     recipientType: rule.recipientType,
     basisPoints: rule.basisPoints,
-    cents: Number((total * BigInt(rule.basisPoints)) / BASIS_POINT_DENOMINATOR),
-    remainderCents: 0,
+    amountMinor: (totalMinor * BigInt(rule.basisPoints)) / BASIS_POINT_DENOMINATOR,
+    remainderMinor: 0n,
   }));
 
-  const allocated = allocations.reduce((sum, item) => sum + item.cents, 0);
-  const remainder = totalCents - allocated;
-  if (remainder < 0) throw new Error("split_allocation_overflow");
+  const allocated = allocations.reduce((sum, item) => sum + item.amountMinor, 0n);
+  const remainder = totalMinor - allocated;
+  if (remainder < 0n) throw new Error("split_allocation_overflow");
 
-  if (remainder > 0) {
-    const target = allocations.find((item) => item.recipientType === policy.remainderRecipientType);
-    if (!target) throw new Error("split_policy_remainder_recipient_missing");
-    target.cents += remainder;
-    target.remainderCents = remainder;
+  if (remainder > 0n) {
+    const target = allocations.find((item) => item.ruleCode === policy.remainderRuleCode);
+    if (!target) throw new Error("split_policy_remainder_rule_missing");
+    target.amountMinor += remainder;
+    target.remainderMinor = remainder;
   }
 
-  const finalTotal = allocations.reduce((sum, item) => sum + item.cents, 0);
-  if (finalTotal !== totalCents) throw new Error("split_allocation_not_conserved");
+  const finalTotal = allocations.reduce((sum, item) => sum + item.amountMinor, 0n);
+  if (finalTotal !== totalMinor) throw new Error("split_allocation_not_conserved");
   return allocations;
 }
 
-export function allocateFixedCents(totalCents: number, rules: readonly FixedAllocationRule[], fallbackRecipientType: string): SplitAllocation[] {
-  if (!Number.isSafeInteger(totalCents) || totalCents < 0 || rules.length === 0) throw new Error("invalid_fixed_allocation_input");
-  if (!fallbackRecipientType.trim()) throw new Error("fixed_allocation_fallback_required");
+export function allocateByFixedPolicy(totalMinor: bigint, policy: FixedSplitPolicy): SplitAllocation[] {
+  if (totalMinor < 0n) throw new Error("invalid_fixed_allocation_input");
+  validateFixedSplitPolicy(policy);
+  if (totalMinor !== policy.expectedTotalMinor) throw new Error("fixed_policy_total_mismatch");
 
-  const seen = new Set<string>();
-  let requested = 0;
-  for (const rule of rules) {
-    if (!rule.recipientType.trim() || seen.has(rule.recipientType)) throw new Error("invalid_fixed_allocation_recipient");
-    if (!Number.isSafeInteger(rule.cents) || rule.cents < 0) throw new Error("invalid_fixed_allocation_cents");
-    seen.add(rule.recipientType);
-    requested += rule.cents;
-  }
-  if (requested > totalCents) throw new Error("fixed_allocation_exceeds_total");
-
-  const allocations: SplitAllocation[] = rules.map((rule) => ({
+  const allocations = policy.rules.map((rule) => ({
+    ruleCode: rule.code,
     recipientType: rule.recipientType,
     basisPoints: 0,
-    cents: rule.cents,
-    remainderCents: 0,
+    amountMinor: rule.amountMinor,
+    remainderMinor: 0n,
   }));
 
-  const remainder = totalCents - requested;
-  if (remainder > 0) {
-    const existing = allocations.find((item) => item.recipientType === fallbackRecipientType);
-    if (existing) {
-      existing.cents += remainder;
-      existing.remainderCents += remainder;
-    } else {
-      allocations.push({ recipientType: fallbackRecipientType, basisPoints: 0, cents: remainder, remainderCents: remainder });
-    }
+  if (allocations.reduce((sum, item) => sum + item.amountMinor, 0n) !== totalMinor) {
+    throw new Error("fixed_allocation_not_conserved");
   }
-
-  if (allocations.reduce((sum, item) => sum + item.cents, 0) !== totalCents) throw new Error("fixed_allocation_not_conserved");
   return allocations;
 }
