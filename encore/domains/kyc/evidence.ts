@@ -24,6 +24,19 @@ function caseIdFromUrl(urlValue: string | undefined): string {
   return index >= 0 ? (parts[index + 1] ?? "") : "";
 }
 
+function hasExpectedFileSignature(contentType: string, file: Buffer): boolean {
+  if (contentType === "application/pdf") {
+    return file.length >= 5 && file.subarray(0, 5).equals(Buffer.from([0x25, 0x50, 0x44, 0x46, 0x2d]));
+  }
+  if (contentType === "image/jpeg") {
+    return file.length >= 3 && file[0] === 0xff && file[1] === 0xd8 && file[2] === 0xff;
+  }
+  if (contentType === "image/png") {
+    return file.length >= 8 && file.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  }
+  return false;
+}
+
 async function requireInternationalCaseAccess(caseId: string) {
   const row = await kycDb.rawQueryRow<{
     id: string;
@@ -94,6 +107,10 @@ export const uploadInternationalKycEvidence = api.raw(
       if (size === 0) throw APIError.invalidArgument("KYC document is empty");
 
       const fileBuffer = Buffer.concat(chunks);
+      if (!hasExpectedFileSignature(contentType, fileBuffer)) {
+        throw APIError.invalidArgument("KYC document content does not match its declared file type");
+      }
+
       const sha256 = createHash("sha256").update(fileBuffer).digest("hex");
       const existing = await kycDb.rawQueryRow<{ id: string }>(
         "SELECT id FROM kyc_documents WHERE kyc_case_id = $1 AND sha256 = $2",
