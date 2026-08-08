@@ -81,6 +81,24 @@ The generic authenticated `/kyc/cases` endpoint accepts a provider string from t
 
 **Required fix:** constrain or retire generic provider selection for member-facing flows once all legitimate KYC providers have dedicated policy-controlled entry points.
 
+### KIP-008 - Payment intent schema blocked safe replacement attempts
+**Status:** RESOLVED
+**Severity:** High
+**Category:** Payments / Data Model
+
+The first payment migration made `order_id` globally unique. That would prevent a new payment intent for an order after a prior intent expired, failed, was rejected or was cancelled.
+
+**Resolution:** replaced the global uniqueness rule with a partial unique index that permits replacement only after terminal non-settlement outcomes while still preventing competing live, confirmed, settling or settled intents. The migration also now records intent idempotency/request hashes and gives the outbox unique event keys plus retry metadata.
+
+### KIP-009 - International KYC evidence requirements are not yet defined
+**Status:** OPEN
+**Severity:** High
+**Category:** Compliance / Product Policy
+
+The system can securely route an international member into Kasihub-owned KYC, but the exact required evidence set has not been specified for each international profile type. Examples may include identity/passport, proof of address or company/beneficial-owner documents, but these requirements must come from the approved compliance policy rather than developer assumption.
+
+**Required decision:** define the mandatory document/evidence matrix for `SA_CITIZEN_ABROAD`, `FOREIGN_CITIZEN_ABROAD` and `INTL_COMPANY`, including whether requirements differ by membership/product or transaction value. Once approved, encode it as versioned server-side policy and gate KYC completion against it.
+
 ## Rules for adding future issues
 1. Assign the next sequential `KIP-###` identifier.
 2. Record status, severity and category.
