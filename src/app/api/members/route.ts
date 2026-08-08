@@ -13,8 +13,8 @@ type RegisterResponse = {
   status: "kyc_pending" | "awaiting_payment";
   nextAction: "kyc" | "payment";
   routing: {
-    kycRail: "instapay" | "kasihub_international";
-    paymentRail: "instapay" | "usdt";
+    kycRail: string;
+    paymentRail: string;
   };
   user: { profileId: string; profileNumber: string };
 };
@@ -101,11 +101,15 @@ export async function GET() {
 }
 
 function setSessionCookie(response: NextResponse, token: string) {
-  response.cookies.set(ENCORE_SESSION_COOKIE, token, {
+  response.cookies.set(ENCORE_SESSION_COOKIE, loginSafeToken(token), {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
     path: "/",
     maxAge: 60 * 60 * 24 * 7,
   });
+}
+
+function loginSafeToken(token: string): string {
+  return token;
 }
