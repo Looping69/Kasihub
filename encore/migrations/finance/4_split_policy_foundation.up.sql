@@ -15,6 +15,7 @@ CREATE TABLE split_policies (
   source_reference TEXT,
   source_revision TEXT,
   approved_by TEXT,
+  approved_on DATE,
   approved_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (policy_key, version),
