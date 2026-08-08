@@ -1,7 +1,9 @@
 // Author: Klaasvaakie ( |╲ )
 import { financeDb } from "../../resources";
 import { sha256 } from "../workflows/contracts";
-import type { ResolvedAllocation } from "./split-policy";
+import { validateResolvedAllocationsAgainstPolicy } from "./allocation-validation";
+import type { PersistedSplitPolicyDefinition } from "./allocation-validation";
+import type { RecipientMode, ResolvedAllocation } from "./split-policy";
 
 export type ApplyAllocationRunInput = {
   settlementRef: string;
@@ -33,6 +35,24 @@ type ExistingRunRow = {
   currency: string;
   allocation_fingerprint: string;
   allocation_count: string;
+};
+
+type PolicyRow = {
+  id: string;
+  status: string;
+  currency: string;
+  policy_kind: "percentage" | "fixed";
+  remainder_rule_code: string | null;
+  expected_total_minor: string | null;
+};
+
+type PolicyRuleRow = {
+  rule_code: string;
+  recipient_type: string;
+  recipient_mode: RecipientMode;
+  basis_points: number | null;
+  fixed_amount_minor: string | null;
+  fallback_recipient_type: string | null;
 };
 
 function validateApplyInput(input: ApplyAllocationRunInput): void {
@@ -101,6 +121,22 @@ function assertReplayCompatible(row: ExistingRunRow, input: ApplyAllocationRunIn
   }
 }
 
+function toPolicyDefinition(policy: PolicyRow, rules: readonly PolicyRuleRow[]): PersistedSplitPolicyDefinition {
+  return {
+    policyKind: policy.policy_kind,
+    remainderRuleCode: policy.remainder_rule_code,
+    expectedTotalMinor: policy.expected_total_minor === null ? null : BigInt(policy.expected_total_minor),
+    rules: rules.map((rule) => ({
+      code: rule.rule_code,
+      recipientType: rule.recipient_type,
+      recipientMode: rule.recipient_mode,
+      basisPoints: rule.basis_points,
+      fixedAmountMinor: rule.fixed_amount_minor === null ? null : BigInt(rule.fixed_amount_minor),
+      fallbackRecipientType: rule.fallback_recipient_type,
+    })),
+  };
+}
+
 /** Commits allocations and payable credits atomically inside financeDb. */
 export async function applyAllocationRun(input: ApplyAllocationRunInput): Promise<AppliedAllocationRun> {
   validateApplyInput(input);
@@ -126,8 +162,10 @@ export async function applyAllocationRun(input: ApplyAllocationRunInput): Promis
       return mapExisting(existing, true);
     }
 
-    const policy = await tx.rawQueryRow<{ id: string; status: string; currency: string }>(
-      `SELECT id, status, currency FROM split_policies
+    const policy = await tx.rawQueryRow<PolicyRow>(
+      `SELECT id, status, currency, policy_kind, remainder_rule_code,
+              expected_total_minor::text AS expected_total_minor
+         FROM split_policies
         WHERE policy_key = $1 AND version = $2 FOR SHARE`,
       input.policyKey,
       input.policyVersion,
@@ -135,6 +173,18 @@ export async function applyAllocationRun(input: ApplyAllocationRunInput): Promis
     if (!policy) throw new Error("split_policy_not_found");
     if (policy.status !== "active") throw new Error("split_policy_not_active");
     if (policy.currency !== input.currency) throw new Error("split_policy_currency_mismatch");
+
+    const rules: PolicyRuleRow[] = [];
+    const ruleRows = tx.rawQuery<PolicyRuleRow>(
+      `SELECT rule_code, recipient_type, recipient_mode, basis_points,
+              fixed_amount_minor::text AS fixed_amount_minor, fallback_recipient_type
+         FROM split_policy_rules
+        WHERE policy_id = $1
+        ORDER BY rule_order`,
+      policy.id,
+    );
+    for await (const row of ruleRows) rules.push(row);
+    validateResolvedAllocationsAgainstPolicy(input.sourceAmountMinor, input.allocations, toPolicyDefinition(policy, rules));
 
     const runId = crypto.randomUUID();
     await tx.rawExec(
