@@ -25,6 +25,7 @@ export type SplitAllocation = {
   ruleCode: string;
   recipientType: string;
   recipientMode: RecipientMode;
+  fallbackRecipientType?: string;
   basisPoints: number;
   amountMinor: bigint;
   remainderMinor: bigint;
@@ -55,7 +56,9 @@ export type RecipientResolution = {
   fallbackApplied: boolean;
 };
 
-export type ResolvedAllocation = SplitAllocation & {
+export type ResolvedAllocation = Omit<SplitAllocation, "recipientType"> & {
+  sourceRecipientType: string;
+  recipientType: string;
   recipientRef: string;
   fallbackApplied: boolean;
 };
@@ -135,6 +138,7 @@ export function allocateBySplitPolicy(totalMinor: bigint, policy: SplitPolicy): 
     ruleCode: rule.code,
     recipientType: rule.recipientType,
     recipientMode: rule.recipientMode,
+    fallbackRecipientType: rule.fallbackRecipientType,
     basisPoints: rule.basisPoints,
     amountMinor: (totalMinor * BigInt(rule.basisPoints)) / BASIS_POINT_DENOMINATOR,
     remainderMinor: 0n,
@@ -165,6 +169,7 @@ export function allocateByFixedPolicy(totalMinor: bigint, policy: FixedSplitPoli
     ruleCode: rule.code,
     recipientType: rule.recipientType,
     recipientMode: rule.recipientMode,
+    fallbackRecipientType: rule.fallbackRecipientType,
     basisPoints: 0,
     amountMinor: rule.amountMinor,
     remainderMinor: 0n,
@@ -191,6 +196,8 @@ export function resolveAllocations(
     if (allocation.recipientMode === "system") {
       return {
         ...allocation,
+        sourceRecipientType: allocation.recipientType,
+        recipientType: allocation.recipientType,
         recipientRef: allocation.recipientType,
         fallbackApplied: false,
       };
@@ -198,15 +205,31 @@ export function resolveAllocations(
 
     const resolution = byRule.get(allocation.ruleCode);
     if (!resolution) throw new Error(`recipient_resolution_required:${allocation.ruleCode}`);
+    if (!resolution.recipientRef?.trim()) throw new Error(`recipient_resolution_required:${allocation.ruleCode}`);
+
+    if (resolution.fallbackApplied) {
+      if (!allocation.fallbackRecipientType) throw new Error(`recipient_fallback_not_allowed:${allocation.ruleCode}`);
+      if (resolution.recipientType !== allocation.fallbackRecipientType) {
+        throw new Error(`recipient_fallback_type_mismatch:${allocation.ruleCode}`);
+      }
+      return {
+        ...allocation,
+        sourceRecipientType: allocation.recipientType,
+        recipientType: allocation.fallbackRecipientType,
+        recipientRef: resolution.recipientRef,
+        fallbackApplied: true,
+      };
+    }
+
     if (resolution.recipientType !== allocation.recipientType) {
       throw new Error(`recipient_resolution_type_mismatch:${allocation.ruleCode}`);
     }
-    if (!resolution.recipientRef?.trim()) throw new Error(`recipient_resolution_required:${allocation.ruleCode}`);
-
     return {
       ...allocation,
+      sourceRecipientType: allocation.recipientType,
+      recipientType: allocation.recipientType,
       recipientRef: resolution.recipientRef,
-      fallbackApplied: resolution.fallbackApplied,
+      fallbackApplied: false,
     };
   });
 }
