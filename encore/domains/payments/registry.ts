@@ -1,0 +1,145 @@
+// Author: Klaasvaakie ( |╲ )
+import { api, APIError } from "encore.dev/api";
+import { z } from "zod";
+import { auditDb, paymentsDb } from "../../resources";
+import { requireAdminAccess } from "../auth/access";
+
+const receivingConfigRequest = z.object({
+  network: z.enum(["tron", "bsc"]),
+  currency: z.literal("USDT"),
+  addressReference: z.string().min(8).max(200),
+  tokenContract: z.string().min(8).max(200),
+  decimals: z.number().int().min(0).max(36),
+  minimumConfirmations: z.number().int().min(1).max(10_000),
+  intentTtlSeconds: z.number().int().min(300).max(86_400),
+});
+
+type ReceivingConfigResponse = {
+  id: string;
+  network: string;
+  currency: string;
+  addressReference: string;
+  tokenContract: string;
+  decimals: number;
+  minimumConfirmations: number;
+  intentTtlSeconds: number;
+  status: string;
+  activeFrom: string;
+  retiredAt: string | null;
+};
+
+type ReceivingConfigRow = {
+  id: string;
+  network: string;
+  currency: string;
+  address_reference: string;
+  token_contract: string;
+  decimals: number;
+  minimum_confirmations: number;
+  intent_ttl_seconds: number | null;
+  status: string;
+  active_from: string;
+  retired_at: string | null;
+};
+
+function mapConfig(row: ReceivingConfigRow): ReceivingConfigResponse {
+  if (!row.intent_ttl_seconds) throw APIError.internal("Receiving configuration is missing an intent TTL");
+  return {
+    id: row.id,
+    network: row.network,
+    currency: row.currency,
+    addressReference: row.address_reference,
+    tokenContract: row.token_contract,
+    decimals: row.decimals,
+    minimumConfirmations: row.minimum_confirmations,
+    intentTtlSeconds: row.intent_ttl_seconds,
+    status: row.status,
+    activeFrom: row.active_from,
+    retiredAt: row.retired_at,
+  };
+}
+
+/**
+ * Rotates the active receiving configuration for one network/currency pair.
+ * Wallet addresses and token contracts are configuration, not secrets, but
+ * changing them is privileged because they define where money is expected.
+ */
+export const rotateReceivingConfiguration = api<
+  z.input<typeof receivingConfigRequest>,
+  ReceivingConfigResponse
+>(
+  { method: "POST", path: "/admin/payments/receiving-config", expose: true },
+  async (req) => {
+    const session = await requireAdminAccess();
+    const payload = receivingConfigRequest.parse(req);
+    const tx = await paymentsDb.begin();
+    const id = crypto.randomUUID();
+    try {
+      await tx.rawExec(
+        "SELECT pg_advisory_xact_lock(hashtext($1))",
+        `payment-config:${payload.network}:${payload.currency}`,
+      );
+      await tx.rawExec(
+        `UPDATE payment_wallets
+            SET status = 'retired', retired_at = now()
+          WHERE lower(network) = lower($1) AND currency = $2 AND status = 'active'`,
+        payload.network,
+        payload.currency,
+      );
+      const row = await tx.rawQueryRow<ReceivingConfigRow>(
+        `INSERT INTO payment_wallets
+          (id, provider, network, currency, address_reference, token_contract, decimals,
+           minimum_confirmations, intent_ttl_seconds, status, active_from)
+         VALUES ($1, 'kasihub', $2, $3, $4, $5, $6, $7, $8, 'active', now())
+         RETURNING id, network, currency, address_reference, token_contract, decimals,
+                   minimum_confirmations, intent_ttl_seconds, status, active_from, retired_at`,
+        id,
+        payload.network,
+        payload.currency,
+        payload.addressReference.trim(),
+        payload.tokenContract.trim(),
+        payload.decimals,
+        payload.minimumConfirmations,
+        payload.intentTtlSeconds,
+      );
+      if (!row) throw new Error("payment_receiving_config_not_created");
+      await tx.commit();
+      await auditDb.rawExec(
+        `INSERT INTO audit_logs (action, entity_type, entity_id, actor_user_id, after)
+         VALUES ('payments.receiving_config.rotate', 'payment_wallet', $1, $2, $3::jsonb)`,
+        id,
+        session.user.id,
+        JSON.stringify({
+          network: payload.network,
+          currency: payload.currency,
+          addressReference: payload.addressReference.trim(),
+          tokenContract: payload.tokenContract.trim(),
+          decimals: payload.decimals,
+          minimumConfirmations: payload.minimumConfirmations,
+          intentTtlSeconds: payload.intentTtlSeconds,
+        }),
+      );
+      return mapConfig(row);
+    } catch (error) {
+      try { await tx.rollback(); } catch { /* transaction may already be closed */ }
+      throw error;
+    }
+  },
+);
+
+export const listReceivingConfigurations = api<
+  void,
+  { configurations: ReceivingConfigResponse[] }
+>(
+  { method: "GET", path: "/admin/payments/receiving-config", expose: true },
+  async () => {
+    await requireAdminAccess();
+    const rows = await paymentsDb.rawQueryAll<ReceivingConfigRow>(
+      `SELECT id, network, currency, address_reference, token_contract, decimals,
+              minimum_confirmations, intent_ttl_seconds, status, active_from, retired_at
+         FROM payment_wallets
+        ORDER BY active_from DESC`,
+    );
+    return { configurations: rows.filter((row) => row.intent_ttl_seconds !== null).map(mapConfig) };
+  },
+);
