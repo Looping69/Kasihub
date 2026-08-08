@@ -6,6 +6,13 @@ import { requireProfileAccess } from "../auth/access";
 import { normalizeTransactionHash } from "./chains/hash";
 import { assertPaymentTransition, type PaymentStatus } from "./state-machine";
 
+export interface SubmitPaymentAttemptRequest {
+  intentId: string;
+  profileId: string;
+  transactionHash: string;
+  submittedSenderWallet?: string;
+}
+
 const submitAttemptRequest = z.object({
   profileId: z.string().uuid(),
   transactionHash: z.string().min(1).max(100),
@@ -52,7 +59,7 @@ async function findAttemptByHash(transactionHash: string) {
  * beyond `submitted` after reading canonical blockchain data.
  */
 export const submitPaymentAttempt = api<
-  { intentId: string } & z.input<typeof submitAttemptRequest>,
+  SubmitPaymentAttemptRequest,
   PaymentAttemptResponse
 >(
   { method: "POST", path: "/payments/intents/:intentId/attempts", expose: true },
