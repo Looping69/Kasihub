@@ -3,8 +3,7 @@ import { api, APIError } from "encore.dev/api";
 import { auditDb, identityDb, kycDb } from "../../resources";
 import { requireProfileAccess } from "../auth/access";
 import { isInternationalCitizenship } from "../shared/member-routing";
-
-const INTERNATIONAL_KYC_PROVIDER = "kasihub_international" as const;
+import { INTERNATIONAL_KYC_PROVIDER, getInternationalKycVerification } from "./policy";
 
 type InternationalKycCaseResponse = {
   id: string;
@@ -63,5 +62,16 @@ export const createInternationalKycCase = api<
     );
 
     return { id, status: "pending", provider: INTERNATIONAL_KYC_PROVIDER };
+  },
+);
+
+export const internationalKycStatus = api<
+  { profileId: string },
+  { required: boolean; verified: boolean; status: string; caseId: string | null }
+>(
+  { method: "GET", path: "/kyc/international/status/:profileId", expose: true },
+  async (req) => {
+    await requireProfileAccess(req.profileId);
+    return getInternationalKycVerification(req.profileId);
   },
 );
