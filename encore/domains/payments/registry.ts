@@ -1,5 +1,6 @@
 // Author: Klaasvaakie ( |╲ )
 import { api, APIError } from "encore.dev/api";
+import * as log from "encore.dev/log";
 import { z } from "zod";
 import { auditDb, paymentsDb } from "../../resources";
 import { requireAdminAccess } from "../auth/access";
@@ -74,6 +75,16 @@ export const rotateReceivingConfiguration = api<
     const payload = receivingConfigRequest.parse(req);
     const tx = await paymentsDb.begin();
     const id = crypto.randomUUID();
+    const auditPayload = {
+      network: payload.network,
+      currency: payload.currency,
+      addressReference: payload.addressReference.trim(),
+      tokenContract: payload.tokenContract.trim(),
+      decimals: payload.decimals,
+      minimumConfirmations: payload.minimumConfirmations,
+      intentTtlSeconds: payload.intentTtlSeconds,
+    };
+    let row: ReceivingConfigRow | null = null;
     try {
       await tx.rawExec(
         "SELECT pg_advisory_xact_lock(hashtext($1))",
@@ -86,7 +97,7 @@ export const rotateReceivingConfiguration = api<
         payload.network,
         payload.currency,
       );
-      const row = await tx.rawQueryRow<ReceivingConfigRow>(
+      row = await tx.rawQueryRow<ReceivingConfigRow>(
         `INSERT INTO payment_wallets
           (id, provider, network, currency, address_reference, token_contract, decimals,
            minimum_confirmations, intent_ttl_seconds, status, active_from)
@@ -96,34 +107,47 @@ export const rotateReceivingConfiguration = api<
         id,
         payload.network,
         payload.currency,
-        payload.addressReference.trim(),
-        payload.tokenContract.trim(),
+        auditPayload.addressReference,
+        auditPayload.tokenContract,
         payload.decimals,
         payload.minimumConfirmations,
         payload.intentTtlSeconds,
       );
       if (!row) throw new Error("payment_receiving_config_not_created");
+      await tx.rawExec(
+        `INSERT INTO payment_configuration_events
+          (event_type, configuration_id, actor_user_id, payload)
+         VALUES ('receiving_config.rotated', $1, $2, $3::jsonb)`,
+        id,
+        session.user.id,
+        JSON.stringify(auditPayload),
+      );
       await tx.commit();
+    } catch (error) {
+      try { await tx.rollback(); } catch { /* transaction may already be closed */ }
+      throw error;
+    }
+
+    // Mirror to the global audit database after the authoritative payments
+    // transaction commits. A mirror outage is logged but cannot invalidate a
+    // receiving configuration that has already been durably committed.
+    try {
       await auditDb.rawExec(
         `INSERT INTO audit_logs (action, entity_type, entity_id, actor_user_id, after)
          VALUES ('payments.receiving_config.rotate', 'payment_wallet', $1, $2, $3::jsonb)`,
         id,
         session.user.id,
-        JSON.stringify({
-          network: payload.network,
-          currency: payload.currency,
-          addressReference: payload.addressReference.trim(),
-          tokenContract: payload.tokenContract.trim(),
-          decimals: payload.decimals,
-          minimumConfirmations: payload.minimumConfirmations,
-          intentTtlSeconds: payload.intentTtlSeconds,
-        }),
+        JSON.stringify(auditPayload),
       );
-      return mapConfig(row);
     } catch (error) {
-      try { await tx.rollback(); } catch { /* transaction may already be closed */ }
-      throw error;
+      log.error(error, "global payment configuration audit mirror failed", {
+        configurationId: id,
+        network: payload.network,
+        currency: payload.currency,
+      });
     }
+
+    return mapConfig(row);
   },
 );
 
