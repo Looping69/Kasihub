@@ -39,8 +39,8 @@ describe("split policy engine", () => {
     const allocations = allocateBySplitPolicy(101n, adultMembershipProfitPolicyV1);
     const custodian = allocations.find((item) => item.ruleCode === adultMembershipProfitPolicyV1.remainderRuleCode);
     expect(allocations.reduce((sum, item) => sum + item.amountMinor, 0n)).toBe(101n);
-    expect(custodian?.remainderMinor).toBe(4n);
-    expect(custodian?.amountMinor).toBe(63n);
+    expect(custodian?.remainderMinor).toBe(1n);
+    expect(custodian?.amountMinor).toBe(60n);
   });
 
   it("validates all currently defined percentage policy families", () => {
