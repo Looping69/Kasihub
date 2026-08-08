@@ -34,6 +34,14 @@ describe("persisted split policy validation", () => {
       .toThrow("allocation_amount_mismatch:custodian");
   });
 
+  it("rejects tampering with a stable system account reference", () => {
+    const allocations = resolveAllocations(allocateBySplitPolicy(5_900n, adultMembershipProfitPolicyV1), []);
+    const changed = allocations.map((allocation) => ({ ...allocation }));
+    changed[0].recipientRef = "profile-attacker";
+    expect(() => validateResolvedAllocationsAgainstPolicy(5_900n, changed, adultPersistedPolicy))
+      .toThrow("allocation_system_recipient_ref_mismatch:custodian");
+  });
+
   it("accepts only the approved Custodian fallback for a missing upline", () => {
     const raw = allocateByFixedPolicy(5_300n, ecosystemUplineR53PolicyV1);
     const resolved = resolveAllocations(raw, raw.map((allocation, index) => ({
