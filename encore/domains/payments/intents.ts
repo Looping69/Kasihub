@@ -8,6 +8,12 @@ import { resolveMemberRouting } from "../shared/member-routing";
 import { requireIdempotencyKey } from "../workflows/core";
 import { requestHash, sha256 } from "../workflows/contracts";
 
+export interface CreatePaymentIntentRequest {
+  profileId: string;
+  obligationId: string;
+  network: "tron" | "bsc";
+}
+
 const createIntentRequest = z.object({
   profileId: z.string().uuid(),
   obligationId: z.string().uuid(),
@@ -132,7 +138,7 @@ function assertCompatibleExistingIntent(intent: PaymentIntentRow, network: strin
  * and expiry come from server-owned obligation/wallet configuration.
  */
 export const createPaymentIntent = api<
-  z.input<typeof createIntentRequest>,
+  CreatePaymentIntentRequest,
   PaymentIntentResponse
 >(
   { method: "POST", path: "/payments/intents", expose: true },
@@ -286,8 +292,12 @@ export const createPaymentIntent = api<
   },
 );
 
+export interface GetPaymentIntentRequest {
+  id: string;
+}
+
 export const getPaymentIntent = api<
-  { id: string },
+  GetPaymentIntentRequest,
   PaymentIntentResponse
 >(
   { method: "GET", path: "/payments/intents/:id", expose: true },
