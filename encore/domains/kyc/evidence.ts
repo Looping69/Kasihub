@@ -12,6 +12,21 @@ const ALLOWED_CONTENT_TYPES = new Set([
   "image/png",
 ]);
 
+function rawApiErrorStatus(error: APIError): number {
+  const code = String((error as APIError & { code?: unknown }).code ?? "");
+  switch (code) {
+    case "invalid_argument": return 400;
+    case "unauthenticated": return 401;
+    case "permission_denied": return 403;
+    case "not_found": return 404;
+    case "already_exists": return 409;
+    case "failed_precondition": return 412;
+    case "resource_exhausted": return 429;
+    case "unavailable": return 503;
+    default: return 500;
+  }
+}
+
 function header(req: { headers: Record<string, string | string[] | undefined> }, name: string): string {
   const value = req.headers[name.toLowerCase()];
   return Array.isArray(value) ? (value[0] ?? "") : (value ?? "");
@@ -71,7 +86,7 @@ export const uploadInternationalKycEvidence = api.raw(
     expose: true,
     path: "/kyc/international/cases/:caseId/documents",
     method: "POST",
-    bodyLimit: MAX_KYC_DOCUMENT_SIZE,
+    bodyLimit: 10485760,
   },
   async (req, res) => {
     try {
@@ -152,7 +167,7 @@ export const uploadInternationalKycEvidence = api.raw(
       res.end(JSON.stringify({ id: documentId, status: "uploaded", duplicate: false }));
     } catch (error) {
       if (error instanceof APIError) {
-        res.writeHead(error.httpStatus, { "Content-Type": "application/json" });
+        res.writeHead(rawApiErrorStatus(error), { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: error.message }));
         return;
       }
@@ -162,9 +177,28 @@ export const uploadInternationalKycEvidence = api.raw(
   },
 );
 
+export interface ListInternationalKycEvidenceRequest {
+  caseId: string;
+}
+
+export interface InternationalKycEvidenceItem {
+  id: string;
+  documentType: string;
+  filename: string;
+  contentType: string;
+  sizeBytes: number;
+  status: string;
+  uploadedAt: string;
+  rejectionReason: string | null;
+}
+
+export interface ListInternationalKycEvidenceResponse {
+  documents: InternationalKycEvidenceItem[];
+}
+
 export const listInternationalKycEvidence = api<
-  { caseId: string },
-  { documents: Array<{ id: string; documentType: string; filename: string; contentType: string; sizeBytes: number; status: string; uploadedAt: string; rejectionReason: string | null }> }
+  ListInternationalKycEvidenceRequest,
+  ListInternationalKycEvidenceResponse
 >(
   { method: "GET", path: "/kyc/international/cases/:caseId/documents", expose: true },
   async (req) => {
@@ -192,9 +226,20 @@ export const listInternationalKycEvidence = api<
   },
 );
 
+export interface ReviewInternationalKycEvidenceRequest {
+  documentId: string;
+  action: "APPROVE" | "REJECT";
+  reason?: string;
+}
+
+export interface ReviewInternationalKycEvidenceResponse {
+  documentId: string;
+  status: "approved" | "rejected";
+}
+
 export const reviewInternationalKycEvidence = api<
-  { documentId: string; action: "APPROVE" | "REJECT"; reason?: string },
-  { documentId: string; status: "approved" | "rejected" }
+  ReviewInternationalKycEvidenceRequest,
+  ReviewInternationalKycEvidenceResponse
 >(
   { method: "POST", path: "/admin/kyc/international/documents/:documentId/review", expose: true },
   async (req) => {
@@ -265,7 +310,7 @@ export const downloadInternationalKycEvidence = api.raw(
       res.end(file);
     } catch (error) {
       if (error instanceof APIError) {
-        res.writeHead(error.httpStatus, { "Content-Type": "application/json" });
+        res.writeHead(rawApiErrorStatus(error), { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: error.message }));
         return;
       }
