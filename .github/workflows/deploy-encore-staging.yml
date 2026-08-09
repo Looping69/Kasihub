@@ -52,3 +52,26 @@ jobs:
           echo "sha=$deploy_sha" >> "$GITHUB_OUTPUT"
       - name: Deploy to Encore staging
         run: git push encore "${{ steps.deploy.outputs.sha }}:refs/heads/main"
+      - name: Verify Encore staging activation
+        env:
+          ENCORE_STAGING_URL: https://staging-kasihub-ygb2.encr.app
+        run: |
+          for attempt in $(seq 1 30); do
+            response=$(curl --fail-with-body --silent --show-error \
+              --header 'Content-Type: application/json' \
+              --data '{"citizenshipType":"FOREIGN_CITIZEN_ABROAD","membershipType":"INDIVIDUAL_ADULT"}' \
+              "$ENCORE_STAGING_URL/routing/registration") || true
+            if jq -e '
+              .isInternational == true and
+              .kycRail == "kasihub_international" and
+              .paymentRail == "usdt" and
+              .membershipPlanCode == "INDIVIDUAL_INTERNATIONAL" and
+              .kycRequired == true
+            ' <<<"$response" >/dev/null; then
+              exit 0
+            fi
+            sleep 10
+          done
+
+          echo "Encore staging did not expose the expected registration policy contract." >&2
+          exit 1
