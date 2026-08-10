@@ -640,3 +640,10 @@ Author: Klaasvaakie ( |╲ )
 ## 2026-07-31 — Isolated USDT presale branch
 
 - Created `Klaasvaakie/usdt-share-presale` from the clean parent of an accidental broad workspace commit, restoring only the isolated presale database/domain, invitation-gated UI, administrative gateways, signed USDT verification contract, incorporation manifest, tests, runbook, and exact Encore v1.57.13 dependency. Excluded `.env`, generated output, temporary archives, local Encore binaries, and unrelated UI changes from the scoped feature commit. `( |╲ )` — Klaasvaakie
+
+## 2026-08-10 - USDT shares page Phase A
+
+- Reconciled the isolated presale implementation onto current GitHub main in a focused branch while retaining the current pinned Encore dependency.
+- Kept the buyer page private, noindex and no-referrer; replaced query-string order credentials with a dedicated request header so bearer tokens do not enter browser history or proxy URLs.
+- Added browser coverage for fail-closed access, invitation-only reservation, exact USDT instructions, non-issuance disclosure and payment-proof refresh security.
+- Passed lint, TypeScript, 61 frontend tests with coverage, production audit, build, 11 browser tests, Encore check and 72 Encore tests; local visual QA showed a clean private gate and console. No deployment or campaign activation occurred. Author: Klaasvaakie ( |╲ )

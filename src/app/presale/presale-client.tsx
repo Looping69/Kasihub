@@ -1,11 +1,11 @@
 "use client";
 
 // Author: Klaasvaakie ( |╲ )
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { CheckCircle2, Clock3, Copy, LockKeyhole, ShieldCheck, WalletCards } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 
 type Offer = {
@@ -82,7 +82,12 @@ export function PresaleClient({ inviteToken }: { inviteToken: string }) {
 
   const refreshOrder = useCallback(async () => {
     if (!order || !accessToken) return;
-    const response = await fetch(`/api/presale/orders/${encodeURIComponent(order.orderReference)}?accessToken=${encodeURIComponent(accessToken)}`, { cache: "no-store" });
+    // Keep the bearer-style access token out of browser history and request URLs.
+    // Author: Klaasvaakie ( |╲ )
+    const response = await fetch(`/api/presale/orders/${encodeURIComponent(order.orderReference)}`, {
+      cache: "no-store",
+      headers: { "X-Presale-Access-Token": accessToken },
+    });
     if (response.ok) setOrder((await response.json()).order);
   }, [accessToken, order]);
 
@@ -92,7 +97,7 @@ export function PresaleClient({ inviteToken }: { inviteToken: string }) {
     return () => window.clearInterval(timer);
   }, [accessToken, order, refreshOrder]);
 
-  const totalPreview = useMemo(() => offer ? Number(offer.priceUsdt) : 0, [offer]);
+  const totalPreview = offer ? Number(offer.priceUsdt) : 0;
 
   async function createOrder(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -157,7 +162,7 @@ export function PresaleClient({ inviteToken }: { inviteToken: string }) {
   if (!inviteToken || (!offer && error)) return (
     <Shell>
       <Card className="w-full max-w-xl border-white/10 bg-white/5 text-white">
-        <CardHeader><LockKeyhole className="mb-3 h-8 w-8 text-amber-400" /><CardTitle>Private invitation required</CardTitle>
+        <CardHeader><LockKeyhole className="mb-3 h-8 w-8 text-amber-400" /><h2 className="font-semibold leading-none">Private invitation required</h2>
           <CardDescription className="text-slate-400">This Class B share presale is not open to the general public. Use the private link issued to you.</CardDescription></CardHeader>
       </Card>
     </Shell>
@@ -188,7 +193,7 @@ export function PresaleClient({ inviteToken }: { inviteToken: string }) {
 
         {!order ? (
           <Card className="border-white/10 bg-white/[.06] text-white shadow-2xl shadow-black/20">
-            <CardHeader><CardTitle>Reserve your allocation</CardTitle><CardDescription className="text-slate-400">Your payment window starts after this reservation is created.</CardDescription></CardHeader>
+            <CardHeader><h2 className="font-semibold leading-none">Reserve your allocation</h2><CardDescription className="text-slate-400">Your payment window starts after this reservation is created.</CardDescription></CardHeader>
             <CardContent><form className="space-y-4" onSubmit={createOrder}>
               <Field label="Full legal name"><Input name="buyerName" required minLength={2} className="border-white/15 bg-black/20" /></Field>
               <Field label="Email address"><Input name="buyerEmail" type="email" required defaultValue={offer.invitationEmail} readOnly={Boolean(offer.invitationEmail)} className="border-white/15 bg-black/20" /></Field>
@@ -203,7 +208,7 @@ export function PresaleClient({ inviteToken }: { inviteToken: string }) {
           </Card>
         ) : (
           <Card className="border-white/10 bg-white/[.06] text-white shadow-2xl shadow-black/20">
-            <CardHeader><div className="flex items-start justify-between gap-4"><div><CardTitle>{statusLabel(order.status)}</CardTitle><CardDescription className="mt-2 font-mono text-slate-400">{order.orderReference}</CardDescription></div>
+            <CardHeader><div className="flex items-start justify-between gap-4"><div><h2 className="font-semibold leading-none">{statusLabel(order.status)}</h2><CardDescription className="mt-2 font-mono text-slate-400">{order.orderReference}</CardDescription></div>
               {order.status === "confirmed" ? <CheckCircle2 className="h-8 w-8 text-emerald-400" /> : <Clock3 className="h-8 w-8 text-amber-400" />}</div></CardHeader>
             <CardContent className="space-y-5">
               <div className="rounded-xl border border-amber-400/20 bg-amber-400/10 p-4">

@@ -329,9 +329,15 @@ export const createPresaleOrder = api<CreatePresaleOrderRequest, { order: Presal
 );
 
 export const getPresaleOrder = api<
-  { orderReference: string; accessToken: string },
+  { orderReference: string },
   { order: PresaleOrderResponse }
 >({ method: "GET", path: "/presale/orders/:orderReference", expose: true }, async (req) => {
+  // Keep bearer-style order access credentials out of URLs, proxy logs, and browser history.
+  // Author: Klaasvaakie ( |╲ )
+  const accessToken = requestHeader("x-presale-access-token").trim();
+  if (accessToken.length < 32 || accessToken.length > 256) {
+    throw APIError.unauthenticated("A valid order access token is required");
+  }
   const row = await presaleDb.rawQueryRow<OrderRow & CampaignRow & { campaign_status: string; tx_hash: string | null; confirmations: number | null }>(
     `SELECT o.id, o.order_reference, o.campaign_id, o.buyer_name, o.buyer_email, o.quantity,
             o.unit_price_usdt::text AS unit_price_usdt, o.total_usdt::text AS total_usdt, o.status,
@@ -342,7 +348,7 @@ export const getPresaleOrder = api<
             p.tx_hash, p.confirmations
      FROM presale_orders o JOIN presale_campaigns c ON c.id = o.campaign_id
      LEFT JOIN LATERAL (SELECT tx_hash, confirmations FROM presale_payments WHERE order_id = o.id ORDER BY created_at DESC LIMIT 1) p ON true
-     WHERE o.order_reference = $1 AND o.access_token_hash = $2`, req.orderReference, hashSecret(req.accessToken));
+     WHERE o.order_reference = $1 AND o.access_token_hash = $2`, req.orderReference, hashSecret(accessToken));
   if (!row) throw APIError.notFound("Presale order not found");
   const campaign: CampaignRow = { ...row, status: row.campaign_status };
   return { order: orderResponse(row, campaign, row.tx_hash, row.confirmations ?? 0) };
