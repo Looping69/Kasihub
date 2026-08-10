@@ -1,7 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  output: "standalone",
+  // Vercel manages Next.js output and tracing itself. Standalone output is kept
+  // for non-Vercel/self-hosted deployments where scripts/start.mjs uses it.
+  ...(process.env.VERCEL === "1" ? {} : { output: "standalone" as const }),
   turbopack: {
     root: process.cwd(),
   },
