@@ -28,7 +28,7 @@ const quickActions: { label: string; sub: string; icon: typeof Wallet; view: Vie
   { label: "Marketplace", sub: "Shop & save", icon: ShoppingCart, view: "marketplace", tone: "bg-[#1688ed]" },
   { label: "Deals", sub: "Hot offers", icon: Tag, view: "vouchers", tone: "bg-[#f58220]" },
   { label: "Membership", sub: "View benefits", icon: Users, view: "ecosystem", tone: "bg-[#ff9f0a]" },
-  { label: "My earnings", sub: "Track cashback", icon: Wallet, view: "profile", tone: "bg-[#1688ed]" },
+  { label: "My earnings", sub: "Track earnings", icon: Wallet, view: "profile", tone: "bg-[#1688ed]" },
 ];
 
 const categories = [
@@ -61,7 +61,7 @@ export function MobileDashboardView() {
         <Image src="/kasi-energy-bg.webp" alt="Blue and orange KaSiHUB energy" fill sizes="(max-width: 520px) 100vw, 520px" priority className="hidden object-cover opacity-65 dark:block" />
         <div className="absolute inset-0 bg-[#002b9c]/25 dark:bg-black/25" />
         <button aria-label="Open menu" onClick={() => setSidebarOpen(true)} className="absolute left-4 top-4 z-20 grid h-9 w-9 place-items-center rounded-full bg-black/35 text-white backdrop-blur-sm"><Menu className="h-6 w-6" /></button>
-        <button aria-label="Notifications" onClick={() => setView("vouchers")} className="absolute right-4 top-4 z-20 grid h-9 w-9 place-items-center rounded-full bg-black/35 text-white backdrop-blur-sm"><Bell className="h-5 w-5" /><span className="absolute right-0 top-0 grid h-4 min-w-4 place-items-center rounded-full bg-red-500 px-1 text-[8px] font-black">3</span></button>
+        <button aria-label="Notifications" onClick={() => setView("vouchers")} className="absolute right-4 top-4 z-20 grid h-9 w-9 place-items-center rounded-full bg-black/35 text-white backdrop-blur-sm"><Bell className="h-5 w-5" /></button>
         <div className="relative flex justify-center py-1">
           <Image src="/kasihub-logo.webp" alt="KaSiHUB" width={285} height={160} priority style={{ width: "72%", height: "auto" }} className="max-w-[300px] object-contain drop-shadow-[0_8px_16px_rgba(0,0,0,.7)]" />
         </div>
@@ -83,11 +83,11 @@ export function MobileDashboardView() {
         <div className="relative mt-4 grid grid-cols-2 gap-3">
           <button onClick={() => setView("profile")} className="flex min-h-[96px] items-center gap-3 rounded-2xl bg-gradient-to-br from-[#1688ed] to-[#075aa0] p-3 text-left shadow-xl">
             <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-white text-[#087fe8]"><Wallet className="h-6 w-6" /></span>
-            <span className="min-w-0"><span className="block text-[9px] font-bold uppercase text-white/85">Cashback balance</span><span className="block truncate text-lg font-black">{money(stats.totalEarnings)}</span><span className="mt-2 block text-[9px] text-white/75">Lifetime earnings</span></span>
+            <span className="min-w-0"><span className="block text-[9px] font-bold uppercase text-white/85">Wallet balance</span><span className="block truncate text-lg font-black">{money(stats.walletBalance)}</span><span className="mt-2 block text-[9px] text-white/75">Available {stats.walletCurrency}</span></span>
           </button>
           <button onClick={() => setView("ecosystem")} className="flex min-h-[96px] items-center gap-3 rounded-2xl bg-gradient-to-br from-[#ffc400] to-[#ff8a00] p-3 text-left shadow-xl">
             <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-white text-[#ff9b00]"><Crown className="h-6 w-6" /></span>
-            <span className="min-w-0"><span className="block text-[9px] font-bold uppercase text-white/90">Membership</span><span className="block text-lg font-black">Active</span><span className="mt-2 block text-[9px] text-white/80">{stats.member.subscriptionStatus}</span></span>
+            <span className="min-w-0"><span className="block text-[9px] font-bold uppercase text-white/90">Membership</span><span className="block text-lg font-black">{stats.member.subscriptionStatus}</span><span className="mt-2 block text-[9px] text-white/80">R{stats.member.subscriptionAmount.toFixed(2)} / month</span></span>
           </button>
         </div>
       </section>
