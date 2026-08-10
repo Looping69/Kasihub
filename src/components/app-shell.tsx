@@ -66,7 +66,7 @@ export function AppShell() {
     async function load() {
       try {
         const data = await loadDashboard(currentMember!.id);
-        setWalletBalance(data.walletBalance);
+        setWalletBalance(data.walletBalance ?? null);
       } catch {
         // ignore
       }

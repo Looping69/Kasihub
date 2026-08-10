@@ -131,7 +131,7 @@ test("restores an authenticated member and logs out without a page refresh", asy
   await page.route("**/api/dashboard?**", (route) => route.fulfill({
     status: 200, contentType: "application/json",
     body: JSON.stringify({
-      member, totalEarnings: 0, monthlyEarnings: 0, earningsToday: 0, earningsThisWeek: 0,
+      member, walletBalance: 0, walletCurrency: "ZAR", totalEarnings: 0, monthlyEarnings: 0, earningsToday: 0, earningsThisWeek: 0,
       earningsThisMonth: 0, ecosystemEarningsToday: 0,
       pools: { pioneer: { total: 0, today: 0, distributions: [], eligible: false }, marketplace: { total: 0, today: 0, distributions: [] }, shareholders: { total: 0, today: 0, distributions: [], eligible: false } },
       kasiShares: { count: 0, valuePerShare: 0, totalValue: 0 }, aureusShares: { count: 0, valuePerShare: 0, totalValue: 0 },
