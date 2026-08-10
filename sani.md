@@ -629,4 +629,10 @@ Author: Klaasvaakie ( |╲ )
 - Changed the website-only assistant to reveal each approved deterministic answer progressively while retaining the same source-backed answer catalogue and restricted-topic boundaries.
 - Locked input during an active response, deferred source labels until completion, exposed an accessible busy state, and returned the full answer immediately for reduced-motion users.
 - Added exact chunk-reassembly coverage and browser checks for both supported and restricted streamed responses.
+
+## 2026-08-10 - USDT share-sale progress report
+
+- Documented the verified live baseline, the isolated presale implementation on `9a515d6`, remaining activation blockers, phased delivery plan and launch acceptance gates.
+- Generated and visually verified a three-page PDF under `output/pdf/`; retained the Markdown source for maintainable future updates.
+- Kept the report on a clean branch from current GitHub main so the detached dirty checkout and unrelated product edits remain untouched. Author: Klaasvaakie ( |╲ )
 - Passed lint, TypeScript, 57 automated tests, production build, and all 7 Playwright browser tests before release preparation. `( |╲ )` — Klaasvaakie
