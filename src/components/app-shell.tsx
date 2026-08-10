@@ -66,7 +66,7 @@ export function AppShell() {
     async function load() {
       try {
         const data = await loadDashboard(currentMember!.id);
-        setWalletBalance(data.totalEarnings);
+        setWalletBalance(data.walletBalance);
       } catch {
         // ignore
       }
@@ -216,12 +216,10 @@ function SidebarContent({ mobile = false }: { mobile?: boolean }) {
   const { activeView, setView, currentMember, logout, setSidebarOpen } = useKasiStore();
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {/* Logo */}
       {!mobile && <div className="px-5 py-3"><BrandLogo className="h-20 w-full" priority /></div>}
 
       <Separator className="bg-sidebar-border" />
 
-      {/* Menu */}
       <nav className="flex-1 p-3 space-y-1 overflow-y-auto scrollbar-kasi">
         <p className="px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-sidebar-foreground/50">Menu</p>
         {NAV.map((item) => {
@@ -261,7 +259,6 @@ function SidebarContent({ mobile = false }: { mobile?: boolean }) {
 
       <Separator className="bg-sidebar-border" />
 
-      {/* Member card */}
       <div className="p-3">
         <ThemeToggle className="mb-2 w-full text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground" />
         <div className="rounded-xl bg-sidebar-accent p-3">
