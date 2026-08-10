@@ -65,7 +65,6 @@ describe("registration and dashboard contracts", () => {
       citizenshipType: "FOREIGN_CITIZEN_ABROAD",
       firstName: "Test",
       lastName: "Member",
-      // These hostile/legacy fields must never be forwarded as authority.
       profileType: "company",
       membershipPlanCode: "COMPANY_LOCAL",
       createKyc: false,
@@ -114,29 +113,71 @@ describe("registration and dashboard contracts", () => {
   });
 
   test("dashboard rejects identity drift", async () => {
-    mocks.encoreRequest.mockResolvedValueOnce({
-      profile: { member: { ...member, id: "different" } },
-      wallet: { balance: "0", currency: "ZAR", transactions: [] },
-      matrix: { nodes: [] }, shares: { certificates: [] }, phases: { phases: [] },
-    });
+    mocks.encoreRequest
+      .mockResolvedValueOnce({
+        profile: { member: { ...member, id: "different" } },
+        wallet: { balance: "0", currency: "ZAR", transactions: [] },
+        matrix: { nodes: [] }, shares: { certificates: [] }, phases: { phases: [] },
+      })
+      .mockResolvedValueOnce({ distributions: [], pools: {} })
+      .mockResolvedValueOnce({ pioneerCount: 0, myShare: null });
     const response = await dashboard(new NextRequest("https://kasihub.test/api/dashboard?memberId=profile"));
     expect(response.status).toBe(403);
   });
 
-  test("dashboard composes authoritative Encore projections", async () => {
-    mocks.encoreRequest.mockResolvedValueOnce({
-      profile: { member },
-      wallet: { balance: "125.50", currency: "ZAR", transactions: [{ id: "transaction" }] },
-      matrix: { nodes: [{ depth: 0 }, { depth: 2 }] },
-      shares: { certificates: [{ totalShares: 3, status: "issued" }, { totalShares: 50, status: "revoked" }] },
-      phases: { phases: [{ phaseNumber: 1, pricePerShare: "20", status: "active" }] },
-    });
+  test("dashboard composes authoritative database projections instead of placeholder zeros", async () => {
+    const now = new Date().toISOString();
+    mocks.encoreRequest
+      .mockResolvedValueOnce({
+        profile: { member },
+        wallet: {
+          balance: "125.50",
+          currency: "ZAR",
+          transactions: [
+            { id: "opening", type: "OPENING_BALANCE", amount: 100, description: "Opening", status: "COMPLETED", createdAt: now },
+            { id: "pool", type: "POOL_PAYOUT", amount: 25.5, description: "Pool earning", status: "COMPLETED", createdAt: now },
+            { id: "matrix", type: "MATRIX_PAYOUT", amount: 13, description: "Level 1", status: "COMPLETED", createdAt: now },
+          ],
+        },
+        matrix: { nodes: [{ depth: 0 }, { depth: 2 }] },
+        shares: { certificates: [{ totalShares: 3, status: "issued" }, { totalShares: 50, status: "revoked" }] },
+        phases: { phases: [{ phaseNumber: 1, pricePerShare: "20", status: "active" }] },
+      })
+      .mockResolvedValueOnce({
+        distributions: [{ id: "distribution", amount: 25.5, source: "MARKETPLACE", poolType: "MARKETPLACE", status: "PAID", payoutDate: now }],
+        pools: {
+          MARKETPLACE: {
+            total: 25.5,
+            today: 25.5,
+            distributions: [{ id: "distribution", amount: 25.5, source: "MARKETPLACE", poolType: "MARKETPLACE", status: "PAID", payoutDate: now }],
+          },
+        },
+      })
+      .mockResolvedValueOnce({
+        pioneerCount: 1,
+        myShare: { sharePrice: 500, totalAmount: 700, pioneerPool: true, status: "ACTIVE" },
+      });
+
     const response = await dashboard(new NextRequest("https://kasihub.test/api/dashboard?memberId=profile"));
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
-      totalEarnings: 125.5, ecosystemDownline: 1, ecosystemLevels: 2,
+      walletBalance: 125.5,
+      walletCurrency: "ZAR",
+      totalEarnings: 38.5,
+      earningsToday: 38.5,
+      ecosystemEarningsToday: 13,
+      ecosystemDownline: 1,
+      ecosystemLevels: 2,
+      pools: { marketplace: { total: 25.5, today: 25.5 } },
       kasiShares: { count: 3, valuePerShare: 20, totalValue: 60 },
+      rootsBankShares: { count: 1, totalValue: 500 },
+      pioneerPoolEligible: true,
     });
+    expect(mocks.encoreRequest.mock.calls.map((call) => call[0])).toEqual([
+      "/dashboard/profile",
+      "/finance/me/profile/summary",
+      "/rootsbank/profile",
+    ]);
   });
 
   test("matrix returns an empty tester-safe ecosystem while placement is pending", async () => {

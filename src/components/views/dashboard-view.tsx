@@ -74,7 +74,6 @@ export function DashboardView() {
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
-      {/* Welcome */}
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
@@ -85,7 +84,7 @@ export function DashboardView() {
                 className="bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800"
               >
                 <BellRing className="h-3 w-3 mr-1" />
-                Auditor notified — earnings exceeded R7,000/mo
+                Tax follow-up threshold reached — R7,500/mo
               </Badge>
             )}
           </div>
@@ -110,22 +109,21 @@ export function DashboardView() {
         </div>
       </div>
 
-      {/* KPI cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard
           icon={Wallet}
-          label="Total earnings"
-          value={fmt(stats.totalEarnings)}
-          sub="All-time credits"
-          trend="+12.4%"
+          label="Wallet balance"
+          value={fmt(stats.walletBalance)}
+          sub={`Available ${stats.walletCurrency}`}
+          badge="Finance DB"
           color="emerald"
         />
         <KpiCard
           icon={TrendingUp}
-          label="This month"
-          value={fmt(stats.earningsThisMonth)}
-          sub={stats.member.taxThreshold ? "Tax threshold reached" : "Below tax threshold"}
-          trend="+8.1%"
+          label="Total earnings"
+          value={fmt(stats.totalEarnings)}
+          sub="Positive ledger credits, excluding opening balance"
+          badge="Ledger-backed"
           color="amber"
         />
         <KpiCard
@@ -133,7 +131,7 @@ export function DashboardView() {
           label="KasiShares value"
           value={fmtUSD(stats.kasiShares.totalValue)}
           sub={`${stats.kasiShares.count} shares × ${fmtUSD(stats.kasiShares.valuePerShare)}`}
-          trend={fmtUSD(stats.kasiShares.valuePerShare)}
+          badge="Share DB"
           color="yellow"
         />
         <KpiCard
@@ -141,12 +139,11 @@ export function DashboardView() {
           label="Ecosystem downline"
           value={`${stats.ecosystemDownline}`}
           sub={`${stats.ecosystemLevels} levels deep`}
-          trend="5×6"
+          badge="DB matrix"
           color="teal"
         />
       </div>
 
-      {/* Ecosystem Earnings Today block */}
       <Card className="p-5 sm:p-6 bg-gradient-to-br from-emerald-50 to-amber-50 dark:from-emerald-950/30 dark:to-amber-950/20 border-emerald-200 dark:border-emerald-900">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
@@ -163,51 +160,38 @@ export function DashboardView() {
             </div>
           </div>
           <div className="grid grid-cols-3 gap-3 sm:gap-4 sm:min-w-[360px]">
-            <MiniStat
-              label="Daily"
-              value={fmt(stats.earningsToday)}
-              accent="emerald"
-            />
-            <MiniStat
-              label="Weekly"
-              value={fmt(stats.earningsThisWeek)}
-              accent="amber"
-            />
-            <MiniStat
-              label="Monthly"
-              value={fmt(stats.earningsThisMonth)}
-              accent="teal"
-            />
+            <MiniStat label="Daily" value={fmt(stats.earningsToday)} accent="emerald" />
+            <MiniStat label="Weekly" value={fmt(stats.earningsThisWeek)} accent="amber" />
+            <MiniStat label="Monthly" value={fmt(stats.earningsThisMonth)} accent="teal" />
           </div>
         </div>
       </Card>
 
-      {/* 3 Pool blocks */}
       <div className="grid gap-4 lg:grid-cols-3">
         {stats.pools.pioneer.eligible && (
           <PoolBlock
             icon={Crown}
             title="Pioneer KasiPool"
-            subtitle="1% of Kasi profits"
+            subtitle="Approved 1% pool"
             todayAmount={stats.pools.pioneer.today}
             totalAmount={stats.pools.pioneer.total}
             theme="amber"
-            note="You're receiving a share of the 1% PioneerPool every night."
+            note="Pool value accumulates and distributes only when every eligible member can receive at least R50."
           />
         )}
         <PoolBlock
           icon={ShoppingBag}
           title="KasiMarketplace Pool"
-          subtitle="Paid Enablers Only"
+          subtitle="Paid-member pool"
           todayAmount={stats.pools.marketplace.today}
           totalAmount={stats.pools.marketplace.total}
           theme="teal"
-          note="This amount is included in your Total Earnings for today."
+          note="Amounts shown are the member's recorded pool distributions, not a synthetic projection."
         />
         <PoolBlock
           icon={PieChartIcon}
           title="Kasi Shareholders Pool"
-          subtitle="Shareholders only"
+          subtitle="Shareholders"
           todayAmount={stats.pools.shareholders.today}
           totalAmount={stats.pools.shareholders.total}
           theme="emerald"
@@ -224,7 +208,6 @@ export function DashboardView() {
         />
       </div>
 
-      {/* Shares blocks */}
       <div className="grid gap-4 lg:grid-cols-3">
         <ShareBlock
           icon={Coins}
@@ -240,8 +223,8 @@ export function DashboardView() {
           title="Aureus Shares"
           count={stats.aureusShares.count}
           countLabel="shares"
-          valuePerShare={fmtUSD(stats.aureusShares.valuePerShare)}
-          totalValue={fmtUSD(stats.aureusShares.totalValue)}
+          valuePerShare={stats.aureusShares.count > 0 ? fmtUSD(stats.aureusShares.valuePerShare) : null}
+          totalValue={stats.aureusShares.count > 0 ? fmtUSD(stats.aureusShares.totalValue) : "Not connected"}
           theme="amber"
         />
         <ShareBlock
@@ -255,20 +238,18 @@ export function DashboardView() {
         />
       </div>
 
-      {/* Charts */}
       <div className="grid gap-4 lg:grid-cols-3">
-        {/* Total Earnings trend */}
         <Card className="lg:col-span-2 p-5">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h3 className="font-bold">Total Earnings</h3>
-              <p className="text-xs text-muted-foreground">Last 14 days</p>
+              <h3 className="font-bold">Earnings</h3>
+              <p className="text-xs text-muted-foreground">Last 14 days from ledger transactions</p>
             </div>
             <Badge
               variant="outline"
               className="bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800"
             >
-              <Sparkles className="h-3 w-3 mr-1" /> Daily
+              <Sparkles className="h-3 w-3 mr-1" /> Database
             </Badge>
           </div>
           <div className="h-64">
@@ -284,7 +265,7 @@ export function DashboardView() {
                 <XAxis
                   dataKey="date"
                   tick={{ fontSize: 10, fill: "oklch(0.5 0.02 150)" }}
-                  tickFormatter={(d) => new Date(d).getDate().toString()}
+                  tickFormatter={(d) => new Date(`${d}T00:00:00Z`).getUTCDate().toString()}
                   axisLine={false}
                   tickLine={false}
                 />
@@ -304,7 +285,7 @@ export function DashboardView() {
                     fontSize: "12px",
                   }}
                   labelFormatter={(d) =>
-                    new Date(d).toLocaleDateString("en-ZA", { day: "numeric", month: "short" })
+                    new Date(`${d}T00:00:00Z`).toLocaleDateString("en-ZA", { day: "numeric", month: "short", timeZone: "UTC" })
                   }
                   formatter={(v: number) => [`R ${v.toFixed(2)}`, "Earnings"]}
                 />
@@ -320,10 +301,9 @@ export function DashboardView() {
           </div>
         </Card>
 
-        {/* Earnings breakdown */}
         <Card className="p-5">
           <h3 className="font-bold mb-1">Earnings breakdown</h3>
-          <p className="text-xs text-muted-foreground mb-4">By source</p>
+          <p className="text-xs text-muted-foreground mb-4">From ledger transaction types</p>
           <div className="h-40">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
@@ -354,9 +334,7 @@ export function DashboardView() {
           </div>
           <div className="space-y-1.5 mt-3 max-h-40 overflow-y-auto scrollbar-kasi">
             {stats.earningsBreakdown.length === 0 ? (
-              <p className="text-xs text-muted-foreground text-center py-2">
-                No earnings yet
-              </p>
+              <p className="text-xs text-muted-foreground text-center py-2">No recorded earnings yet</p>
             ) : (
               stats.earningsBreakdown.map((b) => (
                 <div key={b.name} className="flex items-center justify-between text-xs">
@@ -372,7 +350,6 @@ export function DashboardView() {
         </Card>
       </div>
 
-      {/* Eco-System + Pioneer Pool + Profile */}
       <div className="grid gap-4 lg:grid-cols-3">
         <Card
           className="p-5 cursor-pointer hover:shadow-md transition-shadow"
@@ -384,7 +361,7 @@ export function DashboardView() {
             </div>
             <div>
               <h3 className="font-bold">Eco-System (5×6)</h3>
-              <p className="text-xs text-muted-foreground">5×6 structure</p>
+              <p className="text-xs text-muted-foreground">Current stored matrix</p>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3 text-center">
@@ -409,27 +386,25 @@ export function DashboardView() {
             </div>
             <div>
               <h3 className="font-bold">Pioneer Pool</h3>
-              <p className="text-xs text-muted-foreground">1% of Kasi profits</p>
+              <p className="text-xs text-muted-foreground">Eligibility from Roots Bank holding</p>
             </div>
           </div>
           {stats.pioneerPoolEligible ? (
             <>
-              <div className="flex items-center gap-2 text-sm">
-                <Badge
-                  variant="outline"
-                  className="bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800"
-                >
-                  <Sparkles className="h-3 w-3 mr-1" /> Eligible
-                </Badge>
-              </div>
+              <Badge
+                variant="outline"
+                className="bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800"
+              >
+                <Sparkles className="h-3 w-3 mr-1" /> Eligible
+              </Badge>
               <p className="text-xs text-muted-foreground mt-3">
-                You&apos;re receiving a share of the 1% PioneerPool every night.
+                Distribution occurs only when the pool can pay every eligible member at least R50; remainder stays in the pool.
               </p>
             </>
           ) : (
             <>
               <p className="text-xs text-muted-foreground mb-3">
-                Purchase a Roots Bank pioneer share to unlock lifetime 1% profit share.
+                No eligible Pioneer Pool holding is recorded for this member.
               </p>
               <Button
                 size="sm"
@@ -437,7 +412,7 @@ export function DashboardView() {
                 className="w-full border-amber-300 text-amber-700 hover:bg-amber-50 dark:border-amber-800 dark:text-amber-300 dark:hover:bg-amber-950/40"
                 onClick={() => setView("rootsbank")}
               >
-                Claim pioneer spot
+                View Roots Bank
               </Button>
             </>
           )}
@@ -450,28 +425,12 @@ export function DashboardView() {
             </div>
             <div>
               <h3 className="font-bold">Profile</h3>
-              <p className="text-xs text-muted-foreground">Member status</p>
+              <p className="text-xs text-muted-foreground">Database member status</p>
             </div>
           </div>
           <div className="space-y-2 text-xs">
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">KYC</span>
-              <Badge
-                variant="outline"
-                className="bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800 text-[9px] h-4"
-              >
-                {stats.member.kycStatus}
-              </Badge>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Subscription</span>
-              <Badge
-                variant="outline"
-                className="bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800 text-[9px] h-4"
-              >
-                {stats.member.subscriptionStatus}
-              </Badge>
-            </div>
+            <StatusRow label="KYC" value={stats.member.kycStatus} />
+            <StatusRow label="Subscription" value={stats.member.subscriptionStatus} />
             <div className="flex justify-between">
               <span className="text-muted-foreground">NFC Tag</span>
               <span className="font-mono text-[10px]">{stats.member.nfcTagId || "—"}</span>
@@ -486,12 +445,11 @@ export function DashboardView() {
         </Card>
       </div>
 
-      {/* Recent transactions */}
       <Card className="p-5">
         <div className="flex items-center justify-between mb-4">
           <div>
             <h3 className="font-bold">Recent transactions</h3>
-            <p className="text-xs text-muted-foreground">Latest activity on your account</p>
+            <p className="text-xs text-muted-foreground">Latest authoritative wallet ledger activity</p>
           </div>
           <Button variant="ghost" size="sm" onClick={() => setView("profile")}>
             View all <ArrowUpRight className="h-3 w-3 ml-1" />
@@ -499,15 +457,10 @@ export function DashboardView() {
         </div>
         <div className="space-y-1 max-h-96 overflow-y-auto scrollbar-kasi">
           {stats.transactions.length === 0 ? (
-            <p className="text-xs text-muted-foreground text-center py-6">
-              No transactions yet
-            </p>
+            <p className="text-xs text-muted-foreground text-center py-6">No transactions recorded</p>
           ) : (
             stats.transactions.slice(0, 12).map((tx) => {
-              const isEco = tx.type === "MATRIX_PAYOUT";
-              const typeLabel = isEco
-                ? "Eco-System Commission"
-                : tx.type.replace(/_/g, " ");
+              const typeLabel = tx.type === "MATRIX_PAYOUT" ? "Eco-System Commission" : tx.type.replace(/_/g, " ");
               return (
                 <div
                   key={tx.id}
@@ -515,9 +468,7 @@ export function DashboardView() {
                 >
                   <div
                     className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                      tx.amount > 0
-                        ? "bg-emerald-50 dark:bg-emerald-950/40"
-                        : "bg-rose-50 dark:bg-rose-950/40"
+                      tx.amount > 0 ? "bg-emerald-50 dark:bg-emerald-950/40" : "bg-rose-50 dark:bg-rose-950/40"
                     }`}
                   >
                     {tx.amount > 0 ? (
@@ -529,21 +480,11 @@ export function DashboardView() {
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium truncate">{tx.description}</p>
                     <p className="text-xs text-muted-foreground">
-                      {new Date(tx.createdAt).toLocaleDateString("en-ZA", {
-                        day: "numeric",
-                        month: "short",
-                        year: "numeric",
-                      })}{" "}
-                      · {typeLabel}
+                      {new Date(tx.createdAt).toLocaleDateString("en-ZA", { day: "numeric", month: "short", year: "numeric" })} · {typeLabel}
                     </p>
                   </div>
-                  <p
-                    className={`text-sm font-bold ${
-                      tx.amount > 0 ? "text-emerald-600" : "text-rose-600"
-                    }`}
-                  >
-                    {tx.amount > 0 ? "+" : ""}
-                    {fmt(tx.amount)}
+                  <p className={`text-sm font-bold ${tx.amount > 0 ? "text-emerald-600" : "text-rose-600"}`}>
+                    {tx.amount > 0 ? "+" : ""}{fmt(tx.amount)}
                   </p>
                 </div>
               );
@@ -555,19 +496,33 @@ export function DashboardView() {
   );
 }
 
+function StatusRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex justify-between">
+      <span className="text-muted-foreground">{label}</span>
+      <Badge
+        variant="outline"
+        className="bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800 text-[9px] h-4"
+      >
+        {value}
+      </Badge>
+    </div>
+  );
+}
+
 function KpiCard({
   icon: Icon,
   label,
   value,
   sub,
-  trend,
+  badge,
   color,
 }: {
   icon: typeof Wallet;
   label: string;
   value: string;
   sub: string;
-  trend: string;
+  badge: string;
   color: "emerald" | "amber" | "teal" | "yellow";
 }) {
   const colors = {
@@ -580,14 +535,10 @@ function KpiCard({
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
       <Card className="p-5 hover:shadow-md transition-shadow h-full">
         <div className="flex items-start justify-between">
-          <div
-            className={`w-10 h-10 rounded-lg bg-gradient-to-br ${colors[color]} flex items-center justify-center`}
-          >
+          <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${colors[color]} flex items-center justify-center`}>
             <Icon className="h-5 w-5 text-white" />
           </div>
-          <Badge variant="outline" className="text-[9px] h-4 bg-muted/50">
-            {trend}
-          </Badge>
+          <Badge variant="outline" className="text-[9px] h-4 bg-muted/50">{badge}</Badge>
         </div>
         <p className="text-xs text-muted-foreground mt-3">{label}</p>
         <p className="text-xl sm:text-2xl font-black tracking-tight mt-0.5">{value}</p>
@@ -597,15 +548,7 @@ function KpiCard({
   );
 }
 
-function MiniStat({
-  label,
-  value,
-  accent,
-}: {
-  label: string;
-  value: string;
-  accent: "emerald" | "amber" | "teal";
-}) {
+function MiniStat({ label, value, accent }: { label: string; value: string; accent: "emerald" | "amber" | "teal" }) {
   const accents = {
     emerald: "text-emerald-600 dark:text-emerald-400",
     amber: "text-amber-600 dark:text-amber-400",
@@ -614,8 +557,7 @@ function MiniStat({
   return (
     <div className="rounded-lg bg-white/70 dark:bg-background/60 backdrop-blur px-3 py-2 text-center border border-emerald-100 dark:border-emerald-900/60">
       <p className="text-[10px] text-muted-foreground uppercase tracking-wide flex items-center justify-center gap-1">
-        <Calendar className="h-2.5 w-2.5" />
-        {label}
+        <Calendar className="h-2.5 w-2.5" /> {label}
       </p>
       <p className={`text-sm font-bold mt-0.5 ${accents[accent]}`}>{value}</p>
     </div>
@@ -642,24 +584,9 @@ function PoolBlock({
   action?: React.ReactNode;
 }) {
   const themes = {
-    amber: {
-      grad: "from-amber-500 to-amber-600",
-      chip: "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800",
-      bar: "bg-amber-500",
-      text: "text-amber-600 dark:text-amber-400",
-    },
-    teal: {
-      grad: "from-teal-500 to-emerald-600",
-      chip: "bg-teal-50 text-teal-700 border-teal-200 dark:bg-teal-950/40 dark:text-teal-300 dark:border-teal-800",
-      bar: "bg-teal-500",
-      text: "text-teal-600 dark:text-teal-400",
-    },
-    emerald: {
-      grad: "from-emerald-500 to-emerald-600",
-      chip: "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800",
-      bar: "bg-emerald-500",
-      text: "text-emerald-600 dark:text-emerald-400",
-    },
+    amber: { grad: "from-amber-500 to-amber-600", text: "text-amber-600 dark:text-amber-400" },
+    teal: { grad: "from-teal-500 to-emerald-600", text: "text-teal-600 dark:text-teal-400" },
+    emerald: { grad: "from-emerald-500 to-emerald-600", text: "text-emerald-600 dark:text-emerald-400" },
   };
   const t = themes[theme];
 
@@ -667,9 +594,7 @@ function PoolBlock({
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
       <Card className="p-5 hover:shadow-md transition-shadow h-full flex flex-col">
         <div className="flex items-center gap-3 mb-4">
-          <div
-            className={`w-10 h-10 rounded-lg bg-gradient-to-br ${t.grad} flex items-center justify-center flex-shrink-0`}
-          >
+          <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${t.grad} flex items-center justify-center flex-shrink-0`}>
             <Icon className="h-5 w-5 text-white" />
           </div>
           <div className="min-w-0">
@@ -677,29 +602,21 @@ function PoolBlock({
             <p className="text-xs text-muted-foreground">{subtitle}</p>
           </div>
         </div>
-
         <div className="grid grid-cols-2 gap-3 mb-4">
           <div className="rounded-lg bg-muted/40 p-2.5 text-center">
             <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Today</p>
-            <p className={`text-base font-black mt-0.5 ${t.text}`}>
-              R {todayAmount.toLocaleString("en-ZA", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </p>
+            <p className={`text-base font-black mt-0.5 ${t.text}`}>R {todayAmount.toLocaleString("en-ZA", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
           </div>
           <div className="rounded-lg bg-muted/40 p-2.5 text-center">
             <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Total</p>
-            <p className={`text-base font-black mt-0.5 ${t.text}`}>
-              R {totalAmount.toLocaleString("en-ZA", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </p>
+            <p className={`text-base font-black mt-0.5 ${t.text}`}>R {totalAmount.toLocaleString("en-ZA", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
           </div>
         </div>
-
         {note && <p className="text-[11px] text-muted-foreground mb-3 leading-relaxed">{note}</p>}
-
         {action}
-
         {!action && (
           <div className="mt-auto pt-2">
-            <Progress value={totalAmount > 0 ? Math.min(100, (todayAmount / (totalAmount || 1)) * 100) : 0} className="h-1.5" />
+            <Progress value={totalAmount > 0 ? Math.min(100, (todayAmount / totalAmount) * 100) : 0} className="h-1.5" />
           </div>
         )}
       </Card>
@@ -725,18 +642,9 @@ function ShareBlock({
   theme: "amber" | "teal" | "emerald";
 }) {
   const themes = {
-    emerald: {
-      grad: "from-emerald-500 to-emerald-600",
-      text: "text-emerald-600 dark:text-emerald-400",
-    },
-    amber: {
-      grad: "from-amber-500 to-amber-600",
-      text: "text-amber-600 dark:text-amber-400",
-    },
-    teal: {
-      grad: "from-teal-500 to-emerald-600",
-      text: "text-teal-600 dark:text-teal-400",
-    },
+    emerald: { grad: "from-emerald-500 to-emerald-600", text: "text-emerald-600 dark:text-emerald-400" },
+    amber: { grad: "from-amber-500 to-amber-600", text: "text-amber-600 dark:text-amber-400" },
+    teal: { grad: "from-teal-500 to-emerald-600", text: "text-teal-600 dark:text-teal-400" },
   };
   const t = themes[theme];
 
@@ -744,9 +652,7 @@ function ShareBlock({
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
       <Card className="p-5 hover:shadow-md transition-shadow h-full">
         <div className="flex items-center gap-3 mb-4">
-          <div
-            className={`w-10 h-10 rounded-lg bg-gradient-to-br ${t.grad} flex items-center justify-center flex-shrink-0`}
-          >
+          <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${t.grad} flex items-center justify-center flex-shrink-0`}>
             <Icon className="h-5 w-5 text-white" />
           </div>
           <div>
@@ -757,9 +663,7 @@ function ShareBlock({
         <div className="space-y-2 text-sm">
           <div className="flex items-center justify-between">
             <span className="text-xs text-muted-foreground">Holdings</span>
-            <span className="font-bold">
-              {count} <span className="text-xs font-normal text-muted-foreground">{countLabel}</span>
-            </span>
+            <span className="font-bold">{count} <span className="text-xs font-normal text-muted-foreground">{countLabel}</span></span>
           </div>
           {valuePerShare !== null && (
             <div className="flex items-center justify-between">
