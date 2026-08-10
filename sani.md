@@ -629,4 +629,21 @@ Author: Klaasvaakie ( |╲ )
 - Changed the website-only assistant to reveal each approved deterministic answer progressively while retaining the same source-backed answer catalogue and restricted-topic boundaries.
 - Locked input during an active response, deferred source labels until completion, exposed an accessible busy state, and returned the full answer immediately for reduced-motion users.
 - Added exact chunk-reassembly coverage and browser checks for both supported and restricted streamed responses.
+
+## 2026-08-10 - USDT share-sale progress report
+
+- Documented the verified live baseline, the isolated presale implementation on `9a515d6`, remaining activation blockers, phased delivery plan and launch acceptance gates.
+- Generated and visually verified a three-page PDF under `output/pdf/`; retained the Markdown source for maintainable future updates.
+- Kept the report on a clean branch from current GitHub main so the detached dirty checkout and unrelated product edits remain untouched. Author: Klaasvaakie ( |╲ )
 - Passed lint, TypeScript, 57 automated tests, production build, and all 7 Playwright browser tests before release preparation. `( |╲ )` — Klaasvaakie
+
+## 2026-07-31 — Isolated USDT presale branch
+
+- Created `Klaasvaakie/usdt-share-presale` from the clean parent of an accidental broad workspace commit, restoring only the isolated presale database/domain, invitation-gated UI, administrative gateways, signed USDT verification contract, incorporation manifest, tests, runbook, and exact Encore v1.57.13 dependency. Excluded `.env`, generated output, temporary archives, local Encore binaries, and unrelated UI changes from the scoped feature commit. `( |╲ )` — Klaasvaakie
+
+## 2026-08-10 - USDT shares page Phase A
+
+- Reconciled the isolated presale implementation onto current GitHub main in a focused branch while retaining the current pinned Encore dependency.
+- Kept the buyer page private, noindex and no-referrer; replaced query-string order credentials with a dedicated request header so bearer tokens do not enter browser history or proxy URLs.
+- Added browser coverage for fail-closed access, invitation-only reservation, exact USDT instructions, non-issuance disclosure and payment-proof refresh security.
+- Passed lint, TypeScript, 61 frontend tests with coverage, production audit, build, 11 browser tests, Encore check and 72 Encore tests; local visual QA showed a clean private gate and console. No deployment or campaign activation occurred. Author: Klaasvaakie ( |╲ )

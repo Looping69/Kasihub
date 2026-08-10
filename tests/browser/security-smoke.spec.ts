@@ -204,3 +204,119 @@ test("design studio remains hidden while its persistence path is stabilised", as
   // Author: Klaasvaakie ( |╲ )
   await expect(page.locator("button").filter({ hasText: "Design Suite" })).toHaveCount(0);
 });
+
+test("private USDT shares page fails closed without an invitation", async ({ page }) => {
+  // Author: Klaasvaakie ( |╲ )
+  await page.goto("/presale");
+  await expect(page).toHaveTitle(/Private KaSiShares Presale/i);
+  await expect(page.getByRole("heading", { name: "Private invitation required" })).toBeVisible();
+  await expect(page.getByText("This Class B share presale is not open to the general public.")).toBeVisible();
+  await expect(page.locator('meta[name="robots"]')).toHaveAttribute("content", /noindex/);
+  await expect(page.locator('meta[name="referrer"]')).toHaveAttribute("content", "no-referrer");
+});
+
+test("invited buyer can reserve shares without exposing the order access token in URLs", async ({ page }) => {
+  // Author: Klaasvaakie ( |╲ )
+  const invite = "private-invitation-token-000000000001";
+  const accessToken = "private-order-access-token-00000000001";
+  const orderReference = "KSP-ORDER-001";
+  let refreshUrl = "";
+  let refreshAccessToken = "";
+
+  await page.route("**/api/presale/offer?invite=*", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ offer: {
+      name: "KaSiShares Private Allocation",
+      issuerName: "Solidus Holdings (Pty) Ltd",
+      shareClass: "Class B",
+      priceUsdt: "25.000000",
+      network: "TRON",
+      tokenContract: "TRON-USDT-CONTRACT",
+      receivingAddress: "TControlledReceiverAddress",
+      sharesRemaining: 100,
+      invitationSharesRemaining: 5,
+      invitationEmail: "buyer@example.test",
+      minConfirmations: 20,
+      paymentWindowMinutes: 30,
+      termsVersion: "presale-reservation-v1",
+    } }),
+  }));
+  await page.route("**/api/presale/orders", async (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ accessToken, order: {
+        orderReference,
+        campaign: "KaSiShares Private Allocation",
+        issuerName: "Solidus Holdings (Pty) Ltd",
+        shareClass: "Class B",
+        buyerName: "Private Buyer",
+        buyerEmail: "buyer@example.test",
+        quantity: 2,
+        unitPriceUsdt: "25.000000",
+        totalUsdt: "50.000000",
+        status: "awaiting_payment",
+        network: "TRON",
+        tokenContract: "TRON-USDT-CONTRACT",
+        receivingAddress: "TControlledReceiverAddress",
+        minConfirmations: 20,
+        paymentDeadline: "2026-08-11T00:00:00.000Z",
+        confirmations: 0,
+        incorporationStatus: "pending",
+      } }),
+    });
+  });
+  await page.route(`**/api/presale/orders/${orderReference}/payment-proof`, (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ orderReference, status: "payment_submitted", transactionHash: "abcdef0123456789" }),
+  }));
+  await page.route(`**/api/presale/orders/${orderReference}`, async (route) => {
+    refreshUrl = route.request().url();
+    refreshAccessToken = route.request().headers()["x-presale-access-token"] ?? "";
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ order: {
+        orderReference,
+        campaign: "KaSiShares Private Allocation",
+        issuerName: "Solidus Holdings (Pty) Ltd",
+        shareClass: "Class B",
+        buyerName: "Private Buyer",
+        buyerEmail: "buyer@example.test",
+        quantity: 2,
+        unitPriceUsdt: "25.000000",
+        totalUsdt: "50.000000",
+        status: "payment_submitted",
+        network: "TRON",
+        tokenContract: "TRON-USDT-CONTRACT",
+        receivingAddress: "TControlledReceiverAddress",
+        minConfirmations: 20,
+        paymentDeadline: "2026-08-11T00:00:00.000Z",
+        transactionHash: "abcdef0123456789",
+        confirmations: 0,
+        incorporationStatus: "pending",
+      } }),
+    });
+  });
+
+  await page.goto(`/presale?invite=${encodeURIComponent(invite)}`);
+  await expect(page.getByRole("heading", { name: "KaSiShares Private Allocation" })).toBeVisible();
+  await page.getByLabel("Full legal name").fill("Private Buyer");
+  await page.getByLabel("Number of shares").fill("2");
+  await page.getByLabel(/I accept the presale reservation acknowledgement/).check();
+  await page.getByRole("button", { name: "Reserve and view payment" }).click();
+
+  await expect(page.getByText("50.000000 USDT")).toBeVisible();
+  await expect(page.getByText("TControlledReceiverAddress")).toBeVisible();
+  await expect(page.getByText(/does not issue a final share certificate/i)).toBeVisible();
+
+  await page.getByLabel("Transaction hash").fill("abcdef0123456789");
+  await page.getByRole("button", { name: "Submit transaction for confirmation" }).click();
+  await expect(page.getByRole("heading", { name: "Transaction submitted" })).toBeVisible();
+  expect(refreshUrl).not.toContain(accessToken);
+  expect(refreshUrl).not.toContain("accessToken=");
+  expect(refreshAccessToken).toBe(accessToken);
+});
