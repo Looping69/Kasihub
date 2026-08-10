@@ -1,7 +1,7 @@
 // Author: Klaasvaakie ( |╲ )
 import { api } from "encore.dev/api";
 import { identityDb, networkDb } from "../../resources";
-import { requireProfileAccess } from "../auth/access";
+import { requireAdminAccess, requireProfileAccess } from "../auth/access";
 import { placeMatrixNode } from "./placement";
 
 interface MatrixNodeResponse {

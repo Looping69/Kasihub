@@ -1,8 +1,9 @@
 // Author: Klaasvaakie ( |╲ )
 import { api, APIError } from "encore.dev/api";
 import { z } from "zod";
-import { auditDb, financeDb, membershipDb } from "../../resources";
+import { auditDb, financeDb, identityDb, membershipDb, networkDb } from "../../resources";
 import { requireAdminAccess, requireProfileAccess } from "../auth/access";
+import { ensureLedgerAccount as ensureDomainLedgerAccount } from "../wallets/ledger";
 import {
   beginOperation,
   captureWalletHold,
@@ -12,6 +13,7 @@ import {
   recordStep,
   requireIdempotencyKey,
 } from "../workflows/core";
+import { placeMatrixNode } from "../network/placement";
 import { ensureMembershipPlan } from "./plans";
 
 interface SubscribeRequest {
@@ -244,4 +246,3 @@ export const activateSubscription = api<
     }
   },
 );
-
