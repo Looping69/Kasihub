@@ -100,10 +100,9 @@ export interface Share {
   prevCertificateNo: string | null;
   status: string;
   createdAt: string;
-  // Phase-aware fields returned by /api/shares (optional for backwards compat)
-  isLegacy?: boolean; // true for Phase 1 BOGO (FREE) shares
-  currentValuePerShare?: number; // current phase price per share
-  currentTotalValue?: number; // quantity × currentValuePerShare
+  isLegacy?: boolean;
+  currentValuePerShare?: number;
+  currentTotalValue?: number;
 }
 
 export interface SharePhase {
@@ -124,7 +123,7 @@ export interface AureusShare {
   totalAmount: number;
   certificateNo: string;
   prevCertificateNo: string | null;
-  status: string; // ACTIVE | RETRACTED
+  status: string;
   createdAt: string;
 }
 
@@ -215,6 +214,8 @@ export interface PoolDistribution {
 
 export interface DashboardStats {
   member: Member;
+  walletBalance: number;
+  walletCurrency: string;
   totalEarnings: number;
   monthlyEarnings: number;
   earningsToday: number;
@@ -259,6 +260,7 @@ export interface DashboardStats {
   pioneerPoolEligible: boolean;
   auditorNotified: boolean;
   transactions: Transaction[];
+  poolDistributions: PoolDistribution[];
   totalEarningsTrend: { date: string; amount: number }[];
   earningsBreakdown: { name: string; value: number; color: string }[];
 }
