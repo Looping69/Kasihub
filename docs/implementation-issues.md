@@ -186,6 +186,112 @@ The payment blueprint correctly separates inbound verification, settlement and f
 
 **Implementation reference:** `docs/settlement-splits-payouts-architecture.md`.
 
+### KIP-019 - Current main backend build baseline contains unresolved source references
+**Status:** OPEN
+**Severity:** Critical
+**Category:** Build Integrity / Encore
+
+Repository inspection of `main` at `b8bfbe583cc8386abfc81bc2edac1356c2059605` found source references that are not imported in their modules: `encore/domains/network/api.ts` calls `requireAdminAccess()` while importing only `requireProfileAccess`, and `encore/domains/membership/api.ts` uses `identityDb` and `networkDb` while its resource import currently contains only `auditDb`, `financeDb` and `membershipDb`.
+
+The repository has quality gates for `encore check` and `encore test`, but no successful run/status for the reviewed merge head was surfaced by the available GitHub status interfaces during the readiness audit.
+
+**Required fix:** correct the source imports and require a green frontend and Encore quality-gate run on the exact commit selected as the InstaPay integration base. Do not begin provider integration on an unverified build baseline.
+
+### KIP-020 - Unknown membership plan codes can materialise fallback business plans
+**Status:** OPEN
+**Severity:** High
+**Category:** Business Rules / Data Integrity
+
+`ensureMembershipPlan(code)` falls back to `INDIVIDUAL_LOCAL` economics when an unknown code is supplied but inserts the caller-provided code. `subscribeMembership` accepts a general string `planCode` and invokes this helper when the requested active plan does not exist. The public membership-plan read path also seeds default plans when the table is empty.
+
+**Impact:** normal request/read paths can implicitly create authoritative business-policy records instead of failing closed on unapproved plan codes.
+
+**Required fix:** allow only approved plan identifiers; make unknown codes fail closed; move bootstrap/seed behavior to migrations or an explicit privileged configuration workflow; keep GET endpoints read-only.
+
+### KIP-021 - Local InstaPay/KYC state has multiple authorities without a provider-event transition model
+**Status:** OPEN
+**Severity:** Critical
+**Category:** KYC Integration / State Management
+
+Local KYC/provider state is represented in `kyc_cases.status`, profile status/KYC timestamps, and separate InstaPay status/reference fields on the profile. The member profile projection derives KYC status from profile activation state, while the KYC status endpoint reads KYC cases.
+
+**Impact:** once asynchronous InstaPay callbacks begin changing state, independent writes can produce conflicting KYC, account and profile truth.
+
+**Required fix:** define one canonical state machine and event flow before receiving provider callbacks. Provider events should be durably journalled and authenticated, replay checked, applied idempotently to the authoritative KYC/payment state, then projected into profile-facing fields and audit/reconciliation views.
+
+### KIP-022 - Local registration UX does not cover every server-routed InstaPay classification
+**Status:** OPEN
+**Severity:** High
+**Category:** Product / KYC Integration
+
+Server routing sends every supported non-international citizenship classification to the local InstaPay rail. The registration wizard currently inserts the KaSiPay/InstaPay onboarding step only for `SA_CITIZEN_SA` and `SA_NPO_NGO`.
+
+**Impact:** `FOREIGN_CITIZEN_SA`, `SA_CIPC_COMPANY` and `SA_SOLE_PROPRIETOR` can enter an InstaPay-backed server flow without the equivalent frontend provider onboarding experience or confirmed required data collection.
+
+**Required decision/fix:** approve the InstaPay journey and required fields for every local classification, then make frontend flow and server routing describe the same policy.
+
+### KIP-023 - Marketplace pool accounting uses conflicting commission semantics
+**Status:** OPEN
+**Severity:** High
+**Category:** Financial Integrity / Commerce
+
+Marketplace order logic returns a `poolBenefit` equal to 5% of the calculated order commission. Finance pool reporting currently counts the full `SUM(commission)` from marketplace orders as marketplace-pool incoming.
+
+**Impact:** pool liabilities and reporting can materially differ depending on which code path is treated as authoritative.
+
+**Required decision/fix:** obtain the approved business definition for marketplace commission and pool allocation, encode it in one versioned policy source, and make commerce posting plus finance reporting reconcile to that source. Do not infer whether 5% or 100% is intended.
+
+### KIP-024 - Fixed-email tester admin bypass applies to provider-connected staging
+**Status:** OPEN
+**Severity:** High
+**Category:** Security / Environment Access
+
+`hasTesterAdminAccess` grants admin/profile access to a hard-coded tester email in every environment except production. That includes staging and ephemeral environments.
+
+**Impact:** a provider-connected staging environment could grant broad administrative authority based on email identity rather than an explicit database role or tightly controlled environment permission.
+
+**Required fix before InstaPay staging:** remove the bypass from provider-connected staging, or replace it with an explicit development/test-only control that cannot grant staging authority by email alone.
+
+### KIP-025 - General auth/registration/provider abuse controls are not evident in the application layer
+**Status:** OPEN
+**Severity:** High
+**Category:** Security / Abuse Prevention
+
+The readiness review did not find a general application-level rate limiter for login, registration or KYC initiation. Some endpoints have narrow controls, such as WhatsApp verification resend and attempt limits, but those do not protect identity/provider entry points.
+
+**Required fix before provider pilot:** add rate limits and appropriate anomaly/cost controls to login, registration, KYC/provider initiation, account creation/status polling, and provider-facing endpoints according to their threat and provider cost model. Verify whether the deployment edge supplies any additional controls and document them.
+
+### KIP-026 - Matrix depth semantics are unresolved before payment-driven placement
+**Status:** OPEN
+**Severity:** High
+**Category:** Network / Business Rules
+
+Membership activation places the profile into the matrix. Current placement selects parents with `depth < 5`, producing a root at depth 0 and descendants through depth 5. Product/source language also refers to a `5x6` ecosystem and six upline levels.
+
+**Impact:** an automated InstaPay-confirmed membership activation could permanently place members under hierarchy semantics that have not been reconciled with the intended six-level earning/placement model.
+
+**Required decision/fix:** define whether the six levels include or exclude the member/root and distinguish placement depth from payout/upline depth. Encode tests for the approved interpretation before provider-confirmed payments trigger placement.
+
+### KIP-027 - Admin financial reporting still reads the legacy wallet compatibility projection
+**Status:** OPEN
+**Severity:** Medium
+**Category:** Financial Reporting / Data Integrity
+
+Authoritative member wallet operations now use `financeDb` wallet/ledger state, but some admin reports still aggregate `networkDb.wallets.cached_balance`, which is maintained as a compatibility projection.
+
+**Impact:** provider reconciliation or operations reporting can show stale totals if the compatibility projection lags or fails to update after an authoritative finance transaction.
+
+**Required fix:** move operational/admin financial reporting to authoritative finance ledger/wallet data. Mark legacy wallet values as non-authoritative until the compatibility layer is removed.
+
+### KIP-028 - Generated tool-result artifacts are tracked in the repository
+**Status:** WATCH
+**Severity:** Low
+**Category:** Repository Hygiene / Data Retention
+
+The repository contains tracked `tool-results/read_*.txt` files. Generated diagnostic/tool output is not application source and creates unnecessary repository noise plus a potential future path for accidental sensitive-output retention.
+
+**Required follow-up:** inspect whether any tracked tool-result file is required for tests or documentation. If not, remove the artifacts and ignore the generated directory.
+
 ## Rules for adding future issues
 1. Assign the next sequential `KIP-###` identifier.
 2. Record status, severity and category.
