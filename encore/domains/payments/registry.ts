@@ -6,6 +6,7 @@ import { auditDb, paymentsDb } from "../../resources";
 import { requireAdminAccess } from "../auth/access";
 
 export interface ReceivingConfigurationRequest {
+  provider?: "kasihub" | "remitano";
   network: "tron" | "bsc";
   currency: "USDT";
   addressReference: string;
@@ -16,6 +17,9 @@ export interface ReceivingConfigurationRequest {
 }
 
 const receivingConfigRequest = z.object({
+  // Provider is operational routing metadata only. Payment settlement still
+  // requires canonical chain evidence and never trusts a browser claim. ( |╲ ) — Klaasvaakie
+  provider: z.enum(["kasihub", "remitano"]).default("kasihub"),
   network: z.enum(["tron", "bsc"]),
   currency: z.literal("USDT"),
   addressReference: z.string().min(8).max(200),
@@ -27,6 +31,7 @@ const receivingConfigRequest = z.object({
 
 type ReceivingConfigResponse = {
   id: string;
+  provider: string;
   network: string;
   currency: string;
   addressReference: string;
@@ -41,6 +46,7 @@ type ReceivingConfigResponse = {
 
 type ReceivingConfigRow = {
   id: string;
+  provider: string;
   network: string;
   currency: string;
   address_reference: string;
@@ -57,6 +63,7 @@ function mapConfig(row: ReceivingConfigRow): ReceivingConfigResponse {
   if (!row.intent_ttl_seconds) throw APIError.internal("Receiving configuration is missing an intent TTL");
   return {
     id: row.id,
+    provider: row.provider,
     network: row.network,
     currency: row.currency,
     addressReference: row.address_reference,
@@ -86,6 +93,7 @@ export const rotateReceivingConfiguration = api<
     const tx = await paymentsDb.begin();
     const id = crypto.randomUUID();
     const auditPayload = {
+      provider: payload.provider,
       network: payload.network,
       currency: payload.currency,
       addressReference: payload.addressReference.trim(),
@@ -111,10 +119,11 @@ export const rotateReceivingConfiguration = api<
         `INSERT INTO payment_wallets
           (id, provider, network, currency, address_reference, token_contract, decimals,
            minimum_confirmations, intent_ttl_seconds, status, active_from)
-         VALUES ($1, 'kasihub', $2, $3, $4, $5, $6, $7, $8, 'active', now())
-         RETURNING id, network, currency, address_reference, token_contract, decimals,
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'active', now())
+         RETURNING id, provider, network, currency, address_reference, token_contract, decimals,
                    minimum_confirmations, intent_ttl_seconds, status, active_from, retired_at`,
         id,
+        auditPayload.provider,
         payload.network,
         payload.currency,
         auditPayload.addressReference,
@@ -174,6 +183,7 @@ export const listReceivingConfigurations = api<
     await requireAdminAccess();
     const rows = await paymentsDb.rawQueryAll<ReceivingConfigRow>(
       `SELECT id, network, currency, address_reference, token_contract, decimals,
+              provider,
               minimum_confirmations, intent_ttl_seconds, status, active_from, retired_at
          FROM payment_wallets
         ORDER BY active_from DESC`,

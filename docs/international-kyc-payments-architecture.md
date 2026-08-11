@@ -322,11 +322,11 @@ The payments schema includes request/idempotency hashes and unique event keys so
 
 ## Remitano boundary
 
-Remitano is not the inbound USDT source of truth.
+Remitano may be selected as an inbound collection provider for approved international payment routes, including KaSiShares payment obligations. Each configured route remains explicit: one provider, one supported network, one exact USDT contract and one controlled receiving address.
 
-Inbound international settlement must be based on blockchain evidence.
+Inbound international settlement must still be based on canonical blockchain evidence. A Remitano charge, wallet address or provider event is collection evidence; it does not by itself settle a share purchase.
 
-Remitano may later be introduced behind a replaceable outbound payout adapter only after inbound payment settlement is stable. Provider credentials must be server-only managed secrets.
+The two initial routes are TRON and BNB Smart Chain. They are configured as separate locked receiving configurations so a buyer cannot select, substitute or cross-send between networks. Provider credentials must be server-only managed secrets and must not appear in ClickUp, browser code, logs or source control.
 
 ## Security invariants
 

@@ -1,5 +1,10 @@
 # sani.md
 
+## 2026-08-11 — International share-income routing
+
+- Added an explicit `remitano` receiving-provider option to the privileged payment receiving-configuration registry. TRON and BNB Smart Chain remain separate locked USDT routes, with canonical chain evidence required before settlement.
+- Remitano credentials from ClickUp were not used. The official gateway material supports USDT charges but did not establish a public API for creating the requested two deposit wallets. Author: Klaasvaakie `( |╲ )`
+
 - 2026-07-09: Started repo analysis for deployment path. Found a Next.js-style app with Bun lockfile, Caddyfile, Prisma, and local upload/download dirs. Next step: inspect package.json and runtime config, then map build/start/deploy steps.
 - 2026-07-09: Deployment path confirmed. App is Next.js 16 with standalone output. Build: un run build. Start: un run start on port 3000 behind Caddy. Needs persistent SQLite at DATABASE_URL and durable upload/ / download/ dirs.
 
