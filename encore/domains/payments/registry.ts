@@ -4,8 +4,10 @@ import * as log from "encore.dev/log";
 import { z } from "zod";
 import { auditDb, paymentsDb } from "../../resources";
 import { requireAdminAccess } from "../auth/access";
+import { RECEIVING_PROVIDERS, type ReceivingProvider, validateReceivingRoute } from "./receiving-config";
 
 export interface ReceivingConfigurationRequest {
+  provider?: ReceivingProvider;
   network: "tron" | "bsc";
   currency: "USDT";
   addressReference: string;
@@ -16,6 +18,7 @@ export interface ReceivingConfigurationRequest {
 }
 
 const receivingConfigRequest = z.object({
+  provider: z.enum(RECEIVING_PROVIDERS).default("kasihub"),
   network: z.enum(["tron", "bsc"]),
   currency: z.literal("USDT"),
   addressReference: z.string().min(8).max(200),
@@ -27,6 +30,7 @@ const receivingConfigRequest = z.object({
 
 type ReceivingConfigResponse = {
   id: string;
+  provider: ReceivingProvider;
   network: string;
   currency: string;
   addressReference: string;
@@ -41,6 +45,7 @@ type ReceivingConfigResponse = {
 
 type ReceivingConfigRow = {
   id: string;
+  provider: ReceivingProvider;
   network: string;
   currency: string;
   address_reference: string;
@@ -57,6 +62,7 @@ function mapConfig(row: ReceivingConfigRow): ReceivingConfigResponse {
   if (!row.intent_ttl_seconds) throw APIError.internal("Receiving configuration is missing an intent TTL");
   return {
     id: row.id,
+    provider: row.provider,
     network: row.network,
     currency: row.currency,
     addressReference: row.address_reference,
@@ -83,9 +89,15 @@ export const rotateReceivingConfiguration = api<
   async (req) => {
     const session = await requireAdminAccess();
     const payload = receivingConfigRequest.parse(req);
+    try {
+      validateReceivingRoute(payload.network, payload.addressReference, payload.tokenContract);
+    } catch {
+      throw APIError.invalidArgument("Receiving address or token contract is invalid for the selected network");
+    }
     const tx = await paymentsDb.begin();
     const id = crypto.randomUUID();
     const auditPayload = {
+      provider: payload.provider,
       network: payload.network,
       currency: payload.currency,
       addressReference: payload.addressReference.trim(),
@@ -111,10 +123,11 @@ export const rotateReceivingConfiguration = api<
         `INSERT INTO payment_wallets
           (id, provider, network, currency, address_reference, token_contract, decimals,
            minimum_confirmations, intent_ttl_seconds, status, active_from)
-         VALUES ($1, 'kasihub', $2, $3, $4, $5, $6, $7, $8, 'active', now())
-         RETURNING id, network, currency, address_reference, token_contract, decimals,
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'active', now())
+         RETURNING id, provider, network, currency, address_reference, token_contract, decimals,
                    minimum_confirmations, intent_ttl_seconds, status, active_from, retired_at`,
         id,
+        payload.provider,
         payload.network,
         payload.currency,
         auditPayload.addressReference,
@@ -173,7 +186,7 @@ export const listReceivingConfigurations = api<
   async () => {
     await requireAdminAccess();
     const rows = await paymentsDb.rawQueryAll<ReceivingConfigRow>(
-      `SELECT id, network, currency, address_reference, token_contract, decimals,
+      `SELECT id, provider, network, currency, address_reference, token_contract, decimals,
               minimum_confirmations, intent_ttl_seconds, status, active_from, retired_at
          FROM payment_wallets
         ORDER BY active_from DESC`,

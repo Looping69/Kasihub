@@ -191,6 +191,7 @@ Admin listing:
 `GET /admin/payments/receiving-config`
 
 Each active receiving configuration defines:
+- collection provider (`kasihub` or `remitano`);
 - network;
 - USDT currency;
 - receiving address reference;
@@ -200,6 +201,21 @@ Each active receiving configuration defines:
 - payment-intent TTL.
 
 Rotation retires the previous active configuration for that network/currency and creates a new active record under a payments-database advisory lock.
+
+### Remitano collection routes
+
+Remitano may be selected as the collection provider for an approved
+international USDT route. A route is still locked by KaSiHub to one network,
+receiver, exact USDT contract, decimal precision, confirmation policy and
+payment-intent TTL. A Remitano provider event, balance change or payment URL
+does not settle a payment obligation on its own: KaSiHub's chain-evidence
+verification remains authoritative.
+
+TRON and BSC routes must be configured separately. The administrator enters
+the controlled receiving address through the privileged receiving-config API;
+it is not a frontend constant or source-controlled campaign value. The exact
+USDT contract and confirmation threshold must be independently confirmed before
+the route is activated.
 
 Because the global audit database is separate from `paymentsDb`, critical configuration mutations write `payment_configuration_events` inside the same transaction as the configuration change. The global audit database is a secondary mirror.
 
