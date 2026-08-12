@@ -1,6 +1,12 @@
 // Author: Klaasvaakie ( |╲ )
 import { describe, expect, it } from "vitest";
-import { assertPaymentTransition, canTransitionPayment } from "./state-machine";
+import { assertPaymentTransition, canTransitionPayment, type PaymentStatus } from "./state-machine";
+
+const statuses: PaymentStatus[] = [
+  "created", "awaiting_transfer", "submitted", "verifying", "pending_confirmations",
+  "underpaid", "manual_review", "confirmed", "settling", "settled", "expired",
+  "failed", "rejected", "cancelled",
+];
 
 describe("payment state machine", () => {
   it("allows the normal happy path", () => {
@@ -27,5 +33,11 @@ describe("payment state machine", () => {
     expect(() => assertPaymentTransition("submitted", "settled")).toThrow("invalid_payment_transition");
     expect(() => assertPaymentTransition("awaiting_transfer", "confirmed")).toThrow("invalid_payment_transition");
     expect(() => assertPaymentTransition("settled", "confirmed")).toThrow("invalid_payment_transition");
+  });
+
+  it("makes every terminal payment state irreversible", () => {
+    for (const terminal of ["settled", "expired", "failed", "rejected", "cancelled"] as const) {
+      for (const target of statuses) expect(canTransitionPayment(terminal, target)).toBe(false);
+    }
   });
 });
