@@ -25,6 +25,7 @@ import { Input } from "@/components/ui/input";
 import { useKasiStore } from "@/lib/store";
 import type { Share, SharePhase, AureusShare, Member } from "@/lib/types";
 import { toast } from "sonner";
+import { ActivePresaleCampaigns } from "@/components/views/active-presale-campaigns";
 
 interface SharesData {
   phases: SharePhase[];
@@ -322,6 +323,7 @@ export function SharesView() {
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto">
+      <ActivePresaleCampaigns />
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>

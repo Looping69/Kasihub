@@ -19,6 +19,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
+import { AdminPresaleCampaigns } from "@/components/admin/admin-presale-campaigns";
 
 interface Phase {
   id: string; phase: number; pricePerShare: number; totalShares: number;
@@ -183,6 +184,8 @@ export function AdminShares() {
       </div>
 
       {/* Phases management */}
+      <AdminPresaleCampaigns />
+
       <Card className="p-5">
         <h3 className="font-bold mb-4">Share phases</h3>
         <div className="space-y-3">

@@ -13,6 +13,8 @@ type Offer = {
   issuerName: string;
   shareClass: string;
   priceUsdt: string;
+  priceUsd: string;
+  usdtPerUsd: string;
   network: string;
   tokenContract?: string;
   receivingAddress: string;
@@ -181,7 +183,8 @@ export function PresaleClient({ inviteToken }: { inviteToken: string }) {
             <p className="mt-4 max-w-2xl text-lg leading-8 text-slate-300">Reserve {offer.shareClass} shares issued by {offer.issuerName} and settle the reservation in USDT.</p>
           </div>
           <div className="grid gap-3 sm:grid-cols-3">
-            <Metric label="Price per share" value={`${Number(offer.priceUsdt).toLocaleString(undefined, { maximumFractionDigits: 6 })} USDT`} />
+            <Metric label="Price per paid share" value={`$${Number(offer.priceUsd).toLocaleString(undefined, { maximumFractionDigits: 2 })}`} />
+            <Metric label="Server USDT quote" value={`${Number(offer.priceUsdt).toLocaleString(undefined, { maximumFractionDigits: 6 })} USDT`} />
             <Metric label="Your allocation" value={`${offer.invitationSharesRemaining.toLocaleString()} shares`} />
             <Metric label="Network" value={offer.network} />
           </div>

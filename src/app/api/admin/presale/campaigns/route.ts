@@ -12,3 +12,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unable to configure the presale campaign" }, { status });
   }
 }
+
+export async function GET() {
+  const token = await encoreSessionToken();
+  if (!token) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
+  try {
+    return NextResponse.json(await encoreRequest("/admin/presale/campaigns", {}, token));
+  } catch (error) {
+    const status = error instanceof EncoreRequestError ? error.status : 500;
+    return NextResponse.json({ error: "Unable to load presale campaigns" }, { status });
+  }
+}
