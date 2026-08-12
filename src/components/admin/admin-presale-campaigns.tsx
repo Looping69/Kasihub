@@ -31,6 +31,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
+import { campaignSavePayload } from "@/lib/presale-campaign";
 
 type Campaign = {
   id: string;
@@ -83,8 +84,6 @@ const blankDraft = (): Draft => ({
 });
 const localDate = (value?: string) =>
   value ? new Date(value).toISOString().slice(0, 16) : "";
-const toIso = (value?: string) =>
-  value ? new Date(value).toISOString() : undefined;
 
 export function AdminPresaleCampaigns() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
@@ -181,12 +180,7 @@ export function AdminPresaleCampaigns() {
           "Content-Type": "application/json",
           "Idempotency-Key": crypto.randomUUID(),
         },
-        body: JSON.stringify({
-          ...draft,
-          priceUsd: draft.priceUsd,
-          startsAt: toIso(draft.startsAt),
-          endsAt: toIso(draft.endsAt),
-        }),
+        body: JSON.stringify(campaignSavePayload(draft)),
       });
       const data = await response.json();
       if (!response.ok)

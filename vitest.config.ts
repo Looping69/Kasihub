@@ -22,6 +22,9 @@ export default defineConfig({
         "src/app/api/admin/pool/route.ts",
         "src/app/api/admin/operations/route.ts",
         "src/app/api/admin/reconciliation/route.ts",
+        "src/app/api/admin/presale/**/*.ts",
+        "src/app/api/presale/**/*.ts",
+        "src/lib/presale-campaign.ts",
       ],
       thresholds: {
         statements: 80,
