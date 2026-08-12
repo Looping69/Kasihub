@@ -8,7 +8,7 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "encore.dev": "1.57.11",
+    "encore.dev": "^1.57.13",
     "zod": "^4.0.2"
   },
   "devDependencies": {

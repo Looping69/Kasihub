@@ -14,6 +14,8 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 import { useKasiStore } from "@/lib/store";
+import { AdminReceivingRoutes } from "@/components/admin/admin-receiving-routes";
+import { AdminPresaleDefaults } from "@/components/admin/admin-presale-defaults";
 
 interface SettingItem { key: string; value: string; }
 interface GroupedSettings { [category: string]: SettingItem[]; }
@@ -163,6 +165,9 @@ export function AdminSettings() {
           </div>
         </div>
       </Card>
+
+      <AdminReceivingRoutes />
+      <AdminPresaleDefaults />
     </div>
   );
 }
