@@ -155,7 +155,7 @@ export function AdminPresaleCampaigns() {
       issuerName: "Solidus Holdings (Pty) Ltd",
       shareClass: "Class B",
       totalShares: 100_000,
-      priceUsdt: 25,
+      priceUsd: 25,
       bonusBuyOneGet: true,
       isMock: true,
     });
@@ -183,7 +183,7 @@ export function AdminPresaleCampaigns() {
         },
         body: JSON.stringify({
           ...draft,
-          priceUsd: draft.priceUsdt,
+          priceUsd: draft.priceUsd,
           startsAt: toIso(draft.startsAt),
           endsAt: toIso(draft.endsAt),
         }),
@@ -384,8 +384,8 @@ export function AdminPresaleCampaigns() {
               />
               <NumberField
                 label="USD price per paid share"
-                value={draft.priceUsdt}
-                onChange={(v) => update("priceUsdt", v)}
+                value={draft.priceUsd}
+                onChange={(v) => update("priceUsd", v)}
               />
               <div>
                 <Label>Status</Label>
