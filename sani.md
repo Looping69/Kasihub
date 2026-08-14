@@ -651,6 +651,33 @@ Author: Klaasvaakie ( |╲ )
 - Kept the buyer page private, noindex and no-referrer; replaced query-string order credentials with a dedicated request header so bearer tokens do not enter browser history or proxy URLs.
 - Added browser coverage for fail-closed access, invitation-only reservation, exact USDT instructions, non-issuance disclosure and payment-proof refresh security.
 - Passed lint, TypeScript, 61 frontend tests with coverage, production audit, build, 11 browser tests, Encore check and 72 Encore tests; local visual QA showed a clean private gate and console. No deployment or campaign activation occurred. Author: Klaasvaakie ( |╲ )
+
+## 2026-08-14 - Encore staging and quality-gate repair
+
+- Fast-forwarded the clean checkout to current GitHub `main` at `a7b6ea9` and kept all deployment work confined to the `kasihub-ygb2` staging environment.
+- Started Docker Desktop's Linux engine, then passed `encore check`, all 88 Encore tests, database migrations, Redis startup and object-storage startup.
+- Repaired the production dependency lock from vulnerable `nanoid@3.3.17` to `3.3.18`; the production audit now reports zero vulnerabilities.
+- Passed frontend lint, TypeScript, 85 tests with coverage, production build and all 11 Playwright browser tests.
+- Verified the live Encore staging registration contract returned HTTP 200 with the expected international KYC and USDT routing policy; no production deployment was performed. `( |╲ )` — Klaasvaakie
+
+## 2026-08-14 - Presale end-to-end staging readiness check
+
+- Traced the staging presale story from campaign and invitation through reservation, independent chain verification, incorporation batching and idempotent share-ledger allocation.
+- Passed all 13 focused presale settlement tests and confirmed staging has `BscRpcUrl`, `TronRpcBaseUrl` and `PresaleWebhookSecret` configured without exposing values.
+- Found the first live blocker: staging has zero receiving configurations, so an active campaign cannot be created truthfully without an owner-approved network, USDT contract and controlled receiver address.
+- Stopped before mutating campaign, payment or share records; production was untouched. `( |╲ )` — Klaasvaakie
+
+## 2026-08-14 - USDT blueprint scope audit
+
+- Compared the 23-page sanitized USDT payment blueprint with the current implementation and the staging verification work.
+- Confirmed the operational work stayed in scope: staging-only checks, secret-name validation, receiving-registry readiness, chain-authoritative payment boundaries and refusal to invent wallet configuration.
+- Identified architectural scope drift in the presale domain: it directly performs chain verification and campaign-specific BOGO, reservation, sold-share and incorporation logic instead of consuming a product-neutral settled-payment event.
+- No implementation or environment changes were made during this audit. `( |╲ )` — Klaasvaakie
+
+## 2026-08-14 - USDT scope explanation
+
+- Explained the scope finding in plain language: payment verification should act as the cashier, while the presale system separately handles campaign rules and share delivery after confirmed payment.
+- Clarified that recent staging checks were safe, but the current code mixes those responsibilities and should be separated before real-money testing. `( |╲ )` — Klaasvaakie
 - 2026-08-10: Analysed KaSiHub access architecture. Confirmed Next.js is a same-origin gateway to Encore; the `kasihub_session` HTTP-only cookie carries the bearer token, backend profile and admin checks remain authoritative, local `.env` currently only configures `DATABASE_URL`, and the documented demo environment variables are absent. Identified local runtime, role, staging deployment, private storage, and dormant Design Studio boundaries for the access handoff.
 
 ## 2026-08-12 - Private campaign administration
@@ -700,3 +727,7 @@ Author: Klaasvaakie ( |╲ )
 - Created and visually verified a four-page A4 executive PDF covering the live production foundation, deliberately paused commercial controls, activation sequence, readiness bars, required executive decisions, and the exact distance to a limited USDT share-sale pilot. The brief truthfully distinguishes infrastructure readiness from payment activation and identifies first-admin authority as the immediate gate. Output: `output/pdf/kasihub-production-readiness-executive-brief.pdf`. Author: Klaasvaakie ( |╲ )
 
 - Published the complete pending worktree on `agent/publish-production-readiness-worktree` and opened draft PR #17. The branch is rebased on GitHub main and includes all 21 pending files, including PDFs, builders, rendered QA images, continuity notes, generated agent instructions, and the Encore dependency declaration. Lint, TypeScript, 85 frontend tests, production build, Encore check, and 88 Encore tests passed. Dependency audit remains explicitly non-green: two high advisories in the root tree and one high plus one moderate in Encore. Author: Klaasvaakie ( |╲ )
+
+## 2026-08-15 - Legacy-tier presale payment authority
+
+- Removed presale's duplicate authority over USDT evidence and settlement. Presale now creates an isolated commercial reservation, hands the exact obligation to the central payment engine, receives a wallet-locked intent, and moves inventory only after canonical settlement. Rejection releases reservations exactly once; settled orders alone can enter controlled share incorporation. Added a compatibility migration, central verification service, fulfilment and rejection integration tests, architecture notes, and concise customer copy. Encore check and all 91 Encore tests, lint, TypeScript, 85 frontend tests with coverage, production build, 11 browser journeys, production dependency audit, diff hygiene, and a seven-file Codex Security diff scan all passed; the security scan reported zero findings. No staging or production data, campaign, wallet route, funds, deployment, commit, or push was touched. Author: Klaasvaakie ( |╲ )
