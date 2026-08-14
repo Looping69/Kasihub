@@ -27,6 +27,7 @@ import { LegalView } from "@/components/views/legal-view";
 import { VouchersView } from "@/components/views/vouchers-view";
 import { ReferView } from "@/components/views/refer-view";
 import { BrandLogo } from "@/components/brand-logo";
+import { BrandGradientIcon, brandIconTone } from "@/components/brand-gradient-icon";
 import { Scale, Ticket, UserPlus } from "lucide-react";
 import { loadDashboard } from "@/lib/dashboard-client";
 import { MobileDashboardView } from "@/components/views/mobile-dashboard-view";
@@ -201,11 +202,13 @@ function MobileBottomNavigation() {
   ];
   return (
     <nav aria-label="Primary mobile navigation" className="fixed inset-x-3 bottom-2 z-50 mx-auto flex h-[72px] max-w-[500px] items-end justify-around rounded-[24px] border border-slate-200 bg-white/95 px-2 pb-2 shadow-[0_14px_40px_rgba(2,12,27,.35)] backdrop-blur-xl dark:border-[#23466a] dark:bg-[#0c131d]/95 lg:hidden">
-      {items.map(({ label, view, icon: Icon, raised }) => {
+      {items.map(({ label, view, icon: Icon, raised }, index) => {
         const active = activeView === view;
         return <button key={label} onClick={() => setView(view)} className={`relative flex min-w-[54px] flex-col items-center gap-1 text-[9px] font-bold ${raised ? "-translate-y-4" : ""} ${active ? "text-[#ff7a18]" : "text-slate-500 dark:text-slate-400"}`}>
-          <span className={`${raised ? "grid h-14 w-14 place-items-center rounded-full bg-gradient-to-br from-[#ff9d13] to-[#ff5b2a] text-white shadow-xl ring-4 ring-white dark:ring-[#0c131d]" : active ? "grid h-8 min-w-12 place-items-center rounded-t-xl bg-[#fff2e8] px-3 dark:bg-[#352113]" : "grid h-8 place-items-center"}`}><Icon className={raised ? "h-6 w-6" : "h-5 w-5"} /></span>
-          <span>{label}</span>
+          <span className={`${raised ? "grid h-14 w-14 place-items-center rounded-full bg-gradient-to-br from-[#ff9d13] to-[#ff5b2a] text-white shadow-xl ring-4 ring-white dark:ring-[#0c131d]" : active ? "grid h-8 min-w-12 place-items-center rounded-t-xl bg-[#fff2e8] px-3 dark:bg-[#352113]" : "grid h-8 place-items-center"}`}>
+            {raised || active ? <Icon className={raised ? "h-6 w-6" : "h-5 w-5"} /> : <BrandGradientIcon icon={Icon} tone={brandIconTone(index)} className="h-5 w-5" />}
+          </span>
+          <span className="uppercase">{label}</span>
         </button>;
       })}
     </nav>
@@ -222,7 +225,7 @@ function SidebarContent({ mobile = false }: { mobile?: boolean }) {
 
       <nav className="flex-1 p-3 space-y-1 overflow-y-auto scrollbar-kasi">
         <p className="px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-sidebar-foreground/50">Menu</p>
-        {NAV.map((item) => {
+        {NAV.map((item, index) => {
           const active = activeView === item.key;
           return (
             <button
@@ -234,9 +237,9 @@ function SidebarContent({ mobile = false }: { mobile?: boolean }) {
                   : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground"
               }`}
             >
-              <item.icon className={`h-4.5 w-4.5 flex-shrink-0 ${active ? "" : "group-hover:scale-110 transition-transform"}`} />
+              {active ? <item.icon className="h-4.5 w-4.5 flex-shrink-0" /> : <BrandGradientIcon icon={item.icon} tone={brandIconTone(index)} className="h-4.5 w-4.5 transition-transform group-hover:scale-110" />}
               <div className="flex-1 text-left min-w-0">
-                <p className="font-medium leading-none">{item.label}</p>
+                <p className="font-medium leading-none uppercase">{item.label}</p>
                 <p className={`text-[10px] mt-1 ${active ? "text-sidebar-primary-foreground/70" : "text-sidebar-foreground/50"}`}>{item.desc}</p>
               </div>
               {active && <ChevronRight className="h-4 w-4" />}
@@ -248,9 +251,9 @@ function SidebarContent({ mobile = false }: { mobile?: boolean }) {
           onClick={() => setSidebarOpen(false)}
           className="group flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-sidebar-foreground/80 transition-all duration-200 hover:bg-sidebar-accent hover:text-sidebar-foreground"
         >
-          <Wallet className="h-4.5 w-4.5 flex-shrink-0 transition-transform group-hover:scale-110" />
+          <BrandGradientIcon icon={Wallet} tone={brandIconTone(NAV.length)} className="h-4.5 w-4.5 transition-transform group-hover:scale-110" />
           <div className="min-w-0 flex-1 text-left">
-            <p className="font-medium leading-none">KaSiPay</p>
+            <p className="font-medium leading-none uppercase">KaSiPay</p>
             <p className="mt-1 text-[10px] text-sidebar-foreground/50">Payments & merchant tools</p>
           </div>
           <ChevronRight className="h-4 w-4" />

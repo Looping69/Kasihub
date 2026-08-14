@@ -2,7 +2,8 @@
 
 // Author: Klaasvaakie ( |╲ )
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { Bot, ExternalLink, MessageCircle, Send, ShieldCheck, X } from "lucide-react";
+import Image from "next/image";
+import { Bot, ExternalLink, Send, ShieldCheck, X } from "lucide-react";
 import {
   PUBLIC_ASSISTANT_SUGGESTIONS,
   answerPublicQuestion,
@@ -22,7 +23,7 @@ const WELCOME_MESSAGE: ChatMessage = {
   id: 0,
   role: "assistant",
   text:
-    "Hello. I answer verified public questions about KaSiHub, its features, and getting started. I cannot access accounts or handle personal information.",
+    "Hi, I’m Max. I can help with verified public questions about KaSiHub, its benefits, membership, KaSiPay, and getting started. I cannot access accounts or handle personal information.",
 };
 
 export function PublicAssistant() {
@@ -122,10 +123,10 @@ export function PublicAssistant() {
   }
 
   return (
-    <div className="fixed bottom-4 right-4 z-50 flex max-w-[calc(100vw-2rem)] flex-col items-end gap-3 sm:bottom-6 sm:right-6">
+    <div className="fixed bottom-24 right-4 z-50 flex max-w-[calc(100vw-2rem)] flex-col items-end gap-3 sm:bottom-36 sm:right-6">
       {open && (
         <section
-          aria-label="KaSiHub public information assistant"
+          aria-label="Max public information assistant"
           className="flex h-[min(36rem,calc(100vh-7rem))] w-[min(24rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border border-blue-200/70 bg-background/98 shadow-2xl shadow-blue-950/30 backdrop-blur-xl dark:border-blue-900"
           role="dialog"
         >
@@ -134,11 +135,11 @@ export function PublicAssistant() {
               <Bot aria-hidden="true" className="h-5 w-5" />
             </div>
             <div className="min-w-0 flex-1">
-              <h2 className="font-bold">Ask KaSiHub</h2>
+              <h2 className="font-bold">Max</h2>
               <p className="text-xs text-blue-100">Verified public information only</p>
             </div>
             <button
-              aria-label="Close KaSiHub assistant"
+              aria-label="Close Max"
               className="rounded-lg p-2 text-blue-100 transition hover:bg-white/15 hover:text-white"
               onClick={() => setOpen(false)}
               type="button"
@@ -154,7 +155,7 @@ export function PublicAssistant() {
 
           <div
             aria-busy={isStreaming}
-            aria-label="KaSiHub conversation"
+            aria-label="Max conversation"
             aria-live="polite"
             className="scrollbar-kasi flex-1 space-y-3 overflow-y-auto px-4 py-4"
             ref={logRef}
@@ -218,7 +219,7 @@ export function PublicAssistant() {
                 maxLength={240}
                 disabled={isStreaming}
                 onChange={(event) => setQuestion(event.target.value)}
-                placeholder={isStreaming ? "KaSiHub is answering…" : "Ask about KaSiHub…"}
+                placeholder={isStreaming ? "Max is answering…" : "Ask Max about KaSiHub…"}
                 ref={inputRef}
                 value={question}
               />
@@ -244,13 +245,21 @@ export function PublicAssistant() {
 
       <button
         aria-expanded={open}
-        aria-label={open ? "Close KaSiHub assistant" : "Ask KaSiHub"}
-        className="group inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-[#075bb8] to-[#087fe8] px-4 py-3 font-bold text-white shadow-xl shadow-blue-950/30 transition hover:-translate-y-0.5 hover:shadow-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff9d13] focus-visible:ring-offset-2"
+        aria-label={open ? "Close Max" : "Open Max"}
+        className="max-launcher group relative inline-flex h-16 w-16 items-center justify-center rounded-full bg-transparent p-0 drop-shadow-xl transition hover:-translate-y-1 hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff9d13] focus-visible:ring-offset-2"
         onClick={() => setOpen((current) => !current)}
         type="button"
       >
-        <MessageCircle aria-hidden="true" className="h-5 w-5 transition group-hover:scale-110" />
-        <span>Ask KaSiHub</span>
+        <Image
+          alt=""
+          aria-hidden="true"
+          className="h-full w-full object-contain"
+          height={256}
+          priority
+          src="/max-launcher.png"
+          unoptimized
+          width={256}
+        />
       </button>
     </div>
   );

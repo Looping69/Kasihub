@@ -140,7 +140,6 @@ function printKasiCertificate(share: Share, memberName: string) {
       <div class="legal">This certificate is non-transferable and represents a private shareholding. Dividends are declared at the discretion of KasiMall from daily profits. The holder must maintain KaSiHUB membership to receive payouts.</div>
     </div>
   </div>
-  <script>window.onload = function(){ setTimeout(function(){ window.print(); }, 250); };</script>
 </div></body></html>`;
 
   const w = window.open("", "_blank", "width=900,height=1000");
@@ -151,6 +150,7 @@ function printKasiCertificate(share: Share, memberName: string) {
   w.document.open();
   w.document.write(html);
   w.document.close();
+  w.setTimeout(() => w.print(), 250);
 }
 
 /** Open a new window with a printable Aureus certificate and call print(). */
@@ -235,7 +235,6 @@ function printAureusCertificate(share: AureusShare, memberName: string) {
       <div class="legal">This certificate is non-transferable and represents a private Aureus shareholding. The holder must maintain KaSiHUB membership to retain this shareholding.</div>
     </div>
   </div>
-  <script>window.onload = function(){ setTimeout(function(){ window.print(); }, 250); };</script>
 </div></body></html>`;
 
   const w = window.open("", "_blank", "width=900,height=1000");
@@ -246,6 +245,7 @@ function printAureusCertificate(share: AureusShare, memberName: string) {
   w.document.open();
   w.document.write(html);
   w.document.close();
+  w.setTimeout(() => w.print(), 250);
 }
 
 export function SharesView() {

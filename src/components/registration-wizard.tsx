@@ -3,9 +3,9 @@
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  ArrowLeft, ArrowRight, Check, X, Building2, User, Briefcase,
+  ArrowLeft, ChevronRight, Check, X, Building2, User, Briefcase,
   Heart, Plane, Globe, Landmark, Smartphone, Sparkles, PartyPopper,
-  Loader2, ShieldCheck, ExternalLink, Info, Download, Wallet,
+  Loader2, ShieldCheck, ExternalLink, Info, Download, Wallet, MousePointer2, Pointer,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -423,7 +423,7 @@ export function RegistrationWizard() {
                     </>
                   ) : (
                     <>
-                      Complete registration <Sparkles className="h-4 w-4 ml-2" />
+                      Complete registration <MousePointer2 className="h-5 w-5" />
                     </>
                   )}
                 </Button>
@@ -433,7 +433,7 @@ export function RegistrationWizard() {
                   disabled={!canProceed(step, data)}
                   className="bg-gradient-to-r from-emerald-600 to-emerald-500"
                 >
-                  Continue <ArrowRight className="h-4 w-4 ml-2" />
+                  Continue <ChevronRight className="h-5 w-5" />
                 </Button>
               )}
             </div>
@@ -447,7 +447,7 @@ export function RegistrationWizard() {
 function canProceed(step: Step, data: FormData): boolean {
   if (step === "type") {
     if (!data.citizenshipType) return false;
-    if (!data.uplineConfirmed) return false;
+    if (data.uplineProfileNumber.trim() && !data.uplineConfirmed) return false;
     return true;
   }
   if (step === "kasipay") {
@@ -487,7 +487,6 @@ function TypeStep({
   update: <K extends keyof FormData>(k: K, v: FormData[K]) => void;
 }) {
   const [uplineInput, setUplineInput] = useState(data.uplineProfileNumber);
-  const [looking, setLooking] = useState(false);
 
   // Lookup upline profile when input changes (debounced)
   useEffect(() => {
@@ -499,7 +498,7 @@ function TypeStep({
       return;
     }
     update("uplineProfileNumber", trimmed);
-    setLooking(true);
+    update("uplineConfirmed", false);
     const t = setTimeout(async () => {
       try {
         const res = await fetch(
@@ -522,16 +521,10 @@ function TypeStep({
         }
       } catch {
         update("uplineName", trimmed);
-      } finally {
-        setLooking(false);
       }
     }, 400);
     return () => clearTimeout(t);
   }, [uplineInput]);
-
-  const confirmText = data.uplineProfileNumber.trim()
-    ? `I confirm that ${data.uplineName || data.uplineProfileNumber} is my upline`
-    : "I confirm that I am joining via bulk registration";
 
   return (
     <div>
@@ -585,7 +578,7 @@ function TypeStep({
 
       <Separator className="my-6" />
 
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="max-w-xl">
         <div>
           <Label htmlFor="upline">Sponsor / Upline profile number (optional)</Label>
           <Input
@@ -599,38 +592,24 @@ function TypeStep({
             Leave blank if you joined via bulk registration.
           </p>
         </div>
-        <div className="flex items-end">
-          <div className="rounded-lg border border-border bg-muted/30 p-3 w-full">
-            {looking ? (
-              <p className="text-xs text-muted-foreground flex items-center gap-2">
-                <Loader2 className="h-3 w-3 animate-spin" /> Looking up upline...
-              </p>
-            ) : data.uplineProfileNumber.trim() ? (
-              <p className="text-xs">
-                <span className="text-muted-foreground">Upline: </span>
-                <span className="font-semibold">{data.uplineName || data.uplineProfileNumber}</span>
-              </p>
-            ) : (
-              <p className="text-xs text-muted-foreground">
-                No upline provided — joining via bulk registration.
-              </p>
-            )}
-          </div>
-        </div>
       </div>
 
-      <label
-        htmlFor="upline-confirm"
-        className="mt-4 flex items-start gap-3 p-4 rounded-lg border border-amber-200 dark:border-amber-900 bg-amber-50/50 dark:bg-amber-950/20 cursor-pointer"
-      >
-        <Checkbox
-          id="upline-confirm"
-          checked={data.uplineConfirmed}
-          onCheckedChange={(c) => update("uplineConfirmed", c === true)}
-          className="mt-0.5 data-[state=checked]:bg-amber-500 data-[state=checked]:border-amber-500"
-        />
-        <span className="text-sm font-medium">{confirmText}</span>
-      </label>
+      {data.uplineProfileNumber.trim() && (
+        <label
+          htmlFor="upline-confirm"
+          className="mt-4 flex items-start gap-3 p-4 rounded-lg border border-amber-200 dark:border-amber-900 bg-amber-50/50 dark:bg-amber-950/20 cursor-pointer"
+        >
+          <Checkbox
+            id="upline-confirm"
+            checked={data.uplineConfirmed}
+            onCheckedChange={(c) => update("uplineConfirmed", c === true)}
+            className="mt-0.5 data-[state=checked]:bg-amber-500 data-[state=checked]:border-amber-500"
+          />
+          <span className="text-sm font-medium">
+            I confirm that {data.uplineName || data.uplineProfileNumber} is my upline
+          </span>
+        </label>
+      )}
     </div>
   );
 }
@@ -844,7 +823,7 @@ function KaSiPayStep({
               </>
             ) : (
               <>
-                <ShieldCheck className="h-4 w-4 mr-2" /> Verify Account
+                      Verify Account <Pointer className="h-5 w-5" />
               </>
             )}
           </Button>
@@ -1245,7 +1224,7 @@ function DoneStep({
       </Card>
 
       <Button onClick={onFinish} className="mt-6 bg-gradient-to-r from-emerald-600 to-emerald-500">
-        Enter the Eco-System <ArrowRight className="h-4 w-4 ml-2" />
+        Enter the Eco-System <ChevronRight className="h-5 w-5" />
       </Button>
     </div>
   );

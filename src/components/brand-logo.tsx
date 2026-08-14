@@ -6,14 +6,14 @@ type BrandLogoProps = {
   priority?: boolean;
 };
 
-// Canonical KaSiHub platform mark supplied by Klaasvaakie. ( |╲ )
+// Canonical KaSiHub platform mark supplied by Lanie. ( |╲ )
 export function BrandLogo({ className, priority = false }: BrandLogoProps) {
   return (
     <Image
-      src="/kasihub-logo.webp"
+      src="/kasihub-logo-20260812-v2.png"
       alt="KaSiHub — Earn More. Save More. Benefit More."
-      width={500}
-      height={281}
+      width={265}
+      height={150}
       priority={priority}
       loading="eager"
       className={cn("object-contain", className)}
