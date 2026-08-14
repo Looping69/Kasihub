@@ -58,6 +58,25 @@ type ReceivingConfigRow = {
   retired_at: string | null;
 };
 
+/** Server-authoritative lookup used by product domains before activation. ( |╲ ) — Klaasvaakie */
+export async function resolveActiveReceivingConfiguration(
+  network: "tron" | "bsc",
+  currency: "USDT" = "USDT",
+): Promise<ReceivingConfigResponse> {
+  const row = await paymentsDb.rawQueryRow<ReceivingConfigRow>(
+    `SELECT id, provider, network, currency, address_reference, token_contract, decimals,
+            minimum_confirmations, intent_ttl_seconds, status, active_from, retired_at
+       FROM payment_wallets
+      WHERE lower(network) = lower($1) AND currency = $2 AND status = 'active'
+        AND active_from <= now() AND retired_at IS NULL
+      LIMIT 1`,
+    network,
+    currency,
+  );
+  if (!row) throw APIError.failedPrecondition("No active receiving configuration exists for this network");
+  return mapConfig(row);
+}
+
 function mapConfig(row: ReceivingConfigRow): ReceivingConfigResponse {
   if (!row.intent_ttl_seconds) throw APIError.internal("Receiving configuration is missing an intent TTL");
   return {

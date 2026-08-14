@@ -336,6 +336,19 @@ The payments schema includes request/idempotency hashes and unique event keys so
 11. Durable settled event triggers product fulfilment.
 12. Product domain fulfils shares/membership/order without duplicating financial verification logic.
 
+### Presale handoff
+
+The presale domain owns invitations, USD pricing, BOGO rules, reservations and
+later share incorporation. It creates a `presale_order` payment obligation and
+receives wallet-locked instructions from the payment intent. Transaction hashes
+enter the global payment-attempt registry, and only the payment service reads
+chain evidence or reaches `settled`. Presale moves reserved inventory to sold
+inventory only after consuming that settled result, keyed by the payment intent
+so retries cannot double-fulfil. Campaign previews never publish receiving
+instructions; those are issued only from the locked intent.
+
+Author: Klaasvaakie ( |╲ )
+
 ## Remitano boundary
 
 Remitano is not the inbound USDT source of truth.

@@ -7,8 +7,11 @@ import { presaleDb, sharesDb } from "../../resources";
 import { requestHeader, requireSession } from "../auth/access";
 import { requireAdminAccess } from "../auth/access";
 import { requireInternationalKycVerified } from "../kyc/policy";
-import { evaluatePaymentEvidence } from "../payments/chains/evaluate";
-import { ChainProviderUnavailable, readChainTransactionEvidence } from "../payments/chains/providers";
+import { submitPaymentAttempt } from "../payments/attempts";
+import { createPaymentIntent, type PaymentIntentResponse } from "../payments/intents";
+import { cancelPaymentObligation, createPaymentObligation } from "../payments/obligations";
+import { resolveActiveReceivingConfiguration } from "../payments/registry";
+import { verifyAndSettlePaymentAttempt } from "../payments/verification";
 import {
   hashSecret,
   normalizeEmail,
@@ -30,7 +33,7 @@ const campaignInput = z.object({
   priceUsd: z.number().positive(),
   usdtPerUsd: z.number().positive().max(10),
   sharePhaseNumber: z.number().int().positive().max(10_000).default(1),
-  network: z.string().trim().min(2).max(80),
+  network: z.enum(["tron", "bsc"]),
   tokenContract: z.string().trim().max(160).optional(),
   receivingAddress: z.string().trim().min(8).max(200).optional(),
   minConfirmations: z.number().int().positive().max(10_000),
@@ -114,6 +117,13 @@ type OrderRow = {
   payment_deadline: string;
   confirmed_at: string | null;
   incorporation_status: string;
+  payment_obligation_id: string | null;
+  payment_intent_id: string | null;
+  payment_network: string | null;
+  payment_receiving_address: string | null;
+  payment_token_contract: string | null;
+  payment_min_confirmations: number | null;
+  payment_settled_at: string | null;
   created_at: string;
 };
 
@@ -270,11 +280,7 @@ function campaignSummary(campaign: CampaignRow, includePaymentRoute: boolean): P
   };
 }
 
-function sameAddress(left: string | null | undefined, right: string | null | undefined): boolean {
-  return (left ?? "").trim().toLowerCase() === (right ?? "").trim().toLowerCase();
-}
-
-function orderResponse(order: OrderRow, campaign: CampaignRow, txHash?: string | null, confirmations = 0) {
+function orderResponse(order: OrderRow, campaign: CampaignRow, txHash?: string | null, confirmations = 0, intent?: PaymentIntentResponse) {
   return {
     orderReference: order.order_reference,
     campaign: campaign.name,
@@ -290,10 +296,10 @@ function orderResponse(order: OrderRow, campaign: CampaignRow, txHash?: string |
     usdtPerUsd: order.usdt_per_usd,
     quoteReference: order.quote_reference,
     status: order.status,
-    network: campaign.network,
-    tokenContract: campaign.token_contract ?? undefined,
-    receivingAddress: campaign.receiving_address ?? "",
-    minConfirmations: campaign.min_confirmations,
+    network: intent?.network ?? order.payment_network ?? campaign.network,
+    tokenContract: intent?.tokenContract ?? order.payment_token_contract ?? undefined,
+    receivingAddress: intent?.receivingAddress ?? order.payment_receiving_address ?? "",
+    minConfirmations: intent?.minimumConfirmations ?? order.payment_min_confirmations ?? campaign.min_confirmations,
     paymentDeadline: order.payment_deadline,
     transactionHash: txHash ?? undefined,
     confirmations,
@@ -301,6 +307,102 @@ function orderResponse(order: OrderRow, campaign: CampaignRow, txHash?: string |
     incorporationStatus: order.incorporation_status,
     createdAt: order.created_at,
   };
+}
+
+async function ensurePresalePaymentIntent(order: OrderRow, campaign: CampaignRow): Promise<PaymentIntentResponse> {
+  if (!order.external_profile_id) throw APIError.failedPrecondition("Presale order is not bound to an authenticated profile");
+  const obligation = await createPaymentObligation({
+    subjectType: "presale_order",
+    subjectReference: order.order_reference,
+    payerProfileId: order.external_profile_id,
+    beneficiaryProfileId: order.external_profile_id,
+    settlementCurrency: "USDT",
+    settlementAmount: order.total_usdt,
+    metadata: { campaignId: order.campaign_id },
+  });
+  const intent = await createPaymentIntent({
+    profileId: order.external_profile_id,
+    obligationId: obligation.id,
+    network: campaign.network as "tron" | "bsc",
+  });
+  await presaleDb.rawExec(`UPDATE presale_orders SET payment_obligation_id = $2, payment_intent_id = $3,
+    payment_network = $4, payment_receiving_address = $5, payment_token_contract = $6,
+    payment_min_confirmations = $7, payment_deadline = $8, updated_at = now()
+    WHERE id = $1 AND (payment_intent_id IS NULL OR payment_intent_id = $3)`,
+  order.id, obligation.id, intent.id, intent.network, intent.receivingAddress, intent.tokenContract, intent.minimumConfirmations, intent.expiresAt);
+  order.payment_obligation_id = obligation.id;
+  order.payment_intent_id = intent.id;
+  order.payment_network = intent.network;
+  order.payment_receiving_address = intent.receivingAddress;
+  order.payment_token_contract = intent.tokenContract;
+  order.payment_min_confirmations = intent.minimumConfirmations;
+  return intent;
+}
+
+export async function rejectPresalePayment(orderReference: string, paymentIntentId: string): Promise<void> {
+  const tx = await presaleDb.begin();
+  try {
+    const order = await tx.rawQueryRow<{ id: string; campaign_id: string; invitation_id: string; quantity: number; status: string; payment_intent_id: string | null; bonus_buy_one_get_one: boolean }>(
+      `SELECT o.id,o.campaign_id,o.invitation_id,o.quantity,o.status,o.payment_intent_id,c.bonus_buy_one_get_one
+         FROM presale_orders o JOIN presale_campaigns c ON c.id = o.campaign_id
+        WHERE o.order_reference = $1 FOR UPDATE OF o`, orderReference);
+    if (!order) throw APIError.notFound("Presale order not found");
+    if (order.payment_intent_id !== paymentIntentId) throw APIError.failedPrecondition("Rejected payment does not belong to this presale order");
+    if (order.status === "cancelled") {
+      await tx.commit();
+      return;
+    }
+    if (!["awaiting_payment", "payment_submitted", "payment_detected"].includes(order.status)) {
+      throw APIError.failedPrecondition(`Presale order cannot be rejected while ${order.status}`);
+    }
+    const issuedQuantity = issuedSharesForPresale(order.quantity, order.bonus_buy_one_get_one);
+    const released = await tx.rawQueryRow<{ id: string }>("UPDATE presale_campaigns SET reserved_shares = reserved_shares - $2, updated_at = now() WHERE id = $1 AND reserved_shares >= $2 RETURNING id", order.campaign_id, issuedQuantity);
+    if (!released) throw APIError.failedPrecondition("Presale reservation accounting is inconsistent");
+    await tx.rawExec(`UPDATE presale_invitations SET used_shares = used_shares - $2,
+      status = CASE WHEN status = 'exhausted' THEN 'active' ELSE status END WHERE id = $1 AND used_shares >= $2`, order.invitation_id, order.quantity);
+    await tx.rawExec("UPDATE presale_orders SET status = 'cancelled', updated_at = now() WHERE id = $1", order.id);
+    await tx.commit();
+  } catch (error) {
+    try { await tx.rollback(); } catch { /* transaction may already be closed */ }
+    throw error;
+  }
+}
+
+export async function fulfilSettledPresalePayment(
+  orderReference: string,
+  paymentIntentId: string,
+  transactionHash: string,
+  confirmations: number,
+): Promise<void> {
+  const tx = await presaleDb.begin();
+  try {
+    const order = await tx.rawQueryRow<{ id: string; campaign_id: string; quantity: number; status: string; payment_intent_id: string | null; bonus_buy_one_get_one: boolean }>(
+      `SELECT o.id,o.campaign_id,o.quantity,o.status,o.payment_intent_id,c.bonus_buy_one_get_one
+         FROM presale_orders o JOIN presale_campaigns c ON c.id = o.campaign_id
+        WHERE o.order_reference = $1 FOR UPDATE OF o`, orderReference);
+    if (!order) throw APIError.notFound("Presale order not found");
+    if (order.payment_intent_id !== paymentIntentId) throw APIError.failedPrecondition("Settled payment does not belong to this presale order");
+    if (["confirmed", "incorporated"].includes(order.status)) {
+      await tx.commit();
+      return;
+    }
+    if (!["awaiting_payment", "payment_submitted", "payment_detected"].includes(order.status)) {
+      throw APIError.failedPrecondition(`Presale order cannot be fulfilled while ${order.status}`);
+    }
+    const issuedQuantity = issuedSharesForPresale(order.quantity, order.bonus_buy_one_get_one);
+    const moved = await tx.rawQueryRow<{ id: string }>(`UPDATE presale_campaigns SET reserved_shares = reserved_shares - $2,
+      sold_shares = sold_shares + $2, updated_at = now()
+      WHERE id = $1 AND reserved_shares >= $2 AND sold_shares + $2 <= total_shares RETURNING id`, order.campaign_id, issuedQuantity);
+    if (!moved) throw APIError.failedPrecondition("Presale reservation accounting is inconsistent");
+    await tx.rawExec(`UPDATE presale_orders SET status = 'confirmed', confirmed_at = COALESCE(confirmed_at, now()),
+      payment_transaction_hash = COALESCE(payment_transaction_hash, $2),
+      payment_confirmations = GREATEST(COALESCE(payment_confirmations, 0), $3),
+      payment_settled_at = COALESCE(payment_settled_at, now()), updated_at = now() WHERE id = $1`, order.id, transactionHash, confirmations);
+    await tx.commit();
+  } catch (error) {
+    try { await tx.rollback(); } catch { /* transaction may already be closed */ }
+    throw error;
+  }
 }
 
 export const getPresaleOffer = api<
@@ -329,8 +431,9 @@ function offerResponse(campaign: CampaignRow, invitationSharesRemaining: number,
     priceUsd: campaign.price_usd,
     usdtPerUsd: campaign.usdt_per_usd,
     network: campaign.network,
-    tokenContract: campaign.token_contract ?? undefined,
-    receivingAddress: campaign.receiving_address,
+    // Payment instructions are issued only after reservation by the locked
+    // payment intent. Campaign previews never expose a potentially stale route.
+    // Author: Klaasvaakie ( |╲ )
     sharesRemaining: campaign.total_shares - campaign.reserved_shares - campaign.sold_shares,
     invitationSharesRemaining,
     invitationEmail: invitationEmail ?? undefined,
@@ -373,7 +476,9 @@ export const createPresaleOrder = api<CreatePresaleOrderRequest, { order: Presal
       const replay = await tx.rawQueryRow<OrderRow & { request_hash: string }>(
         `SELECT id, order_reference, campaign_id, buyer_name, buyer_email, external_profile_id, quantity, unit_price_usdt::text AS unit_price_usdt,
                 total_usdt::text AS total_usdt, unit_price_usd::text AS unit_price_usd, total_usd::text AS total_usd,
-                usdt_per_usd::text AS usdt_per_usd, quote_reference, status, payment_deadline, confirmed_at, incorporation_status, created_at, request_hash
+                usdt_per_usd::text AS usdt_per_usd, quote_reference, status, payment_deadline, confirmed_at, incorporation_status,
+                payment_obligation_id,payment_intent_id,payment_network,payment_receiving_address,payment_token_contract,
+                payment_min_confirmations,payment_settled_at,created_at,request_hash
          FROM presale_orders WHERE invitation_id = $1 AND idempotency_key_hash = $2`, invitation.id, idempotencyHash);
       if (replay) {
         if (replay.request_hash !== requestHash) throw APIError.alreadyExists("Idempotency-Key was already used for a different order");
@@ -381,7 +486,8 @@ export const createPresaleOrder = api<CreatePresaleOrderRequest, { order: Presal
         const campaign = await tx.rawQueryRow<CampaignRow>("SELECT * FROM presale_campaigns WHERE id = $1", replay.campaign_id);
         if (!campaign) throw new Error("presale_campaign_not_found");
         await tx.commit();
-        return { order: orderResponse(replay, campaign), accessToken };
+        const intent = await ensurePresalePaymentIntent(replay, campaign);
+        return { order: orderResponse(replay, campaign, null, 0, intent), accessToken };
       }
       if (invitation.status !== "active" || (invitation.expires_at && new Date(invitation.expires_at) <= new Date())) {
         throw APIError.permissionDenied("This invitation is invalid or expired");
@@ -413,13 +519,16 @@ export const createPresaleOrder = api<CreatePresaleOrderRequest, { order: Presal
           RETURNING id, order_reference, campaign_id, buyer_name, buyer_email, external_profile_id, quantity,
                     unit_price_usdt::text AS unit_price_usdt, total_usdt::text AS total_usdt, unit_price_usd::text AS unit_price_usd,
                     total_usd::text AS total_usd, usdt_per_usd::text AS usdt_per_usd, quote_reference, status,
-                    payment_deadline, confirmed_at, incorporation_status, created_at`,
+                    payment_deadline, confirmed_at, incorporation_status,
+                    payment_obligation_id,payment_intent_id,payment_network,payment_receiving_address,payment_token_contract,
+                    payment_min_confirmations,payment_settled_at,created_at`,
         orderId, orderReference, campaign.id, invitation.id, payload.buyerName.trim(), email, payload.buyerPhone?.trim() ?? null, session.profile.id,
         payload.quantity, quote.unitUsdt, quote.totalUsdt, campaign.price_usd, quote.totalUsd, campaign.usdt_per_usd, quoteReference,
         idempotencyHash, requestHash, hashSecret(accessToken), PRESALE_TERMS_VERSION, campaign.payment_window_minutes);
       if (!order) throw new Error("presale_order_not_created");
       await tx.commit();
-      return { order: orderResponse(order, campaign), accessToken };
+      const intent = await ensurePresalePaymentIntent(order, campaign);
+      return { order: orderResponse(order, campaign, null, 0, intent), accessToken };
     } catch (error) {
       await tx.rollback();
       throw error;
@@ -441,13 +550,14 @@ export const getPresaleOrder = api<
     `SELECT o.id, o.order_reference, o.campaign_id, o.buyer_name, o.buyer_email, o.external_profile_id, o.quantity,
             o.unit_price_usdt::text AS unit_price_usdt, o.total_usdt::text AS total_usdt,
             o.unit_price_usd::text AS unit_price_usd, o.total_usd::text AS total_usd, o.usdt_per_usd::text AS usdt_per_usd, o.quote_reference, o.status,
-            o.payment_deadline, o.confirmed_at, o.incorporation_status, o.created_at,
+            o.payment_deadline, o.confirmed_at, o.incorporation_status,
+            o.payment_obligation_id,o.payment_intent_id,o.payment_network,o.payment_receiving_address,o.payment_token_contract,
+            o.payment_min_confirmations,o.payment_settled_at,o.created_at,
             c.slug, c.name, c.issuer_name, c.share_class, c.status AS campaign_status, c.total_shares,
             c.reserved_shares, c.sold_shares, c.price_usdt::text AS price_usdt, c.price_usd::text AS price_usd, c.usdt_per_usd::text AS usdt_per_usd, c.share_phase_number, c.network, c.token_contract,
             c.receiving_address, c.min_confirmations, c.payment_window_minutes, c.starts_at, c.ends_at,
-            p.tx_hash, p.confirmations
+            o.payment_transaction_hash AS tx_hash, o.payment_confirmations AS confirmations
      FROM presale_orders o JOIN presale_campaigns c ON c.id = o.campaign_id
-     LEFT JOIN LATERAL (SELECT tx_hash, confirmations FROM presale_payments WHERE order_id = o.id ORDER BY created_at DESC LIMIT 1) p ON true
      WHERE o.order_reference = $1 AND o.access_token_hash = $2`, req.orderReference, hashSecret(accessToken));
   if (!row) throw APIError.notFound("Presale order not found");
   const campaign: CampaignRow = { ...row, status: row.campaign_status };
@@ -458,47 +568,34 @@ export const submitPresalePaymentProof = api<PresalePaymentProofRequest, { order
   { method: "POST", path: "/presale/orders/:orderReference/payment-proof", expose: true },
   async (request) => {
     const payload = proofInput.parse(request);
-    const order = await presaleDb.rawQueryRow<{ id: string; status: string; quantity: number; total_usdt: string; network: "bsc" | "tron"; receiving_address: string; token_contract: string | null; min_confirmations: number; campaign_id: string; bonus_buy_one_get_one: boolean }>(
-      `SELECT o.id, o.status, o.quantity, o.total_usdt::text AS total_usdt, c.network, c.receiving_address, c.token_contract, c.min_confirmations, c.id AS campaign_id, c.bonus_buy_one_get_one
+    const order = await presaleDb.rawQueryRow<{ id: string; status: string; external_profile_id: string | null; payment_intent_id: string | null }>(
+      `SELECT o.id,o.status,o.external_profile_id,o.payment_intent_id
        FROM presale_orders o JOIN presale_campaigns c ON c.id = o.campaign_id
        WHERE o.order_reference = $1 AND o.access_token_hash = $2`, payload.orderReference, hashSecret(payload.accessToken));
     if (!order) throw APIError.notFound("Presale order not found");
     if (["confirmed", "expired", "cancelled", "incorporated"].includes(order.status)) throw APIError.failedPrecondition("This order no longer accepts payment proof");
-    if (!order.token_contract || !order.receiving_address) throw APIError.failedPrecondition("This campaign does not have an active payment route");
-    const txHash = payload.txHash.toLowerCase();
-    const evidence = await readChainTransactionEvidence(order.network, txHash).catch((error: unknown) => {
-      if (error instanceof ChainProviderUnavailable) return null;
-      throw error;
+    if (!order.external_profile_id || !order.payment_intent_id) throw APIError.failedPrecondition("This order does not have a payment intent");
+    const attempt = await submitPaymentAttempt({
+      intentId: order.payment_intent_id,
+      profileId: order.external_profile_id,
+      transactionHash: payload.txHash,
+      submittedSenderWallet: payload.senderAddress,
     });
-    const claimed = await presaleDb.rawQueryRow<{ order_id: string }>("SELECT order_id FROM presale_payments WHERE tx_hash = $1", txHash);
-    if (claimed && claimed.order_id !== order.id) throw APIError.alreadyExists("This transaction hash is already assigned to another order");
-    const payment = await presaleDb.rawQueryRow<{ id: string }>(
-      `INSERT INTO presale_payments (order_id, network, tx_hash, sender_address, receiver_address, token_contract)
-       VALUES ($1,$2,$3,$4,$5,$6)
-       ON CONFLICT (order_id) DO UPDATE SET tx_hash = EXCLUDED.tx_hash, sender_address = EXCLUDED.sender_address, updated_at = now()
-       WHERE presale_payments.status = 'submitted'
-       RETURNING id`, order.id, order.network, txHash, payload.senderAddress ?? null, order.receiving_address, order.token_contract);
-    if (!payment) throw APIError.failedPrecondition("A detected payment proof cannot be replaced");
-    if (!evidence) {
-      await presaleDb.rawExec(`UPDATE presale_orders SET status = CASE WHEN status = 'awaiting_payment' THEN 'payment_submitted' ELSE status END, updated_at = now() WHERE id = $1`, order.id);
-      return { orderReference: payload.orderReference, status: "payment_submitted", transactionHash: txHash };
-    }
-    const evaluation = evaluatePaymentEvidence({ network: order.network, transactionHash: txHash, tokenContract: order.token_contract,
-      receivingAddress: order.receiving_address, expectedAmount: order.total_usdt, tokenDecimals: 6, minimumConfirmations: order.min_confirmations }, evidence);
-    await presaleDb.rawExec(`UPDATE presale_payments SET sender_address = COALESCE($2, sender_address), receiver_address = COALESCE($3, receiver_address),
-      amount_usdt = COALESCE($4::numeric, amount_usdt), confirmations = GREATEST(confirmations, $5), block_number = COALESCE($6, block_number),
-      status = CASE WHEN $7 = 'rejected' THEN 'rejected' WHEN $7 = 'confirmed' THEN 'confirmed' WHEN $7 IN ('pending_confirmations','underpaid','manual_review') THEN 'detected' ELSE status END,
-      detected_at = COALESCE(detected_at, now()), confirmed_at = CASE WHEN $7 = 'confirmed' THEN COALESCE(confirmed_at, now()) ELSE confirmed_at END, updated_at = now() WHERE order_id = $1`,
-      order.id, evaluation.sender, evaluation.receiver, evaluation.receivedAmount, evaluation.confirmations, evaluation.blockNumber?.toString() ?? null, evaluation.decision);
-    if (evaluation.decision === "confirmed") {
-      const issuedQuantity = issuedSharesForPresale(order.quantity, order.bonus_buy_one_get_one);
-      const confirmed = await presaleDb.rawQueryRow<{ id: string }>(`UPDATE presale_orders SET status = 'confirmed', confirmed_at = COALESCE(confirmed_at, now()), updated_at = now()
-        WHERE id = $1 AND status <> 'confirmed' RETURNING id`, order.id);
-      if (confirmed) await presaleDb.rawExec(`UPDATE presale_campaigns SET reserved_shares = reserved_shares - $2, sold_shares = sold_shares + $2, updated_at = now() WHERE id = $1`, order.campaign_id, issuedQuantity);
-    } else if (evaluation.decision !== "rejected") {
+    await presaleDb.rawExec(`UPDATE presale_orders SET status = CASE WHEN status = 'awaiting_payment' THEN 'payment_submitted' ELSE status END,
+      updated_at = now() WHERE id = $1`, order.id);
+    const verification = await verifyAndSettlePaymentAttempt(attempt.id);
+    if (verification.status === "settled") {
+      if (verification.subjectType !== "presale_order" || verification.subjectReference !== payload.orderReference) {
+        throw APIError.failedPrecondition("Settled payment subject does not match this presale order");
+      }
+      await fulfilSettledPresalePayment(payload.orderReference, verification.paymentIntentId, verification.transactionHash, verification.confirmations);
+    } else if (verification.status === "rejected") {
+      await cancelPaymentObligation({ obligationId: verification.obligationId, reason: `Rejected chain evidence for ${payload.orderReference}` });
+      await rejectPresalePayment(payload.orderReference, verification.paymentIntentId);
+    } else if (["pending_confirmations", "underpaid", "manual_review"].includes(verification.status)) {
       await presaleDb.rawExec("UPDATE presale_orders SET status = 'payment_detected', updated_at = now() WHERE id = $1", order.id);
     }
-    return { orderReference: payload.orderReference, status: evaluation.decision, transactionHash: txHash };
+    return { orderReference: payload.orderReference, status: verification.status, transactionHash: attempt.transactionHash };
   },
 );
 
@@ -522,7 +619,9 @@ export const upsertPresaleCampaign = api<UpsertPresaleCampaignRequest, { campaig
     const payload = campaignInput.parse(request);
     if (payload.endsAt && payload.startsAt && new Date(payload.endsAt) <= new Date(payload.startsAt)) throw APIError.invalidArgument("Campaign end must be after its start");
     if (payload.status === "active" && payload.isMock) throw APIError.invalidArgument("A mock campaign cannot be activated");
-    if (payload.status === "active" && (!payload.tokenContract || !payload.receivingAddress)) throw APIError.invalidArgument("An active USDT campaign requires the exact token contract and receiving address");
+    const activeRoute = payload.status === "active"
+      ? await resolveActiveReceivingConfiguration(payload.network, "USDT")
+      : null;
     const row = await presaleDb.rawQueryRow<{ id: string; status: string }>(
       `INSERT INTO presale_campaigns
         (slug,name,issuer_name,share_class,status,total_shares,price_usdt,price_usd,usdt_per_usd,share_phase_number,network,token_contract,receiving_address,
@@ -541,9 +640,9 @@ export const upsertPresaleCampaign = api<UpsertPresaleCampaignRequest, { campaig
        RETURNING id, status`,
       payload.slug, payload.name, payload.issuerName, payload.shareClass, payload.status, payload.totalShares,
       (payload.priceUsd * payload.usdtPerUsd).toFixed(6), payload.priceUsd.toFixed(6), payload.usdtPerUsd.toFixed(6), payload.sharePhaseNumber,
-      payload.network, payload.isMock ? null : payload.tokenContract ?? null,
-      payload.isMock ? null : payload.receivingAddress ?? null,
-      payload.minConfirmations, payload.paymentWindowMinutes, payload.bonusBuyOneGet, payload.isMock,
+      payload.network, payload.isMock ? null : activeRoute?.tokenContract ?? payload.tokenContract ?? null,
+      payload.isMock ? null : activeRoute?.addressReference ?? payload.receivingAddress ?? null,
+      activeRoute?.minimumConfirmations ?? payload.minConfirmations, payload.paymentWindowMinutes, payload.bonusBuyOneGet, payload.isMock,
       payload.startsAt ?? null, payload.endsAt ?? null);
     if (!row) throw APIError.failedPrecondition("Total shares cannot be lower than current reserved and sold shares");
     return { campaignId: row.id, status: row.status };
@@ -610,9 +709,9 @@ export const listPresaleOrders = api<
   const rows = await presaleDb.rawQueryAll<OrderRow & { tx_hash: string | null; confirmations: number | null }>(
     `SELECT o.id,o.order_reference,o.campaign_id,o.buyer_name,o.buyer_email,o.quantity,
             o.unit_price_usdt::text AS unit_price_usdt,o.total_usdt::text AS total_usdt,o.status,
-            o.payment_deadline,o.confirmed_at,o.incorporation_status,o.created_at,p.tx_hash,p.confirmations
+            o.payment_deadline,o.confirmed_at,o.incorporation_status,o.created_at,
+            o.payment_transaction_hash AS tx_hash,o.payment_confirmations AS confirmations
      FROM presale_orders o
-     LEFT JOIN LATERAL (SELECT tx_hash, confirmations FROM presale_payments WHERE order_id = o.id ORDER BY created_at DESC LIMIT 1) p ON true
      WHERE o.campaign_id = $1 AND ($2 = '' OR o.status = $2) ORDER BY o.created_at DESC LIMIT $3`,
     req.campaignId, req.status ?? "", Math.min(Math.max(req.limit ?? 100, 1), 500));
   return { orders: rows.map((row) => ({ orderReference: row.order_reference, buyerName: row.buyer_name, buyerEmail: row.buyer_email,
@@ -628,10 +727,10 @@ export const preparePresaleIncorporation = api<
   const tx = await presaleDb.begin();
   try {
     const rows = await tx.rawQueryAll<{ id: string; order_reference: string; buyer_name: string; buyer_email: string; quantity: number; total_usdt: string; tx_hash: string; bonus_buy_one_get_one: boolean }>(
-      `SELECT o.id,o.order_reference,o.buyer_name,o.buyer_email,o.quantity,o.total_usdt::text AS total_usdt,p.tx_hash,c.bonus_buy_one_get_one
+      `SELECT o.id,o.order_reference,o.buyer_name,o.buyer_email,o.quantity,o.total_usdt::text AS total_usdt,o.payment_transaction_hash AS tx_hash,c.bonus_buy_one_get_one
        FROM presale_orders o JOIN presale_campaigns c ON c.id = o.campaign_id
-       JOIN LATERAL (SELECT tx_hash FROM presale_payments WHERE order_id = o.id AND status = 'confirmed' ORDER BY confirmed_at LIMIT 1) p ON true
        WHERE o.campaign_id = $1 AND o.status = 'confirmed' AND o.incorporation_status = 'pending'
+         AND o.payment_settled_at IS NOT NULL AND o.payment_transaction_hash IS NOT NULL
        ORDER BY o.created_at,o.id FOR UPDATE OF o`, req.campaignId);
     if (rows.length === 0) throw APIError.failedPrecondition("No confirmed presale orders are ready for incorporation");
     const orders = rows.map((row) => ({ presaleOrderId: row.id, orderReference: row.order_reference, buyerName: row.buyer_name,

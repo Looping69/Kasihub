@@ -16,8 +16,6 @@ type Offer = {
   priceUsd: string;
   usdtPerUsd: string;
   network: string;
-  tokenContract?: string;
-  receivingAddress: string;
   sharesRemaining: number;
   invitationSharesRemaining: number;
   invitationEmail?: string;
@@ -190,7 +188,7 @@ export function PresaleClient({ inviteToken }: { inviteToken: string }) {
           </div>
           <div className="rounded-2xl border border-white/10 bg-white/[.04] p-5 text-sm leading-6 text-slate-300">
             <div className="mb-2 flex items-center gap-2 font-semibold text-white"><ShieldCheck className="h-4 w-4 text-emerald-400" /> Clean separation by design</div>
-            Presale orders and blockchain evidence are held in an isolated database. Confirmed orders are prepared for controlled incorporation into the live KaSiShares ledger; this page does not issue a final share certificate.
+            Campaign reservations remain isolated from the live share ledger. Payment evidence is verified by the central payment engine, and only settled orders may enter controlled share incorporation; this page does not issue a final share certificate.
           </div>
         </section>
 
