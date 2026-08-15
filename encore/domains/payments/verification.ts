@@ -5,6 +5,14 @@ import { evaluatePaymentEvidence } from "./chains/evaluate";
 import { ChainProviderUnavailable, readChainTransactionEvidence } from "./chains/providers";
 import type { PaymentEvidenceEvaluation } from "./chains/types";
 import type { ChainTransactionEvidence } from "./chains/types";
+import {
+  CustodyProviderUnavailable,
+  evaluateCustodyEvidence,
+  readCustodyEvidence,
+  type CustodyDecision,
+  type CustodyEvidence,
+  type CustodyEvidenceReader,
+} from "./custody";
 import { assertPaymentTransition, type PaymentStatus } from "./state-machine";
 
 export type SettledPaymentResult = {
@@ -35,6 +43,8 @@ type VerificationRow = {
   token_contract: string;
   decimals: number;
   minimum_confirmations: number;
+  provider: string;
+  custody_reconciliation_required: boolean;
 };
 
 function targetStatus(evaluation: PaymentEvidenceEvaluation): PaymentStatus | "retryable" {
@@ -71,13 +81,15 @@ function retryableResult(row: VerificationRow, reason: string): SettledPaymentRe
 export async function verifyAndSettlePaymentAttempt(
   attemptId: string,
   evidenceReader: (network: "tron" | "bsc", transactionHash: string) => Promise<ChainTransactionEvidence> = readChainTransactionEvidence,
+  custodyReader: CustodyEvidenceReader = readCustodyEvidence,
 ): Promise<SettledPaymentResult> {
   const row = await paymentsDb.rawQueryRow<VerificationRow>(
     `SELECT a.id AS attempt_id, a.payment_intent_id, a.transaction_hash,
             a.verification_status, i.status AS intent_status,
             o.id AS obligation_id, o.subject_type, o.subject_reference, o.status AS obligation_status,
             i.network, i.expected_amount::text AS expected_amount,
-            w.address_reference, w.token_contract, w.decimals, w.minimum_confirmations
+            w.address_reference, w.token_contract, w.decimals, w.minimum_confirmations,
+            w.provider, w.custody_reconciliation_required
        FROM payment_attempts a
        JOIN payment_intents i ON i.id = a.payment_intent_id
        JOIN payment_obligations o ON o.id = i.order_id
@@ -112,8 +124,39 @@ export async function verifyAndSettlePaymentAttempt(
     tokenDecimals: row.decimals,
     minimumConfirmations: row.minimum_confirmations,
   }, evidence);
-  const decision = targetStatus(evaluation);
+  let decision = targetStatus(evaluation);
   if (decision === "retryable") return retryableResult(row, evaluation.reason);
+  let custodyEvidence: CustodyEvidence | null = null;
+  let custodyDecision: CustodyDecision | null = null;
+  if (decision === "confirmed" && row.custody_reconciliation_required) {
+    try {
+      custodyEvidence = await custodyReader({
+        provider: row.provider,
+        network: row.network,
+        transactionHash: row.transaction_hash,
+        receiverAddress: row.address_reference,
+        currency: "USDT",
+        expectedAmount: row.expected_amount,
+        tokenDecimals: row.decimals,
+      });
+    } catch (error) {
+      if (error instanceof CustodyProviderUnavailable) return retryableResult(row, error.message);
+      throw error;
+    }
+    custodyDecision = evaluateCustodyEvidence({
+      provider: row.provider,
+      network: row.network,
+      transactionHash: row.transaction_hash,
+      receiverAddress: row.address_reference,
+      currency: "USDT",
+      expectedAmount: row.expected_amount,
+      tokenDecimals: row.decimals,
+    }, custodyEvidence);
+    await recordCustodyEvidence(row.attempt_id, custodyEvidence, custodyDecision);
+    if (custodyDecision.decision === "retryable") return retryableResult(row, custodyDecision.reason);
+    if (custodyDecision.decision === "manual_review") decision = "manual_review";
+  }
+  const decisionReason = custodyDecision?.reason ?? evaluation.reason;
 
   const tx = await paymentsDb.begin();
   try {
@@ -149,7 +192,7 @@ export async function verifyAndSettlePaymentAttempt(
       verification_error_detail = NULL, verified_at = now() WHERE id = $1`,
     row.attempt_id, decision, evaluation.sender, evaluation.receiver, evaluation.receivedAmount,
     evaluation.blockNumber ?? null, evaluation.confirmations,
-    decision === "confirmed" ? null : evaluation.reason);
+    decision === "confirmed" ? null : decisionReason);
 
     if (decision === "confirmed") {
       assertPaymentTransition("verifying", "confirmed");
@@ -177,7 +220,7 @@ export async function verifyAndSettlePaymentAttempt(
       await tx.rawExec(`INSERT INTO payment_state_history
         (payment_intent_id, prior_status, new_status, actor_type, actor_reference, evidence)
         VALUES ($1,'verifying',$2,'system','chain.verify',$3::jsonb)`, row.payment_intent_id, decision,
-      JSON.stringify({ attemptId: row.attempt_id, reason: evaluation.reason, confirmations: evaluation.confirmations }));
+      JSON.stringify({ attemptId: row.attempt_id, reason: decisionReason, confirmations: evaluation.confirmations }));
     }
     await tx.commit();
     return {
@@ -189,10 +232,30 @@ export async function verifyAndSettlePaymentAttempt(
       transactionHash: row.transaction_hash,
       status: finalIntentStatus,
       confirmations: evaluation.confirmations,
-      reason: evaluation.reason,
+      reason: decisionReason,
     };
   } catch (error) {
     try { await tx.rollback(); } catch { /* transaction may already be closed */ }
     throw error;
   }
+}
+
+function normalizeCustodyHash(transactionHash: string): string {
+  return transactionHash.trim().toLowerCase().replace(/^0x/, "");
+}
+
+async function recordCustodyEvidence(
+  attemptId: string,
+  evidence: CustodyEvidence,
+  decision: CustodyDecision,
+): Promise<void> {
+  await paymentsDb.rawExec(`INSERT INTO payment_custody_evidence
+    (payment_attempt_id,provider,provider_reference,transaction_hash,receiver_address,
+     currency,amount,outcome,evidence_digest,observed_at)
+    VALUES ($1,$2,$3,$4,$5,$6,$7::numeric,$8,$9,$10::timestamptz)
+    ON CONFLICT (provider,provider_reference,evidence_digest) DO NOTHING`,
+  attemptId, evidence.provider, evidence.providerReference,
+  normalizeCustodyHash(evidence.transactionHash), evidence.receiverAddress,
+  evidence.currency.toUpperCase(), evidence.amount, evidence.outcome,
+  decision.digest, evidence.observedAt);
 }

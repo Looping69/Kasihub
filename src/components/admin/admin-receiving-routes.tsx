@@ -20,6 +20,7 @@ type ReceivingRoute = {
   minimumConfirmations: number;
   intentTtlSeconds: number;
   status: "active" | "retired";
+  custodyReconciliationRequired: boolean;
 };
 
 type DraftReceivingRoute = {
@@ -104,7 +105,7 @@ export function AdminReceivingRoutes() {
         </div>
         <div className="mt-4 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" /><span>Registering a route changes where future USDT payment obligations expect funds. It does not issue shares or activate a public campaign.</span></div>
         <Button className="mt-4 bg-emerald-600 hover:bg-emerald-700" disabled={saving || !route.addressReference || !route.tokenContract} onClick={register}>{saving ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Registering route</> : "Register receiving route"}</Button>
-        {routes.length > 0 && <div className="mt-5 space-y-2"><p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Configured routes</p>{routes.map((configured) => <div className="rounded-md border bg-background p-3 text-xs" key={configured.id}><strong className="uppercase">{configured.network}</strong> · {configured.provider} · {configured.status}<br /><span className="font-mono text-muted-foreground">{configured.addressReference}</span></div>)}</div>}
+        {routes.length > 0 && <div className="mt-5 space-y-2"><p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Configured routes</p>{routes.map((configured) => <div className="rounded-md border bg-background p-3 text-xs" key={configured.id}><strong className="uppercase">{configured.network}</strong> · {configured.provider} · {configured.status}<br /><span className="font-mono text-muted-foreground">{configured.addressReference}</span><br /><span className="text-muted-foreground">Custody reconciliation: {configured.custodyReconciliationRequired ? "required before settlement" : "not required"}</span></div>)}</div>}
       </>}
     </Card>
   );
