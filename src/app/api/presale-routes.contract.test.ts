@@ -102,7 +102,16 @@ describe("presale BFF contracts", () => {
     expect(mocks.encoreRequest).toHaveBeenCalledWith(
       "/presale/orders",
       { method: "POST", headers: { "Idempotency-Key": "stable-key" }, body: JSON.stringify({ quantity: 2 }) },
+      "admin-token",
     );
+  });
+
+  test("order creation requires and forwards the authenticated member session", async () => {
+    mocks.encoreSessionToken.mockResolvedValue(undefined);
+    const response = await createOrder(jsonPost("/api/presale/orders", { quantity: 1 }, { "idempotency-key": "stable-key" }));
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({ error: "Unauthenticated" });
+    expect(mocks.encoreRequest).not.toHaveBeenCalled();
   });
 
   test("order access credentials stay in headers and never enter URLs", async () => {
