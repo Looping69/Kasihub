@@ -355,6 +355,25 @@ Remitano is not the inbound USDT source of truth.
 
 Inbound international settlement must be based on blockchain evidence.
 
+### Optional custody reconciliation
+
+Author: Klaasvaakie ( |╲ )
+
+Receiving routes may now opt into a custody-reconciliation gate without adding
+another payment state machine. Existing and direct KaSiHub wallet routes remain
+unchanged. When the flag is enabled, canonical blockchain verification must
+pass first and a server-side custody adapter must independently return the same
+provider, transaction hash, receiver, currency, and exact amount before central
+Payments may settle the obligation.
+
+Custody observations are stored as append-only, digest-addressed evidence.
+Pending provider data and provider outages remain retryable. Contradictory,
+reversed, or mismatched custody evidence enters the existing `manual_review`
+path; it cannot be converted into settlement by the browser or product domain.
+The default custody reader deliberately fails closed until a real provider
+adapter is installed. Enabling the route policy before that adapter is ready
+will keep payments pending rather than approving them incorrectly.
+
 Remitano may later be introduced behind a replaceable outbound payout adapter only after inbound payment settlement is stable. Provider credentials must be server-only managed secrets.
 
 ## Security invariants

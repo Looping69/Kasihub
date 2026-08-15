@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { paymentsDb } from "../../resources";
 import { TOKEN_TRANSFER_TOPIC } from "./chains/transfer";
 import type { ChainTransactionEvidence } from "./chains/types";
+import { CustodyProviderUnavailable, type CustodyEvidence } from "./custody";
 import { verifyAndSettlePaymentAttempt } from "./verification";
 
 const TOKEN = `0x${"11".repeat(20)}`;
@@ -30,7 +31,20 @@ function evidence(hash: string, receiver = RECEIVER): ChainTransactionEvidence {
   };
 }
 
-async function seedSubmittedPayment() {
+function custodyEvidence(hash: string, amount = "25"): CustodyEvidence {
+  return {
+    provider: "remitano",
+    providerReference: `deposit-${hash}`,
+    transactionHash: hash,
+    receiverAddress: RECEIVER,
+    currency: "USDT",
+    amount,
+    outcome: "confirmed",
+    observedAt: new Date().toISOString(),
+  };
+}
+
+async function seedSubmittedPayment(custodyReconciliationRequired = false) {
   const walletId = crypto.randomUUID();
   const obligationId = crypto.randomUUID();
   const intentId = crypto.randomUUID();
@@ -39,8 +53,9 @@ async function seedSubmittedPayment() {
   const profileId = crypto.randomUUID();
   const reference = `KSP-VERIFY-${crypto.randomUUID()}`;
   await paymentsDb.rawExec(`INSERT INTO payment_wallets
-    (id,provider,network,currency,address_reference,token_contract,decimals,minimum_confirmations,status,retired_at,intent_ttl_seconds)
-    VALUES ($1,'kasihub','bsc','USDT',$2,$3,6,3,'retired',now(),1800)`, walletId, RECEIVER, TOKEN);
+    (id,provider,network,currency,address_reference,token_contract,decimals,minimum_confirmations,status,retired_at,intent_ttl_seconds,custody_reconciliation_required)
+    VALUES ($1,$4,'bsc','USDT',$2,$3,6,3,'retired',now(),1800,$5)`, walletId, RECEIVER, TOKEN,
+  custodyReconciliationRequired ? "remitano" : "kasihub", custodyReconciliationRequired);
   await paymentsDb.rawExec(`INSERT INTO payment_obligations
     (id,subject_type,subject_reference,payer_profile_id,beneficiary_profile_id,settlement_currency,settlement_amount,status)
     VALUES ($1,'presale_order',$2,$3,$3,'USDT',25,'open')`, obligationId, reference, profileId);
@@ -78,5 +93,46 @@ describe("product-neutral payment verification and settlement", () => {
       `SELECT i.status AS intent_status,o.status AS obligation_status
        FROM payment_intents i JOIN payment_obligations o ON o.id=i.order_id WHERE i.id=$1`, seeded.intentId);
     expect(state).toEqual({ intent_status: "rejected", obligation_status: "open" });
+  });
+
+  it("requires matching custody evidence only for an explicitly gated route", async () => {
+    const seeded = await seedSubmittedPayment(true);
+    const result = await verifyAndSettlePaymentAttempt(
+      seeded.attemptId,
+      async () => evidence(seeded.hash),
+      async () => custodyEvidence(seeded.hash),
+    );
+    expect(result).toMatchObject({ status: "settled", reason: "custody_evidence_satisfied" });
+    const custody = await paymentsDb.rawQueryRow<{ count: number }>(
+      "SELECT count(*)::int AS count FROM payment_custody_evidence WHERE payment_attempt_id = $1",
+      seeded.attemptId,
+    );
+    expect(custody?.count).toBe(1);
+  });
+
+  it("fails closed without a custody adapter and leaves the obligation open", async () => {
+    const seeded = await seedSubmittedPayment(true);
+    const result = await verifyAndSettlePaymentAttempt(
+      seeded.attemptId,
+      async () => evidence(seeded.hash),
+      async () => { throw new CustodyProviderUnavailable("remitano", "custody_temporarily_unavailable"); },
+    );
+    expect(result).toMatchObject({ status: "retryable", reason: "custody_temporarily_unavailable" });
+    const state = await paymentsDb.rawQueryRow<{ intent_status: string; obligation_status: string }>(
+      `SELECT i.status AS intent_status,o.status AS obligation_status
+       FROM payment_intents i JOIN payment_obligations o ON o.id=i.order_id WHERE i.id=$1`, seeded.intentId);
+    expect(state).toEqual({ intent_status: "submitted", obligation_status: "open" });
+  });
+
+  it("sends custody mismatches to manual review without duplicating evidence", async () => {
+    const seeded = await seedSubmittedPayment(true);
+    const reader = async () => custodyEvidence(seeded.hash, "24");
+    const result = await verifyAndSettlePaymentAttempt(seeded.attemptId, async () => evidence(seeded.hash), reader);
+    expect(result).toMatchObject({ status: "manual_review", reason: "custody_amount_mismatch" });
+    const evidenceRows = await paymentsDb.rawQueryRow<{ count: number }>(
+      "SELECT count(*)::int AS count FROM payment_custody_evidence WHERE payment_attempt_id = $1",
+      seeded.attemptId,
+    );
+    expect(evidenceRows?.count).toBe(1);
   });
 });

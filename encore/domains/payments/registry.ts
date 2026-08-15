@@ -15,6 +15,7 @@ export interface ReceivingConfigurationRequest {
   decimals: number;
   minimumConfirmations: number;
   intentTtlSeconds: number;
+  custodyReconciliationRequired?: boolean;
 }
 
 const receivingConfigRequest = z.object({
@@ -26,6 +27,15 @@ const receivingConfigRequest = z.object({
   decimals: z.number().int().min(0).max(36),
   minimumConfirmations: z.number().int().min(1).max(10_000),
   intentTtlSeconds: z.number().int().min(300).max(86_400),
+  custodyReconciliationRequired: z.boolean().default(false),
+}).superRefine((value, context) => {
+  if (value.custodyReconciliationRequired && value.provider !== "remitano") {
+    context.addIssue({
+      code: "custom",
+      path: ["custodyReconciliationRequired"],
+      message: "Custody reconciliation requires a supported custody provider",
+    });
+  }
 });
 
 type ReceivingConfigResponse = {
@@ -41,6 +51,7 @@ type ReceivingConfigResponse = {
   status: string;
   activeFrom: string;
   retiredAt: string | null;
+  custodyReconciliationRequired: boolean;
 };
 
 type ReceivingConfigRow = {
@@ -56,6 +67,7 @@ type ReceivingConfigRow = {
   status: string;
   active_from: string;
   retired_at: string | null;
+  custody_reconciliation_required: boolean;
 };
 
 /** Server-authoritative lookup used by product domains before activation. ( |╲ ) — Klaasvaakie */
@@ -65,7 +77,8 @@ export async function resolveActiveReceivingConfiguration(
 ): Promise<ReceivingConfigResponse> {
   const row = await paymentsDb.rawQueryRow<ReceivingConfigRow>(
     `SELECT id, provider, network, currency, address_reference, token_contract, decimals,
-            minimum_confirmations, intent_ttl_seconds, status, active_from, retired_at
+            minimum_confirmations, intent_ttl_seconds, status, active_from, retired_at,
+            custody_reconciliation_required
        FROM payment_wallets
       WHERE lower(network) = lower($1) AND currency = $2 AND status = 'active'
         AND active_from <= now() AND retired_at IS NULL
@@ -92,6 +105,7 @@ function mapConfig(row: ReceivingConfigRow): ReceivingConfigResponse {
     status: row.status,
     activeFrom: row.active_from,
     retiredAt: row.retired_at,
+    custodyReconciliationRequired: row.custody_reconciliation_required,
   };
 }
 
@@ -124,6 +138,7 @@ export const rotateReceivingConfiguration = api<
       decimals: payload.decimals,
       minimumConfirmations: payload.minimumConfirmations,
       intentTtlSeconds: payload.intentTtlSeconds,
+      custodyReconciliationRequired: payload.custodyReconciliationRequired,
     };
     let row: ReceivingConfigRow | null = null;
     try {
@@ -141,10 +156,11 @@ export const rotateReceivingConfiguration = api<
       row = await tx.rawQueryRow<ReceivingConfigRow>(
         `INSERT INTO payment_wallets
           (id, provider, network, currency, address_reference, token_contract, decimals,
-           minimum_confirmations, intent_ttl_seconds, status, active_from)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'active', now())
+           minimum_confirmations, intent_ttl_seconds, custody_reconciliation_required, status, active_from)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'active', now())
          RETURNING id, provider, network, currency, address_reference, token_contract, decimals,
-                   minimum_confirmations, intent_ttl_seconds, status, active_from, retired_at`,
+                   minimum_confirmations, intent_ttl_seconds, status, active_from, retired_at,
+                   custody_reconciliation_required`,
         id,
         payload.provider,
         payload.network,
@@ -154,6 +170,7 @@ export const rotateReceivingConfiguration = api<
         payload.decimals,
         payload.minimumConfirmations,
         payload.intentTtlSeconds,
+        payload.custodyReconciliationRequired,
       );
       if (!row) throw new Error("payment_receiving_config_not_created");
       await tx.rawExec(
@@ -206,7 +223,8 @@ export const listReceivingConfigurations = api<
     await requireAdminAccess();
     const rows = await paymentsDb.rawQueryAll<ReceivingConfigRow>(
       `SELECT id, provider, network, currency, address_reference, token_contract, decimals,
-              minimum_confirmations, intent_ttl_seconds, status, active_from, retired_at
+              minimum_confirmations, intent_ttl_seconds, status, active_from, retired_at,
+              custody_reconciliation_required
          FROM payment_wallets
         ORDER BY active_from DESC`,
     );
