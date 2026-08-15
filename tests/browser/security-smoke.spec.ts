@@ -215,6 +215,13 @@ test("private USDT shares page fails closed without an invitation", async ({ pag
   await expect(page.locator('meta[name="referrer"]')).toHaveAttribute("content", "no-referrer");
 });
 
+test("legacy path-style presale invitations redirect to the supported private query contract", async ({ page }) => {
+  // Author: Klaasvaakie ( |╲ )
+  const invite = "legacy-private-invitation-token-000000000001";
+  await page.goto(`/presale/${invite}`);
+  await expect(page).toHaveURL(`/presale?invite=${encodeURIComponent(invite)}`);
+});
+
 test("invited buyer can reserve shares without exposing the order access token in URLs", async ({ page }) => {
   // Author: Klaasvaakie ( |╲ )
   const invite = "private-invitation-token-000000000001";
