@@ -21,7 +21,7 @@ test("KaSiHub navigation opens the fully branded KaSiPay pages", async ({ page }
   await page.goto("/");
   await page.locator('header nav.hidden a[href="/kasipay"]').click();
   await expect(page).toHaveURL(/\/kasipay$/);
-  await expect(page.getByRole("heading", { name: "Shop at Participating Retailers & Earn Cashback" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Shop at Participating Retailers & Earn Instant Cashback" })).toBeVisible();
   const primaryNavigation = page.getByRole("navigation", { name: "Primary navigation" });
   await expect(primaryNavigation.getByRole("link", { name: "Home", exact: true })).toBeVisible();
   await expect(primaryNavigation.getByRole("link", { name: "KaSiPaY-OnE", exact: true })).toBeVisible();

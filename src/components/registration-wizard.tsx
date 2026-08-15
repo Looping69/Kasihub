@@ -447,7 +447,7 @@ export function RegistrationWizard() {
 function canProceed(step: Step, data: FormData): boolean {
   if (step === "type") {
     if (!data.citizenshipType) return false;
-    if (data.uplineProfileNumber.trim() && !data.uplineConfirmed) return false;
+    if (!data.uplineConfirmed) return false;
     return true;
   }
   if (step === "kasipay") {
@@ -526,6 +526,10 @@ function TypeStep({
     return () => clearTimeout(t);
   }, [uplineInput]);
 
+  const confirmText = data.uplineProfileNumber.trim()
+    ? `I confirm that ${data.uplineName || data.uplineProfileNumber} is my upline`
+    : "I confirm that I am joining via bulk registration";
+
   return (
     <div>
       <h3 className="text-lg font-bold mb-1">Citizenship / Entity type</h3>
@@ -594,22 +598,18 @@ function TypeStep({
         </div>
       </div>
 
-      {data.uplineProfileNumber.trim() && (
-        <label
-          htmlFor="upline-confirm"
-          className="mt-4 flex items-start gap-3 p-4 rounded-lg border border-amber-200 dark:border-amber-900 bg-amber-50/50 dark:bg-amber-950/20 cursor-pointer"
-        >
-          <Checkbox
-            id="upline-confirm"
-            checked={data.uplineConfirmed}
-            onCheckedChange={(c) => update("uplineConfirmed", c === true)}
-            className="mt-0.5 data-[state=checked]:bg-amber-500 data-[state=checked]:border-amber-500"
-          />
-          <span className="text-sm font-medium">
-            I confirm that {data.uplineName || data.uplineProfileNumber} is my upline
-          </span>
-        </label>
-      )}
+      <label
+        htmlFor="upline-confirm"
+        className="mt-4 flex items-start gap-3 p-4 rounded-lg border border-amber-200 dark:border-amber-900 bg-amber-50/50 dark:bg-amber-950/20 cursor-pointer"
+      >
+        <Checkbox
+          id="upline-confirm"
+          checked={data.uplineConfirmed}
+          onCheckedChange={(c) => update("uplineConfirmed", c === true)}
+          className="mt-0.5 data-[state=checked]:bg-amber-500 data-[state=checked]:border-amber-500"
+        />
+        <span className="text-sm font-medium">{confirmText}</span>
+      </label>
     </div>
   );
 }
