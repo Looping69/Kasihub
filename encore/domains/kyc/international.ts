@@ -2,7 +2,6 @@
 import { api, APIError } from "encore.dev/api";
 import { auditDb, identityDb, kycDb } from "../../resources";
 import { requireProfileAccess } from "../auth/access";
-import { isInternationalCitizenship } from "../shared/member-routing";
 import { INTERNATIONAL_KYC_PROVIDER, getInternationalKycVerification } from "./policy";
 
 type InternationalKycCaseResponse = {
@@ -23,13 +22,13 @@ export const createInternationalKycCase = api<
   { method: "POST", path: "/kyc/international/cases", expose: true },
   async (req) => {
     const session = await requireProfileAccess(req.profileId);
-    const profile = await identityDb.rawQueryRow<{ citizenship_type: string | null }>(
-      "SELECT citizenship_type FROM profiles WHERE id = $1",
+    const profile = await identityDb.rawQueryRow<{ onboarding_authority: string }>(
+      "SELECT onboarding_authority FROM profiles WHERE id = $1",
       req.profileId,
     );
     if (!profile) throw APIError.notFound("Profile not found");
-    if (!isInternationalCitizenship(profile.citizenship_type)) {
-      throw APIError.failedPrecondition("International KYC is only available to international profiles");
+    if (profile.onboarding_authority !== "kasihub") {
+      throw APIError.failedPrecondition("KaSiHub KYC is only available when KaSiHub is the selected onboarding authority");
     }
 
     const existing = await kycDb.rawQueryRow<{ id: string; status: string; provider: string }>(

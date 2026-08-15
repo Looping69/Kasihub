@@ -21,6 +21,7 @@ interface SecureRegistrationRequest {
   country?: string;
   membershipType: string;
   citizenshipType: string;
+  onboardingAuthority: "provider" | "kasihub";
   addressLine?: string;
   city?: string;
   postalCode?: string;
@@ -55,6 +56,7 @@ const secureRegistrationRequest = z.object({
   country: z.string().max(100).optional(),
   membershipType: z.string().min(1).max(100),
   citizenshipType: z.string().min(1).max(100),
+  onboardingAuthority: z.enum(["provider", "kasihub"]),
   addressLine: z.string().max(500).optional(),
   city: z.string().max(200).optional(),
   postalCode: z.string().max(30).optional(),
@@ -65,9 +67,9 @@ const secureRegistrationRequest = z.object({
   uplineConfirmed: z.boolean().optional(),
 });
 
-function resolvePolicyOrThrow(citizenshipType: string, membershipType: string) {
+function resolvePolicyOrThrow(citizenshipType: string, membershipType: string, onboardingAuthority: "provider" | "kasihub") {
   try {
-    return resolveRegistrationPolicy(citizenshipType, membershipType);
+    return resolveRegistrationPolicy(citizenshipType, membershipType, onboardingAuthority === "provider" ? "instapay" : "kasihub");
   } catch (error) {
     if (error instanceof Error && error.message === "unsupported_citizenship_type") {
       throw APIError.invalidArgument("Unsupported citizenship type");
@@ -93,7 +95,7 @@ export const startSecureRegistration = api<SecureRegistrationRequest, SecureRegi
   async (req) => {
     const payload = secureRegistrationRequest.parse(req);
     const normalizedEmail = payload.email.trim().toLowerCase();
-    const policy = resolvePolicyOrThrow(payload.citizenshipType, payload.membershipType);
+    const policy = resolvePolicyOrThrow(payload.citizenshipType, payload.membershipType, payload.onboardingAuthority);
     const authoritativeRequest = {
       ...payload,
       email: normalizedEmail,
@@ -155,8 +157,9 @@ export const startSecureRegistration = api<SecureRegistrationRequest, SecureRegi
               id, user_id, profile_type, unique_profile_number, first_name, surname,
               company_name, company_registration_number, id_or_passport_number, sars_number, country, status,
               membership_type, citizenship_type, address_line, city, postal_code, beneficiary_name, beneficiary_id,
-              guardian_name, instapay_status, instapay_verified_at, instapay_account_ref, upline_profile_number, upline_confirmed
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'pending',$12,$13,$14,$15,$16,$17,$18,$19,$20,NULL,NULL,$21,$22)`,
+              guardian_name, instapay_status, instapay_verified_at, instapay_account_ref, upline_profile_number, upline_confirmed,
+              onboarding_authority
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'pending',$12,$13,$14,$15,$16,$17,$18,$19,$20,NULL,NULL,$21,$22,$23)`,
             profileId,
             userId,
             policy.profileType,
@@ -179,6 +182,7 @@ export const startSecureRegistration = api<SecureRegistrationRequest, SecureRegi
             policy.kycRail === "instapay" ? "PENDING" : "NONE",
             payload.uplineProfileNumber ?? null,
             Boolean(payload.uplineConfirmed),
+            policy.kycRail === "instapay" ? "instapay" : "kasihub",
           );
           await tx.rawExec(
             `INSERT INTO user_roles (user_id, role_id)
@@ -263,8 +267,9 @@ export const startSecureRegistration = api<SecureRegistrationRequest, SecureRegi
         workflow.id,
       );
 
-      // Registration is durable, but international users must complete Kasihub KYC
-      // before paid/regulatory actions. Local KYC continues through InstaPay.
+      // Registration is durable, but every KaSiHub-authority applicant must
+      // complete KaSiHub KYC before paid/regulatory actions. InstaPay-authority
+      // applicants remain pending until the provider API supplies its result.
       await identityDb.rawExec(
         `UPDATE registration_workflows
             SET state = 'completed', last_error = NULL, completed_at = now(), updated_at = now()
@@ -279,8 +284,8 @@ export const startSecureRegistration = api<SecureRegistrationRequest, SecureRegi
 
       return {
         registrationId: workflow.id,
-        status: policy.isInternational ? "kyc_pending" : "awaiting_payment",
-        nextAction: policy.isInternational ? "kyc" : "payment",
+        status: policy.kycRail === "kasihub_international" ? "kyc_pending" : "awaiting_payment",
+        nextAction: policy.kycRail === "kasihub_international" ? "kyc" : "payment",
         routing: { kycRail: policy.kycRail, paymentRail: policy.paymentRail },
         user: {
           id: workflow.user_id,

@@ -82,6 +82,19 @@ export function resolveMemberRouting(citizenshipType: string | null | undefined)
     : { isInternational: false, kycRail: "instapay", paymentRail: "instapay" };
 }
 
+export function resolveRegistrationRouting(
+  citizenshipType: string | null | undefined,
+  onboardingAuthority: "instapay" | "kasihub" | null | undefined,
+): MemberRoutingDecision {
+  const base = resolveMemberRouting(citizenshipType);
+  if (base.isInternational) return base;
+  if (onboardingAuthority === "kasihub") {
+    return { isInternational: false, kycRail: "kasihub_international", paymentRail: "usdt" };
+  }
+  if (onboardingAuthority === "instapay") return base;
+  throw new Error("unsupported_onboarding_authority");
+}
+
 /**
  * Derives all registration-sensitive choices from server-owned policy.
  * The client may describe the member, but it may not choose the KYC rail,
@@ -90,6 +103,7 @@ export function resolveMemberRouting(citizenshipType: string | null | undefined)
 export function resolveRegistrationPolicy(
   citizenshipType: string | null | undefined,
   membershipType: string | null | undefined,
+  onboardingAuthority?: "instapay" | "kasihub" | null,
 ): RegistrationPolicy {
   if (!isKnownCitizenshipType(citizenshipType)) {
     throw new Error("unsupported_citizenship_type");
@@ -98,7 +112,10 @@ export function resolveRegistrationPolicy(
     throw new Error("unsupported_membership_type");
   }
 
-  const routing = resolveMemberRouting(citizenshipType);
+  const routing = resolveRegistrationRouting(
+    citizenshipType,
+    onboardingAuthority ?? (isInternationalCitizenship(citizenshipType) ? "kasihub" : "instapay"),
+  );
   const isCompany = membershipType === "COMPANY" || membershipType === "SOLE_PROPRIETOR" || membershipType === "NPO_NGO";
   const profileType: ProfileType = membershipType === "INDIVIDUAL_KIDS"
     ? "minor"

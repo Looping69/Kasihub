@@ -1,7 +1,6 @@
 // Author: Klaasvaakie ( |╲ )
 import { APIError } from "encore.dev/api";
 import { identityDb, kycDb } from "../../resources";
-import { isInternationalCitizenship } from "../shared/member-routing";
 
 export const INTERNATIONAL_KYC_PROVIDER = "kasihub_international" as const;
 
@@ -13,13 +12,13 @@ export type InternationalKycVerification = {
 };
 
 export async function getInternationalKycVerification(profileId: string): Promise<InternationalKycVerification> {
-  const profile = await identityDb.rawQueryRow<{ citizenship_type: string | null }>(
-    "SELECT citizenship_type FROM profiles WHERE id = $1",
+  const profile = await identityDb.rawQueryRow<{ onboarding_authority: string }>(
+    "SELECT onboarding_authority FROM profiles WHERE id = $1",
     profileId,
   );
   if (!profile) throw APIError.notFound("Profile not found");
 
-  if (!isInternationalCitizenship(profile.citizenship_type)) {
+  if (profile.onboarding_authority === "instapay") {
     return { required: false, verified: true, status: "NOT_REQUIRED", caseId: null };
   }
 

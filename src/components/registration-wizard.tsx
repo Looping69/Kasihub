@@ -28,7 +28,9 @@ type Step = "type" | "kasipay" | "subscription" | "details" | "review" | "done";
 
 type KaSiPayStatus = "NONE" | "PENDING" | "VERIFIED";
 
-const KASIPAY_CITIZENSHIPS: CitizenshipType[] = ["SA_CITIZEN_SA", "SA_NPO_NGO"];
+const KASIPAY_CITIZENSHIPS: CitizenshipType[] = [
+  "SA_CITIZEN_SA", "FOREIGN_CITIZEN_SA", "SA_CIPC_COMPANY", "SA_SOLE_PROPRIETOR", "SA_NPO_NGO",
+];
 const INTL_CITIZENSHIPS: CitizenshipType[] = [
   "SA_CITIZEN_ABROAD",
   "FOREIGN_CITIZEN_ABROAD",
@@ -44,7 +46,7 @@ interface FormData {
   kasiPayStatus: KaSiPayStatus;
   kasiPayAccountRef: string | null;
   kasiPayVerifiedAt: string | null;
-  kasiPayOption: "setup" | "have" | null;
+  kasiPayOption: "setup" | "have" | "direct" | null;
   // Author: Klaasvaakie ( |╲ )
   // KaSiPay verification fields
   idNumber: string;
@@ -247,13 +249,11 @@ export function RegistrationWizard() {
       const payload: Record<string, unknown> = {
         citizenshipType: data.citizenshipType,
         membershipType: data.membershipType,
+        onboardingAuthority: isInternational(data.citizenshipType) || data.kasiPayOption === "direct" ? "kasihub" : "provider",
         uplineProfileNumber: data.uplineProfileNumber || null,
         uplineConfirmed: data.uplineConfirmed,
         // Author: Klaasvaakie ( |╲ )
         // These payload keys preserve the existing backend contract; KaSiPay is the product shown to members.
-        instapayStatus: data.kasiPayStatus,
-        instapayAccountRef: data.kasiPayAccountRef,
-        instapayVerifiedAt: data.kasiPayVerifiedAt,
         email: data.email,
         password: data.password,
         country: data.country,
@@ -453,7 +453,7 @@ function canProceed(step: Step, data: FormData): boolean {
   if (step === "kasipay") {
     // Author: Klaasvaakie ( |╲ )
     // Continue after verification or acknowledgement of the KaSiPay setup path.
-    return data.kasiPayStatus === "VERIFIED" || data.kasiPayOption === "setup";
+    return data.kasiPayStatus === "VERIFIED" || data.kasiPayOption === "setup" || data.kasiPayOption === "direct";
   }
   if (step === "subscription") {
     return !!data.membershipType;
@@ -461,6 +461,7 @@ function canProceed(step: Step, data: FormData): boolean {
   if (step === "details") {
     if (!data.email || !data.mobile) return false;
     if (data.password.length < 12 || data.password !== data.confirmPassword) return false;
+    if (!isInternational(data.citizenshipType) && data.kasiPayOption !== "direct") return true;
     if (isCompanyType(data.citizenshipType)) {
       return !!data.companyName && !!data.companyRegNo;
     }
@@ -660,7 +661,7 @@ function KaSiPayStep({
     <div>
       <h3 className="text-lg font-bold mb-1">KaSiPay Gini setup</h3>
       <p className="text-sm text-muted-foreground mb-6">
-        Your SA membership subscription is processed via KaSiPay Gini. Choose an option below.
+        Choose who will perform your identity registration and KYC. KaSiHub never asks you to repeat KaSiPay KYC information.
       </p>
 
       {verified ? (
@@ -763,6 +764,25 @@ function KaSiPayStep({
               </Card>
             </label>
           </div>
+
+          <div className="relative">
+            <RadioGroupItem
+              value="direct"
+              id="kasipay-direct"
+              className="absolute top-5 right-5 z-10 data-[state=checked]:border-sky-500 data-[state=checked]:text-sky-500"
+            />
+            <label htmlFor="kasipay-direct" className="block cursor-pointer">
+              <Card className={`p-5 transition-all ${data.kasiPayOption === "direct" ? "border-sky-500 ring-2 ring-sky-500/30" : "hover:border-border"}`}>
+                <div className="flex items-start gap-3 pr-8">
+                  <div className="w-10 h-10 rounded-lg bg-sky-600 text-white flex items-center justify-center flex-shrink-0"><ShieldCheck className="h-5 w-5" /></div>
+                  <div className="flex-1">
+                    <p className="font-bold">Continue without KaSiPay</p>
+                    <p className="text-xs text-muted-foreground mt-1">KaSiHub will collect the required identity information, documents and KYC evidence directly. USDT is used for supported payments.</p>
+                  </div>
+                </div>
+              </Card>
+            </label>
+          </div>
         </RadioGroup>
       )}
 
@@ -834,8 +854,9 @@ function KaSiPayStep({
         <div className="flex items-start gap-3">
           <Info className="h-5 w-5 text-amber-600 mt-0.5 flex-shrink-0" />
           <p className="text-xs text-amber-800 dark:text-amber-300">
-            Subscription is processed via KaSiPay Gini with Adamo subscription integration.
-            {data.kasiPayOption === "setup" && " You can complete this step later — KaSiPay setup is required before your first subscription payment."}
+            {data.kasiPayOption === "direct"
+              ? "KaSiHub is the KYC authority for this route. No KaSiPay identity or KYC claim will be created."
+              : "KaSiPay owns registration and KYC for this route. KaSiHub stores only provider-issued verification results and references received through the API."}
           </p>
         </div>
       </div>
@@ -984,31 +1005,33 @@ function DetailsStep({
             : "Personal details"}
       </h3>
       <p className="text-sm text-muted-foreground mb-6">
-        This information is used to generate your unique profile number.
+        {intl || data.kasiPayOption === "direct"
+          ? "KaSiHub will collect and verify these details because KaSiHub is your selected KYC authority."
+          : "Create your KaSiHub login. Identity and KYC details remain with KaSiPay and will be received through its verified API."}
       </p>
 
-      {isCompany && (
+      {(intl || data.kasiPayOption === "direct") && isCompany && (
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Company name" required value={data.companyName} onChange={(v) => update("companyName", v)} placeholder="Acme Trading (Pty) Ltd" />
           <Field label="Company registration no." required value={data.companyRegNo} onChange={(v) => update("companyRegNo", v)} placeholder="2018/123456/07" />
         </div>
       )}
 
-      {isSoleProp && (
+      {(intl || data.kasiPayOption === "direct") && isSoleProp && (
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Business name" required value={data.companyName} onChange={(v) => update("companyName", v)} placeholder="Thabo Plumbing" />
           <Field label="Personal ID number" required value={data.idPassport} onChange={(v) => update("idPassport", v)} placeholder="8501015800087" />
         </div>
       )}
 
-      {isNpo && (
+      {(intl || data.kasiPayOption === "direct") && isNpo && (
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Organisation name" required value={data.organizationName} onChange={(v) => update("organizationName", v)} placeholder="Helping Hands NPO" />
           <Field label="NPO / NGO number" value={data.npoNgoNumber} onChange={(v) => update("npoNgoNumber", v)} placeholder="123-456-NPO" />
         </div>
       )}
 
-      {isIndividual && (
+      {(intl || data.kasiPayOption === "direct") && isIndividual && (
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="First name" required value={data.firstName} onChange={(v) => update("firstName", v)} placeholder="Thabo" />
           <Field label="Last name" required value={data.lastName} onChange={(v) => update("lastName", v)} placeholder="Mokoena" />
@@ -1030,7 +1053,7 @@ function DetailsStep({
         <Field label="Mobile number" required value={data.mobile} onChange={(v) => update("mobile", v)} placeholder="+27 82 123 4567" />
         <Field label="Password" required type="password" value={data.password} onChange={(v) => update("password", v)} placeholder="At least 12 characters" />
         <Field label="Confirm password" required type="password" value={data.confirmPassword} onChange={(v) => update("confirmPassword", v)} placeholder="Repeat your password" />
-        <div>
+        {(intl || data.kasiPayOption === "direct") && <div>
           <Label>Country</Label>
           <select
             value={data.country}
@@ -1050,12 +1073,12 @@ function DetailsStep({
             <option>United Arab Emirates</option>
             <option>Other</option>
           </select>
-        </div>
-        <Field label="City" value={data.city} onChange={(v) => update("city", v)} placeholder="Johannesburg" />
-        <Field label="Postal code" value={data.postalCode} onChange={(v) => update("postalCode", v)} placeholder="1804" />
+        </div>}
+        {(intl || data.kasiPayOption === "direct") && <Field label="City" value={data.city} onChange={(v) => update("city", v)} placeholder="Johannesburg" />}
+        {(intl || data.kasiPayOption === "direct") && <Field label="Postal code" value={data.postalCode} onChange={(v) => update("postalCode", v)} placeholder="1804" />}
       </div>
 
-      <div className="mt-4">
+      {(intl || data.kasiPayOption === "direct") && <div className="mt-4">
         <Label htmlFor="address">Residential / Business address</Label>
         <Textarea
           id="address"
@@ -1065,12 +1088,12 @@ function DetailsStep({
           className="mt-1.5"
           rows={2}
         />
-      </div>
+      </div>}
 
-      <div className="mt-4 grid gap-4 sm:grid-cols-2">
+      {(intl || data.kasiPayOption === "direct") && <div className="mt-4 grid gap-4 sm:grid-cols-2">
         <Field label="Beneficiary name" value={data.beneficiaryName} onChange={(v) => update("beneficiaryName", v)} placeholder="Nomsa Mokoena" />
         <Field label="Beneficiary ID number" value={data.beneficiaryId} onChange={(v) => update("beneficiaryId", v)} placeholder="8902150120089" />
-      </div>
+      </div>}
     </div>
   );
 }
@@ -1100,38 +1123,36 @@ function ReviewStep({ data }: { data: FormData }) {
             value={data.uplineProfileNumber ? (data.uplineName || data.uplineProfileNumber) : "Bulk registration"}
           />
           <Row
-            label="KaSiPay status"
+            label="Identity / KYC authority"
             value={
-              KASIPAY_CITIZENSHIPS.includes(c as CitizenshipType)
-                ? data.kasiPayStatus === "VERIFIED"
-                  ? `Verified (${data.kasiPayAccountRef})`
-                  : "Pending / setup required"
-                : "N/A"
+              intl || data.kasiPayOption === "direct"
+                ? "KaSiHub direct KYC"
+                : "KaSiPay provider API"
             }
           />
           <Row
             label="Payment method"
             value={intl ? "Bankus Platform" : "KaSiPay Gini"}
           />
-          {isCompany && (
+          {(intl || data.kasiPayOption === "direct") && isCompany && (
             <>
               <Row label="Company" value={data.companyName || "—"} />
               <Row label="Reg. no." value={data.companyRegNo || "—"} />
             </>
           )}
-          {isSoleProp && (
+          {(intl || data.kasiPayOption === "direct") && isSoleProp && (
             <>
               <Row label="Business" value={data.companyName || "—"} />
               <Row label="Personal ID" value={data.idPassport || "—"} />
             </>
           )}
-          {isNpo && (
+          {(intl || data.kasiPayOption === "direct") && isNpo && (
             <>
               <Row label="Organisation" value={data.organizationName || "—"} />
               <Row label="NPO/NGO no." value={data.npoNgoNumber || "—"} />
             </>
           )}
-          {!isCompany && !isSoleProp && !isNpo && (
+          {(intl || data.kasiPayOption === "direct") && !isCompany && !isSoleProp && !isNpo && (
             <>
               <Row label="Name" value={`${data.firstName} ${data.lastName}`.trim() || "—"} />
               <Row label="ID / Passport" value={data.idPassport || "—"} />

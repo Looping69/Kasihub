@@ -2,6 +2,7 @@
 import { api, APIError } from "encore.dev/api";
 import { secret } from "encore.dev/config";
 import { CronJob } from "encore.dev/cron";
+import { createCipheriv, createHash as createNodeHash, randomBytes } from "node:crypto";
 import { z } from "zod";
 import { presaleDb, sharesDb } from "../../resources";
 import { requestHeader, requireSession } from "../auth/access";
@@ -16,12 +17,22 @@ import {
   hashSecret,
   normalizeEmail,
   PaymentEvent,
+  INVESTOR_APPLICATION_VERSION,
   PRESALE_TERMS_VERSION,
   verifyPaymentEvent,
 } from "./model";
 import { issuedSharesForPresale, quotedUsdtAmount } from "./settlement";
 
 const PresaleWebhookSecret = secret("PresaleWebhookSecret");
+const InvestorApplicationEncryptionKey = secret("InvestorApplicationEncryptionKey");
+
+function encryptInvestorApplication(value: unknown): { ciphertext: Buffer; nonce: Buffer; authTag: Buffer } {
+  const key = createNodeHash("sha256").update(InvestorApplicationEncryptionKey()).digest();
+  const nonce = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", key, nonce);
+  const ciphertext = Buffer.concat([cipher.update(JSON.stringify(value), "utf8"), cipher.final()]);
+  return { ciphertext, nonce, authTag: cipher.getAuthTag() };
+}
 
 const campaignInput = z.object({
   slug: z.string().trim().min(2).max(80).regex(/^[a-z0-9-]+$/),
@@ -51,6 +62,44 @@ const orderInput = z.object({
   buyerPhone: z.string().trim().max(40).optional(),
   quantity: z.number().int().positive().max(1_000_000),
   termsAccepted: z.literal(true),
+  investorApplication: z.object({
+    applicantType: z.enum(["individual", "company", "trust"]),
+    dateOfBirth: z.string().trim().max(20).optional(),
+    nationality: z.string().trim().min(2).max(100),
+    occupation: z.string().trim().max(160).optional(),
+    employer: z.string().trim().max(200).optional(),
+    alternativePhone: z.string().trim().max(40).optional(),
+    postalAddress: z.string().trim().max(500).optional(),
+    taxNumber: z.string().trim().max(100).optional(),
+    taxResidenceCountry: z.string().trim().min(2).max(100),
+    tin: z.string().trim().max(100).optional(),
+    additionalTaxJurisdictions: z.string().trim().max(500).optional(),
+    entityRegistrationNumber: z.string().trim().max(100).optional(),
+    vatNumber: z.string().trim().max(100).optional(),
+    authorisedRepresentativeName: z.string().trim().max(200).optional(),
+    authorisedRepresentativePosition: z.string().trim().max(160).optional(),
+    beneficialOwnerName: z.string().trim().min(2).max(200),
+    beneficialOwnerRelationship: z.string().trim().max(160).optional(),
+    sourceOfFunds: z.enum(["salary", "business", "investment", "property_sale", "inheritance", "pension", "savings", "company", "trust", "other"]),
+    sourceOfFundsDetails: z.string().trim().min(2).max(1000),
+    fundsOwnership: z.enum(["own", "company", "trust", "other"]),
+    bankAccountHolder: z.string().trim().min(2).max(200),
+    bankName: z.string().trim().min(2).max(160),
+    bankBranch: z.string().trim().max(160).optional(),
+    bankAccountNumber: z.string().trim().min(4).max(100),
+    bankAccountType: z.string().trim().max(80).optional(),
+    bankSwift: z.string().trim().max(20).optional(),
+    amlDeclarationAccepted: z.literal(true),
+    suitabilityDeclarationAccepted: z.literal(true),
+    informationDeclarationAccepted: z.literal(true),
+  }).superRefine((application, ctx) => {
+    if (application.applicantType === "individual" && !application.dateOfBirth) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["dateOfBirth"], message: "Date of birth is required" });
+    }
+    if (application.applicantType !== "individual" && !application.entityRegistrationNumber) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["entityRegistrationNumber"], message: "Entity registration number is required" });
+    }
+  }),
 });
 
 const proofInput = z.object({
@@ -182,6 +231,37 @@ interface CreatePresaleOrderRequest {
   buyerPhone?: string;
   quantity: number;
   termsAccepted: boolean;
+  investorApplication: {
+    applicantType: "individual" | "company" | "trust";
+    dateOfBirth?: string;
+    nationality: string;
+    occupation?: string;
+    employer?: string;
+    alternativePhone?: string;
+    postalAddress?: string;
+    taxNumber?: string;
+    taxResidenceCountry: string;
+    tin?: string;
+    additionalTaxJurisdictions?: string;
+    entityRegistrationNumber?: string;
+    vatNumber?: string;
+    authorisedRepresentativeName?: string;
+    authorisedRepresentativePosition?: string;
+    beneficialOwnerName: string;
+    beneficialOwnerRelationship?: string;
+    sourceOfFunds: "salary" | "business" | "investment" | "property_sale" | "inheritance" | "pension" | "savings" | "company" | "trust" | "other";
+    sourceOfFundsDetails: string;
+    fundsOwnership: "own" | "company" | "trust" | "other";
+    bankAccountHolder: string;
+    bankName: string;
+    bankBranch?: string;
+    bankAccountNumber: string;
+    bankAccountType?: string;
+    bankSwift?: string;
+    amlDeclarationAccepted: boolean;
+    suitabilityDeclarationAccepted: boolean;
+    informationDeclarationAccepted: boolean;
+  };
 }
 
 interface PresalePaymentProofRequest {
@@ -465,6 +545,8 @@ export const createPresaleOrder = api<CreatePresaleOrderRequest, { order: Presal
       buyerPhone: payload.buyerPhone ?? "",
       quantity: payload.quantity,
       termsVersion: PRESALE_TERMS_VERSION,
+      investorApplicationVersion: INVESTOR_APPLICATION_VERSION,
+      investorApplication: payload.investorApplication,
     }));
     const accessToken = crypto.randomUUID() + crypto.randomUUID();
     const tx = await presaleDb.begin();
@@ -509,13 +591,20 @@ export const createPresaleOrder = api<CreatePresaleOrderRequest, { order: Presal
       const orderReference = `KSP-${crypto.randomUUID().slice(0, 8).toUpperCase()}-${Date.now().toString(36).toUpperCase()}`;
       const quote = quotedUsdtAmount(campaign.price_usd, campaign.usdt_per_usd, payload.quantity);
       const quoteReference = `campaign:${campaign.id}:rate:${campaign.usdt_per_usd}`;
+      const encryptedApplication = encryptInvestorApplication(payload.investorApplication);
+      const applicationSummary = {
+        applicantType: payload.investorApplication.applicantType,
+        sourceOfFunds: payload.investorApplication.sourceOfFunds,
+        declarationsAccepted: true,
+      };
       const order = await tx.rawQueryRow<OrderRow>(
         `INSERT INTO presale_orders
            (id, order_reference, campaign_id, invitation_id, buyer_name, buyer_email, buyer_phone, external_profile_id, quantity,
             unit_price_usdt, total_usdt, unit_price_usd, total_usd, usdt_per_usd, quote_reference, idempotency_key_hash, request_hash, access_token_hash, terms_version,
-            terms_accepted_at, payment_deadline)
+            terms_accepted_at, investor_application, investor_application_ciphertext, investor_application_nonce,
+            investor_application_auth_tag, investor_application_version, investor_application_accepted_at, payment_deadline)
           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::numeric,$11::numeric,$12::numeric,$13::numeric,$14::numeric,$15,$16,$17,$18,$19,now(),
-                  now() + ($20::int * interval '1 minute'))
+                  $20::jsonb,$21,$22,$23,$24,now(),now() + ($25::int * interval '1 minute'))
           RETURNING id, order_reference, campaign_id, buyer_name, buyer_email, external_profile_id, quantity,
                     unit_price_usdt::text AS unit_price_usdt, total_usdt::text AS total_usdt, unit_price_usd::text AS unit_price_usd,
                     total_usd::text AS total_usd, usdt_per_usd::text AS usdt_per_usd, quote_reference, status,
@@ -524,7 +613,9 @@ export const createPresaleOrder = api<CreatePresaleOrderRequest, { order: Presal
                     payment_min_confirmations,payment_settled_at,created_at`,
         orderId, orderReference, campaign.id, invitation.id, payload.buyerName.trim(), email, payload.buyerPhone?.trim() ?? null, session.profile.id,
         payload.quantity, quote.unitUsdt, quote.totalUsdt, campaign.price_usd, quote.totalUsd, campaign.usdt_per_usd, quoteReference,
-        idempotencyHash, requestHash, hashSecret(accessToken), PRESALE_TERMS_VERSION, campaign.payment_window_minutes);
+        idempotencyHash, requestHash, hashSecret(accessToken), PRESALE_TERMS_VERSION,
+        JSON.stringify(applicationSummary), encryptedApplication.ciphertext, encryptedApplication.nonce,
+        encryptedApplication.authTag, INVESTOR_APPLICATION_VERSION, campaign.payment_window_minutes);
       if (!order) throw new Error("presale_order_not_created");
       await tx.commit();
       const intent = await ensurePresalePaymentIntent(order, campaign);
