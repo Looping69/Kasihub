@@ -4,7 +4,6 @@ import { z } from "zod";
 import { identityDb, paymentsDb } from "../../resources";
 import { requireProfileAccess } from "../auth/access";
 import { requireInternationalKycVerified } from "../kyc/policy";
-import { resolveMemberRouting } from "../shared/member-routing";
 import { requireIdempotencyKey } from "../workflows/core";
 import { requestHash, sha256 } from "../workflows/contracts";
 
@@ -88,19 +87,13 @@ const INTENT_SELECT = `
     JOIN payment_wallets w ON w.id = i.wallet_id`;
 
 async function assertInternationalUsdtProfile(profileId: string): Promise<void> {
-  const profile = await identityDb.rawQueryRow<{ citizenship_type: string | null }>(
-    "SELECT citizenship_type FROM profiles WHERE id = $1",
+  const profile = await identityDb.rawQueryRow<{ onboarding_authority: string }>(
+    "SELECT onboarding_authority FROM profiles WHERE id = $1",
     profileId,
   );
   if (!profile) throw APIError.notFound("Profile not found");
-  let routing;
-  try {
-    routing = resolveMemberRouting(profile.citizenship_type);
-  } catch {
-    throw APIError.failedPrecondition("Profile does not have a supported payment routing classification");
-  }
-  if (!routing.isInternational || routing.paymentRail !== "usdt") {
-    throw APIError.failedPrecondition("USDT payment intents are only available to international profiles");
+  if (profile.onboarding_authority !== "kasihub") {
+    throw APIError.failedPrecondition("USDT payment intents require KaSiHub-owned onboarding");
   }
   await requireInternationalKycVerified(profileId);
 }

@@ -78,7 +78,7 @@ export function AppShell() {
   const activeNav = NAV.find((n) => n.key === activeView) || NAV[0];
 
   return (
-    <div className="kasi-app-shell min-h-screen flex">
+    <div className="kasi-app-shell dashboard-compact-buttons min-h-screen flex">
       {/* Desktop Sidebar */}
       {desktopDashboard && (
         <aside className="hidden lg:flex w-64 flex-col fixed inset-y-0 left-0 z-30 bg-sidebar text-sidebar-foreground">
@@ -88,7 +88,7 @@ export function AppShell() {
 
       {/* Mobile Sidebar (Sheet) */}
       <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
-        <SheetContent side="left" className="flex w-72 flex-col border-sidebar-border bg-sidebar p-0 text-sidebar-foreground">
+        <SheetContent side="left" className="dashboard-compact-buttons flex w-72 flex-col border-sidebar-border bg-sidebar p-0 text-sidebar-foreground">
           <SheetHeader className="p-4 border-b border-sidebar-border">
             <SheetTitle className="text-sidebar-foreground">KaSiHUB Menu</SheetTitle>
           </SheetHeader>

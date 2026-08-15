@@ -1,6 +1,6 @@
 // Author: Klaasvaakie ( |╲ )
 import { describe, expect, it } from "vitest";
-import { resolveMemberRouting, resolveRegistrationPolicy } from "./member-routing";
+import { resolveMemberRouting, resolveRegistrationPolicy, resolveRegistrationRouting } from "./member-routing";
 
 describe("resolveMemberRouting", () => {
   it.each([
@@ -54,6 +54,26 @@ describe("resolveRegistrationPolicy", () => {
       profileType: "company",
       membershipPlanCode: "COMPANY_INTERNATIONAL",
       kycRequired: true,
+    });
+  });
+
+  it("routes a local applicant who opts out of InstaPay through KaSiHub KYC and USDT", () => {
+    expect(resolveRegistrationRouting("SA_CITIZEN_SA", "kasihub")).toEqual({
+      isInternational: false,
+      kycRail: "kasihub_international",
+      paymentRail: "usdt",
+    });
+    expect(resolveRegistrationPolicy("SA_CITIZEN_SA", "INDIVIDUAL_ADULT", "kasihub")).toMatchObject({
+      kycRail: "kasihub_international",
+      paymentRail: "usdt",
+    });
+  });
+
+  it("never lets an international applicant select the InstaPay authority", () => {
+    expect(resolveRegistrationRouting("FOREIGN_CITIZEN_ABROAD", "instapay")).toMatchObject({
+      isInternational: true,
+      kycRail: "kasihub_international",
+      paymentRail: "usdt",
     });
   });
 

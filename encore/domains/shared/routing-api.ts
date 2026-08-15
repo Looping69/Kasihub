@@ -6,6 +6,7 @@ import { resolveRegistrationPolicy } from "./member-routing";
 const registrationPolicyRequest = z.object({
   citizenshipType: z.string().min(1).max(100),
   membershipType: z.string().min(1).max(100),
+  onboardingAuthority: z.enum(["provider", "kasihub"]).optional(),
 });
 
 export type RegistrationPolicyResponse = {
@@ -22,14 +23,15 @@ export type RegistrationPolicyResponse = {
  * policy derived from allowlisted values and never accepts or exposes secrets.
  */
 export const registrationPolicy = api<
-  { citizenshipType: string; membershipType: string },
+  { citizenshipType: string; membershipType: string; onboardingAuthority?: "provider" | "kasihub" },
   RegistrationPolicyResponse
 >(
   { method: "POST", path: "/routing/registration", expose: true },
   async (req) => {
     const payload = registrationPolicyRequest.parse(req);
     try {
-      const policy = resolveRegistrationPolicy(payload.citizenshipType, payload.membershipType);
+      const authority = payload.onboardingAuthority === "provider" ? "instapay" : payload.onboardingAuthority;
+      const policy = resolveRegistrationPolicy(payload.citizenshipType, payload.membershipType, authority);
       return {
         isInternational: policy.isInternational,
         kycRail: policy.kycRail,
