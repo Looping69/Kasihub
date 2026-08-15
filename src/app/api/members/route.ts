@@ -24,7 +24,7 @@ type ProfileResponse = { member: Member };
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    if (!body.email || !body.password || !body.membershipType || !body.citizenshipType) {
+    if (!body.email || !body.password || !body.membershipType || !body.citizenshipType || !body.onboardingAuthority) {
       return NextResponse.json(
         { error: "Email, password, membership type and citizenship type are required" },
         { status: 400 },
@@ -48,6 +48,7 @@ export async function POST(req: NextRequest) {
         country: body.country,
         membershipType: body.membershipType,
         citizenshipType: body.citizenshipType,
+        onboardingAuthority: body.onboardingAuthority,
         addressLine: body.addressLine,
         city: body.city,
         postalCode: body.postalCode,

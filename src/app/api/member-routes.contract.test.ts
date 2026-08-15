@@ -63,6 +63,7 @@ describe("registration and dashboard contracts", () => {
       password: "strong-password",
       membershipType: "INDIVIDUAL_ADULT",
       citizenshipType: "FOREIGN_CITIZEN_ABROAD",
+      onboardingAuthority: "kasihub",
       firstName: "Test",
       lastName: "Member",
       profileType: "company",
@@ -85,6 +86,7 @@ describe("registration and dashboard contracts", () => {
     expect(forwarded).toMatchObject({
       membershipType: "INDIVIDUAL_ADULT",
       citizenshipType: "FOREIGN_CITIZEN_ABROAD",
+      onboardingAuthority: "kasihub",
     });
     expect(forwarded).not.toHaveProperty("profileType");
     expect(forwarded).not.toHaveProperty("membershipPlanCode");
@@ -101,6 +103,7 @@ describe("registration and dashboard contracts", () => {
       password: "strong-password",
       membershipType: "COMPANY",
       citizenshipType: "INTL_COMPANY",
+      onboardingAuthority: "kasihub",
     }));
     expect(response.status).toBe(409);
     expect(await response.json()).toEqual({ error: "A member with these identity details already exists." });

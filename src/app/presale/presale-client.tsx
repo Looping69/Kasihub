@@ -117,6 +117,37 @@ export function PresaleClient({ inviteToken }: { inviteToken: string }) {
           buyerPhone: data.get("buyerPhone") || undefined,
           quantity,
           termsAccepted: data.get("termsAccepted") === "on",
+          investorApplication: {
+            applicantType: data.get("applicantType"),
+            dateOfBirth: data.get("dateOfBirth") || undefined,
+            nationality: data.get("nationality"),
+            occupation: data.get("occupation") || undefined,
+            employer: data.get("employer") || undefined,
+            alternativePhone: data.get("alternativePhone") || undefined,
+            postalAddress: data.get("postalAddress") || undefined,
+            taxNumber: data.get("taxNumber") || undefined,
+            taxResidenceCountry: data.get("taxResidenceCountry"),
+            tin: data.get("tin") || undefined,
+            additionalTaxJurisdictions: data.get("additionalTaxJurisdictions") || undefined,
+            entityRegistrationNumber: data.get("entityRegistrationNumber") || undefined,
+            vatNumber: data.get("vatNumber") || undefined,
+            authorisedRepresentativeName: data.get("authorisedRepresentativeName") || undefined,
+            authorisedRepresentativePosition: data.get("authorisedRepresentativePosition") || undefined,
+            beneficialOwnerName: data.get("beneficialOwnerName"),
+            beneficialOwnerRelationship: data.get("beneficialOwnerRelationship") || undefined,
+            sourceOfFunds: data.get("sourceOfFunds"),
+            sourceOfFundsDetails: data.get("sourceOfFundsDetails"),
+            fundsOwnership: data.get("fundsOwnership"),
+            bankAccountHolder: data.get("bankAccountHolder"),
+            bankName: data.get("bankName"),
+            bankBranch: data.get("bankBranch") || undefined,
+            bankAccountNumber: data.get("bankAccountNumber"),
+            bankAccountType: data.get("bankAccountType") || undefined,
+            bankSwift: data.get("bankSwift") || undefined,
+            amlDeclarationAccepted: data.get("amlDeclarationAccepted") === "on",
+            suitabilityDeclarationAccepted: data.get("suitabilityDeclarationAccepted") === "on",
+            informationDeclarationAccepted: data.get("informationDeclarationAccepted") === "on",
+          },
         }),
       });
       const payload = await response.json();
@@ -195,12 +226,57 @@ export function PresaleClient({ inviteToken }: { inviteToken: string }) {
         {!order ? (
           <Card className="border-white/10 bg-white/[.06] text-white shadow-2xl shadow-black/20">
             <CardHeader><h2 className="font-semibold leading-none">Reserve your allocation</h2><CardDescription className="text-slate-400">Your payment window starts after this reservation is created.</CardDescription></CardHeader>
-            <CardContent><form className="space-y-4" onSubmit={createOrder}>
+            <CardContent><form className="space-y-5" onSubmit={createOrder}>
+              <div className="rounded-xl border border-sky-400/20 bg-sky-400/10 p-4 text-xs leading-5 text-sky-100">
+                <strong className="block text-sm text-white">Identity and KYC source</strong>
+                KaSiPay members complete identity registration and KYC with that provider; KaSiHub receives the verified result through the provider API. International members and applicants who do not use KaSiPay complete KaSiHub-owned KYC. Every share buyer still completes this investor application.
+              </div>
               <Field label="Full legal name"><Input name="buyerName" required minLength={2} className="border-white/15 bg-black/20" /></Field>
               <Field label="Email address"><Input name="buyerEmail" type="email" required defaultValue={offer.invitationEmail} readOnly={Boolean(offer.invitationEmail)} className="border-white/15 bg-black/20" /></Field>
               <Field label="Phone number (optional)"><Input name="buyerPhone" className="border-white/15 bg-black/20" /></Field>
+              <SectionTitle>Investor identity</SectionTitle>
+              <Field label="Applicant type"><Select name="applicantType" required options={[["individual","Individual"],["company","Company"],["trust","Trust"]]} /></Field>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label="Date of birth (individual)"><Input name="dateOfBirth" type="date" className="border-white/15 bg-black/20" /></Field>
+                <Field label="Nationality"><Input name="nationality" required className="border-white/15 bg-black/20" /></Field>
+                <Field label="Occupation"><Input name="occupation" className="border-white/15 bg-black/20" /></Field>
+                <Field label="Employer"><Input name="employer" className="border-white/15 bg-black/20" /></Field>
+                <Field label="Alternative phone"><Input name="alternativePhone" className="border-white/15 bg-black/20" /></Field>
+                <Field label="Tax number"><Input name="taxNumber" className="border-white/15 bg-black/20" /></Field>
+              </div>
+              <Field label="Postal address"><textarea name="postalAddress" rows={2} className="w-full rounded-md border border-white/15 bg-black/20 px-3 py-2 text-sm" /></Field>
+              <SectionTitle>Tax and beneficial ownership</SectionTitle>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label="Country of tax residence"><Input name="taxResidenceCountry" required className="border-white/15 bg-black/20" /></Field>
+                <Field label="Tax identification number (TIN)"><Input name="tin" className="border-white/15 bg-black/20" /></Field>
+                <Field label="Entity/trust registration number"><Input name="entityRegistrationNumber" className="border-white/15 bg-black/20" /></Field>
+                <Field label="VAT number"><Input name="vatNumber" className="border-white/15 bg-black/20" /></Field>
+                <Field label="Authorised representative"><Input name="authorisedRepresentativeName" className="border-white/15 bg-black/20" /></Field>
+                <Field label="Representative position"><Input name="authorisedRepresentativePosition" className="border-white/15 bg-black/20" /></Field>
+                <Field label="Beneficial owner"><Input name="beneficialOwnerName" required className="border-white/15 bg-black/20" /></Field>
+                <Field label="Relationship to beneficial owner"><Input name="beneficialOwnerRelationship" className="border-white/15 bg-black/20" /></Field>
+              </div>
+              <Field label="Additional tax jurisdictions"><textarea name="additionalTaxJurisdictions" rows={2} className="w-full rounded-md border border-white/15 bg-black/20 px-3 py-2 text-sm" /></Field>
+              <SectionTitle>Source of funds</SectionTitle>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label="Primary source"><Select name="sourceOfFunds" required options={SOURCE_OF_FUNDS} /></Field>
+                <Field label="Whose funds?"><Select name="fundsOwnership" required options={[["own","Applicant's own"],["company","Company"],["trust","Trust"],["other","Other"]]} /></Field>
+              </div>
+              <Field label="Source-of-funds details"><textarea name="sourceOfFundsDetails" required rows={3} className="w-full rounded-md border border-white/15 bg-black/20 px-3 py-2 text-sm" /></Field>
+              <SectionTitle>Investor banking</SectionTitle>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label="Account holder"><Input name="bankAccountHolder" required className="border-white/15 bg-black/20" /></Field>
+                <Field label="Bank"><Input name="bankName" required className="border-white/15 bg-black/20" /></Field>
+                <Field label="Branch"><Input name="bankBranch" className="border-white/15 bg-black/20" /></Field>
+                <Field label="Account number"><Input name="bankAccountNumber" required className="border-white/15 bg-black/20" /></Field>
+                <Field label="Account type"><Input name="bankAccountType" className="border-white/15 bg-black/20" /></Field>
+                <Field label="SWIFT/BIC"><Input name="bankSwift" className="border-white/15 bg-black/20" /></Field>
+              </div>
               <Field label="Number of shares"><Input name="quantity" type="number" required min={1} max={Math.min(offer.invitationSharesRemaining, offer.sharesRemaining)} defaultValue={1} className="border-white/15 bg-black/20" /></Field>
               <p className="text-xs text-slate-400">At 1 share, the payment is {totalPreview.toFixed(6)} USDT. The final amount is locked when the reservation is created.</p>
+              <Declaration name="amlDeclarationAccepted">I confirm that the investment funds are not proceeds of crime, money laundering, or terrorist financing.</Declaration>
+              <Declaration name="suitabilityDeclarationAccepted">I understand that the investment is long-term, may be illiquid, returns are not guaranteed, and I may lose the invested capital.</Declaration>
+              <Declaration name="informationDeclarationAccepted">I confirm that the investor information supplied is complete and accurate and that I will provide supporting information when requested.</Declaration>
               <label className="flex items-start gap-3 text-xs leading-5 text-slate-300"><input name="termsAccepted" type="checkbox" required className="mt-1" />
                 <span>I accept the presale reservation acknowledgement (version {offer.termsVersion}) and understand that blockchain confirmation is payment evidence, not a Share Subscription Agreement or final share certificate.</span></label>
               {error && <p className="text-sm text-red-300">{error}</p>}
@@ -245,4 +321,22 @@ function Metric({ label, value }: { label: string; value: string }) {
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return <label className="block space-y-2 text-sm font-medium text-slate-200"><span>{label}</span>{children}</label>;
+}
+
+const SOURCE_OF_FUNDS: Array<[string, string]> = [
+  ["salary", "Salary"], ["business", "Business income"], ["investment", "Investment proceeds"],
+  ["property_sale", "Property sale"], ["inheritance", "Inheritance"], ["pension", "Pension"],
+  ["savings", "Savings"], ["company", "Company funds"], ["trust", "Trust funds"], ["other", "Other"],
+];
+
+function Select({ name, options, required }: { name: string; options: Array<[string, string]>; required?: boolean }) {
+  return <select name={name} required={required} defaultValue="" className="h-10 w-full rounded-md border border-white/15 bg-[#111a18] px-3 text-sm text-white"><option value="" disabled>Select…</option>{options.map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select>;
+}
+
+function SectionTitle({ children }: { children: React.ReactNode }) {
+  return <h3 className="border-t border-white/10 pt-5 text-sm font-bold uppercase tracking-wider text-amber-300">{children}</h3>;
+}
+
+function Declaration({ name, children }: { name: string; children: React.ReactNode }) {
+  return <label className="flex items-start gap-3 text-xs leading-5 text-slate-300"><input name={name} type="checkbox" required className="mt-1" /><span>{children}</span></label>;
 }
