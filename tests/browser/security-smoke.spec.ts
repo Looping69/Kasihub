@@ -4,7 +4,7 @@ import { expect, test } from "@playwright/test";
 test("landing page boots from server session truth", async ({ page }) => {
   await page.goto("/");
   await expect(page).toHaveTitle(/KaSiHUB/i);
-  await expect(page.getByRole("heading", { name: "The hybrid ecosystem for community wealth." })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Make your money go further." })).toBeVisible();
   const session = await page.request.get("/api/auth/session");
   await expect(session).toBeOK();
   expect(await session.json()).toMatchObject({ authenticated: false, member: null });
@@ -81,9 +81,9 @@ test("public KaSiHub assistant answers approved topics and protects private supp
   }));
 
   await page.goto("/");
-  await page.getByRole("button", { name: "Ask KaSiHub" }).click();
-  await expect(page.getByRole("heading", { name: "Ask KaSiHub" })).toBeVisible();
-  const conversation = page.getByRole("log", { name: "KaSiHub conversation" });
+  await page.getByRole("button", { name: "Open Max" }).click();
+  await expect(page.getByRole("heading", { name: "Max" })).toBeVisible();
+  const conversation = page.getByRole("log", { name: "Max conversation" });
   await page.getByRole("button", { name: "How do I get started?" }).click();
   await expect(conversation).toHaveAttribute("aria-busy", "true");
   await expect(page.getByText("Source: KaSiHub public website — How it works")).toHaveCount(0);
@@ -148,7 +148,7 @@ test("restores an authenticated member and logs out without a page refresh", asy
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Test Member" })).toBeVisible();
   await page.getByTitle("Sign out").first().click();
-  await expect(page.getByRole("heading", { name: "The hybrid ecosystem for community wealth." })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Make your money go further." })).toBeVisible();
 });
 
 test("restores administrator authority from the server, not browser storage", async ({ page }) => {
