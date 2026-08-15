@@ -31,6 +31,7 @@ import { AdminSettings } from "@/components/admin/admin-settings";
 // Author: Klaasvaakie ( |╲ )
 // import { AdminDesignSuite } from "@/components/admin/admin-design-suite";
 import { BrandLogo } from "@/components/brand-logo";
+import { BrandGradientIcon, brandIconTone } from "@/components/brand-gradient-icon";
 
 const NAV: { key: AdminViewKey; label: string; icon: typeof LayoutDashboard; desc: string }[] = [
   { key: "overview", label: "Overview", icon: LayoutDashboard, desc: "Platform analytics" },
@@ -172,7 +173,7 @@ function AdminSidebarContent({ mobile = false }: { mobile?: boolean }) {
       {/* Menu */}
       <nav className="flex-1 p-3 space-y-1 overflow-y-auto scrollbar-kasi">
         <p className="px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-sidebar-foreground/50">Management</p>
-        {NAV.map((item) => {
+        {NAV.map((item, index) => {
           const active = adminView === item.key;
           return (
             <button
@@ -184,9 +185,9 @@ function AdminSidebarContent({ mobile = false }: { mobile?: boolean }) {
                   : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground"
               }`}
             >
-              <item.icon className="h-4.5 w-4.5 flex-shrink-0" />
+              {active ? <item.icon className="h-4.5 w-4.5 flex-shrink-0" /> : <BrandGradientIcon icon={item.icon} tone={brandIconTone(index)} className="h-4.5 w-4.5 transition-transform group-hover:scale-110" />}
               <div className="flex-1 text-left min-w-0">
-                <p className="font-medium leading-none">{item.label}</p>
+                <p className="font-medium leading-none uppercase">{item.label}</p>
                 <p className={`text-[10px] mt-1 ${active ? "text-sidebar-primary-foreground/70" : "text-sidebar-foreground/50"}`}>{item.desc}</p>
               </div>
               {active && <ChevronRight className="h-4 w-4" />}

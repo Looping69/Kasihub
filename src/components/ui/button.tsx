@@ -22,10 +22,10 @@ const buttonVariants = cva(
         link: "text-primary underline-offset-4 hover:underline",
       },
       size: {
-        default: "h-9 px-4 py-2 has-[>svg]:px-3",
-        sm: "h-8 rounded-md gap-1.5 px-3 has-[>svg]:px-2.5",
-        lg: "h-10 rounded-md px-6 has-[>svg]:px-4",
-        icon: "size-9",
+        default: "h-12 px-4 py-2 has-[>svg]:px-3",
+        sm: "h-12 rounded-md gap-1.5 px-3 has-[>svg]:px-2.5",
+        lg: "h-12 rounded-md px-6 has-[>svg]:px-4",
+        icon: "size-12",
       },
     },
     defaultVariants: {
@@ -39,17 +39,23 @@ function Button({
   className,
   variant,
   size,
+  brandTone,
   asChild = false,
   ...props
 }: React.ComponentProps<"button"> &
   VariantProps<typeof buttonVariants> & {
     asChild?: boolean
+    brandTone?: "orange" | "green" | "blue"
   }) {
   const Comp = asChild ? Slot : "button"
+  const isAction = size !== "icon" && variant !== "ghost" && variant !== "link"
+  const resolvedTone = brandTone ?? (variant === "outline" ? "blue" : variant === "secondary" ? "green" : "orange")
 
   return (
     <Comp
       data-slot="button"
+      data-kasi-action={isAction ? "true" : undefined}
+      data-kasi-tone={isAction ? resolvedTone : undefined}
       className={cn(buttonVariants({ variant, size, className }))}
       {...props}
     />

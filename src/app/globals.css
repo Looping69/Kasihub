@@ -6,8 +6,27 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
+  --font-sans: var(--font-inter-sans);
   --font-mono: var(--font-geist-mono);
+  /* Accessibility-first type scale: 14px minimum, 16px supporting, 18px body. */
+  --text-xs: 0.875rem;
+  --text-xs--line-height: 1.25rem;
+  --text-sm: 1rem;
+  --text-sm--line-height: 1.5rem;
+  --text-base: 1.125rem;
+  --text-base--line-height: 1.75rem;
+  --text-lg: 1.25rem;
+  --text-lg--line-height: 1.875rem;
+  --text-xl: 1.5rem;
+  --text-xl--line-height: 2rem;
+  --text-2xl: 1.875rem;
+  --text-2xl--line-height: 2.25rem;
+  --text-3xl: 2.25rem;
+  --text-3xl--line-height: 2.625rem;
+  --text-4xl: 3rem;
+  --text-4xl--line-height: 3.25rem;
+  --text-5xl: 3.5rem;
+  --text-5xl--line-height: 3.75rem;
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -79,13 +98,13 @@
   --chart-5: oklch(0.7 0.12 95);
   /* Canonical logo shell palette: Hub blue, Kasi orange. Klaasvaakie ( |╲ ) */
   --role-page: #eef6fc;
-  --sidebar: #0569bd;
+  --sidebar: #0f172a;
   --sidebar-foreground: #ffffff;
   --sidebar-primary: #f58220;
   --sidebar-primary-foreground: #17233c;
-  --sidebar-accent: #075aa0;
+  --sidebar-accent: #172554;
   --sidebar-accent-foreground: #ffffff;
-  --sidebar-border: #2c7fc2;
+  --sidebar-border: #263470;
   --sidebar-ring: #f58220;
 }
 
@@ -117,13 +136,13 @@
   --chart-4: oklch(0.7 0.18 145);
   --chart-5: oklch(0.75 0.12 95);
   --role-page: #071a2f;
-  --sidebar: #034d8c;
+  --sidebar: #0f172a;
   --sidebar-foreground: #ffffff;
   --sidebar-primary: #f58220;
   --sidebar-primary-foreground: #17233c;
-  --sidebar-accent: #063d70;
+  --sidebar-accent: #172554;
   --sidebar-accent-foreground: #ffffff;
-  --sidebar-border: #1767a8;
+  --sidebar-border: #263470;
   --sidebar-ring: #f58220;
 }
 
@@ -133,11 +152,100 @@
   }
   body {
     @apply bg-background text-foreground;
-    font-size: calc(1rem * var(--font-scale, 1));
+    overflow-x: clip;
+    font-family: var(--font-inter-sans), Inter, Arial, sans-serif;
+    font-size: calc(1.125rem * var(--font-scale, 1));
+    line-height: 1.65;
     background-color: var(--role-page);
   }
   [data-page-background="grid"] body { background-image: linear-gradient(var(--border) 1px, transparent 1px), linear-gradient(90deg, var(--border) 1px, transparent 1px); background-size: 32px 32px; }
   [data-page-background="soft"] body { background-image: radial-gradient(circle at 80% 0%, color-mix(in srgb, var(--primary) 8%, transparent), transparent 36rem); }
+}
+
+/* Branded action button: angled colour face + white icon wing. */
+[data-kasi-action="true"] {
+  --kasi-action-start: #ff9d13;
+  --kasi-action-end: #ff5a00;
+  position: relative;
+  isolation: isolate;
+  height: 48px !important;
+  min-height: 48px;
+  overflow: hidden;
+  border: 0 !important;
+  border-radius: 6px !important;
+  background:
+    linear-gradient(#fff, #fff) 10px 50% / 2px calc(100% - 14px) no-repeat,
+    linear-gradient(110deg, var(--kasi-action-start), var(--kasi-action-end)) !important;
+  box-shadow: 3px 4px 0 rgba(38, 52, 112, 0.35) !important;
+  color: #000 !important;
+  font-family: var(--font-inter-sans), Inter, Arial, sans-serif !important;
+  font-size: 1rem;
+  font-weight: 600 !important;
+  letter-spacing: 0;
+  padding-left: 1.25rem !important;
+  padding-right: 4.35rem !important;
+  text-transform: uppercase;
+}
+
+[data-kasi-action="true"][data-kasi-tone="green"] {
+  --kasi-action-start: #85d608;
+  --kasi-action-end: #22a900;
+  color: #000 !important;
+}
+
+[data-kasi-action="true"][data-kasi-tone="blue"] {
+  --kasi-action-start: #29b6ff;
+  --kasi-action-end: #0798f2;
+}
+
+[data-kasi-action="true"]::before {
+  position: absolute;
+  inset: 0 0 0 auto;
+  z-index: 0;
+  width: 3.55rem;
+  background:
+    linear-gradient(var(--kasi-action-end), var(--kasi-action-end)) calc(100% - 10px) 50% / 2px calc(100% - 14px) no-repeat,
+    #fff;
+  clip-path: polygon(24% 0, 100% 0, 100% 100%, 24% 100%, 0 50%);
+  content: "";
+}
+
+[data-kasi-action="true"]::after {
+  position: absolute;
+  right: 1.15rem;
+  z-index: 1;
+  width: 0.9rem;
+  height: 0.9rem;
+  border-top: 2.5px solid #07152f;
+  border-right: 2.5px solid #07152f;
+  content: "";
+  transform: rotate(45deg);
+}
+
+[data-kasi-action="true"]:has(> svg)::after {
+  display: none;
+}
+
+[data-kasi-action="true"] > svg {
+  position: absolute;
+  right: 0.9rem;
+  z-index: 1;
+  width: 1.65rem !important;
+  height: 1.65rem !important;
+  margin: 0 !important;
+  color: #07152f !important;
+  stroke: currentColor;
+  stroke-width: 2.25;
+}
+
+[data-kasi-action="true"]:hover {
+  filter: saturate(1.12) brightness(1.04);
+  transform: translateY(-1px);
+}
+
+[data-kasi-action="true"]:active {
+  box-shadow: 1px 2px 0 rgba(38, 52, 112, 0.35) !important;
+  transform: translate(2px, 2px);
 }
 
 .theme-elevation { box-shadow: var(--theme-shadow, 0 8px 24px rgb(15 23 42 / .06)); }
@@ -146,6 +254,7 @@
 .kasi-app-shell {
   position: relative;
   isolation: isolate;
+  font-family: var(--font-inter-sans), Inter, Arial, sans-serif;
   background-color: #0657d9;
   background-image: linear-gradient(rgb(0 72 210 / 18%), rgb(0 72 210 / 58%)), url("/kasi-township-bg.png");
   background-attachment: fixed;
@@ -202,6 +311,48 @@
     linear-gradient(oklch(0.52 0.13 158 / 0.04) 1px, transparent 1px),
     linear-gradient(90deg, oklch(0.52 0.13 158 / 0.04) 1px, transparent 1px);
   background-size: 32px 32px;
+}
+
+.kasi-app-shell :where(button, input, textarea, select) {
+  font: inherit;
+}
+
+/* Shared public-facing eyebrow typography across KaSiHub and KaSiPay. */
+.kasi-eyebrow,
+.kp-site .kp-eyebrow {
+  font-size: 1rem !important;
+  line-height: 1.5rem;
+}
+
+/* Mobile-first reading scale and consistent phone gutters. Desktop keeps the
+   accessibility scale above; compact screens need less visual density. */
+@media (max-width: 639px) {
+  body {
+    font-size: calc(1rem * var(--font-scale, 1));
+    line-height: 1.6;
+  }
+
+  .kasi-app-shell .container {
+    width: 100%;
+    margin-inline: auto;
+    padding-inline: 1rem;
+  }
+
+  .kasi-app-shell .text-xs { font-size: 0.75rem !important; line-height: 1.125rem !important; }
+  .kasi-app-shell .text-sm { font-size: 0.875rem !important; line-height: 1.375rem !important; }
+  .kasi-app-shell .text-base { font-size: 1rem !important; line-height: 1.6rem !important; }
+  .kasi-app-shell .text-lg { font-size: 1.125rem !important; line-height: 1.7rem !important; }
+  .kasi-app-shell .text-xl { font-size: 1.25rem !important; line-height: 1.75rem !important; }
+  .kasi-app-shell .text-2xl { font-size: 1.5rem !important; line-height: 2rem !important; }
+  .kasi-app-shell .text-3xl { font-size: 1.875rem !important; line-height: 2.25rem !important; }
+  .kasi-app-shell .text-4xl { font-size: 2.25rem !important; line-height: 2.5rem !important; }
+  .kasi-app-shell .text-5xl { font-size: 2.75rem !important; line-height: 3rem !important; }
+
+  .kasi-eyebrow,
+  .kp-site .kp-eyebrow {
+    font-size: 0.8125rem !important;
+    line-height: 1.2rem;
+  }
 }
 
 @keyframes pulse-gold {

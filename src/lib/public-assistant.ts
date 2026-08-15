@@ -65,7 +65,7 @@ const ANSWERS: Record<
     topic: "whatsapp",
     message:
       "This release is website-only. KaSiHub has deliberately not connected this assistant to WhatsApp; WhatsApp support remains with the owner’s existing third-party provider.",
-    source: "KaSiHub assistant release scope",
+    source: "Max release scope",
   },
   support: {
     topic: "support",

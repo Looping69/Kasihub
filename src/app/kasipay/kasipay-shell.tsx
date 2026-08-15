@@ -8,7 +8,7 @@ import { useState, type ReactNode } from "react";
 const nav = [
   ["/", "KaSiHub"],
   ["/kasipay", "Home"],
-  ["/kasipay", "KaSiPayOne"],
+  ["/kasipay", "KaSiPaY-OnE"],
   ["/kasipay/merchant", "KaSiPayBiz"],
   ["/kasipay/pricing", "Pricing"],
   ["/kasipay/faq", "FAQ"],
@@ -64,6 +64,14 @@ export function KasiPayShell({ children }: { children: ReactNode }) {
           font-size: 50px !important;
           line-height: 1.5 !important;
         }
+        .kp-page-hero-logo {
+          display: block;
+          width: auto;
+          height: 65px;
+          margin: -6px auto 18px;
+          object-fit: contain;
+          object-position: left center;
+        }
         .kp-page-hero-image.kp-page-hero-image-unframed {
           width: 650px;
           max-width: 100%;
@@ -91,7 +99,7 @@ export function KasiPayShell({ children }: { children: ReactNode }) {
           display: block;
         }
         .kp-footer {
-          background: #263470 !important;
+          background: linear-gradient(to right, #0f172a, #172554, #263470) !important;
         }
         .kp-feature-showcase .kp-feature-grid {
           grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -153,6 +161,29 @@ export function KasiPayShell({ children }: { children: ReactNode }) {
           outline: 3px solid rgba(242, 139, 53, 0.35);
           outline-offset: 2px;
         }
+        .kp-maps-tip {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 10px;
+          width: fit-content;
+          max-width: 1120px;
+          margin: -6px auto 18px;
+          padding: 10px 16px;
+          border: 1px solid #d7dff4;
+          border-radius: 5px;
+          background: #f7f9ff;
+          color: #35405f;
+          font-size: 0.9rem;
+          font-weight: 600;
+          line-height: 1.4;
+          text-align: center;
+        }
+        .kp-maps-tip-icon {
+          width: 22px;
+          height: 22px;
+          flex: 0 0 auto;
+        }
         .kp-tab-panel {
           min-height: 180px;
           max-width: 1120px;
@@ -183,6 +214,16 @@ export function KasiPayShell({ children }: { children: ReactNode }) {
           place-items: center;
           min-width: 0;
           padding: 10px;
+        }
+        .kp-retailer-map-link {
+          display: grid;
+          width: 100%;
+          place-items: center;
+          border-radius: 50%;
+        }
+        .kp-retailer-map-link:focus-visible {
+          outline: 3px solid #ff5a00;
+          outline-offset: 4px;
         }
         .kp-retailer-logo img {
           width: 100%;
@@ -232,12 +273,165 @@ export function KasiPayShell({ children }: { children: ReactNode }) {
         .kp-cashback-badge strong {
           font-size: 11px;
         }
+        .kp-savings-calculator {
+          display: grid;
+          grid-template-columns: minmax(0, 0.8fr) minmax(560px, 1.2fr);
+          gap: 56px;
+          max-width: 1120px;
+          margin: 72px auto 0;
+          padding: 48px;
+          border-radius: 5px;
+          background: #263470;
+          color: #ffffff;
+          box-shadow: 0 24px 60px rgba(25, 37, 89, 0.18);
+        }
+        .kp-calculator-kicker {
+          display: block;
+          margin-bottom: 14px;
+          color: #85d608;
+          font-size: 13px;
+          font-weight: 900;
+          letter-spacing: 1.4px;
+          text-transform: uppercase;
+        }
+        .kp-savings-calculator h2 {
+          margin: 0 0 18px;
+          color: #ff6202 !important;
+          font-size: clamp(30px, 3vw, 42px) !important;
+          line-height: 1.08;
+        }
+        .kp-savings-calculator-copy p {
+          margin: 0;
+          color: #dfe4f7;
+          font-size: 16px !important;
+          line-height: 1.7;
+        }
+        .kp-calculator-card {
+          padding: 28px;
+          border-radius: 5px;
+          background: #ffffff;
+          color: #263470;
+        }
+        .kp-calculator-fields {
+          display: grid;
+          grid-template-columns: 1.25fr 0.75fr;
+          gap: 16px;
+        }
+        .kp-calculator-fields label > span {
+          display: block;
+          margin-bottom: 8px;
+          font-size: 13px;
+          font-weight: 800;
+        }
+        .kp-calculator-fields select,
+        .kp-currency-input {
+          width: 100%;
+          min-height: 54px;
+          border: 1px solid #cdd3e5;
+          border-radius: 5px;
+          background: #f7f8fc;
+          color: #263470;
+          font: inherit;
+        }
+        .kp-calculator-fields select {
+          padding: 0 42px 0 14px;
+          cursor: pointer;
+        }
+        .kp-currency-input {
+          display: flex;
+          align-items: center;
+          padding-left: 15px;
+          font-weight: 900;
+        }
+        .kp-currency-input input {
+          width: 100%;
+          min-width: 0;
+          height: 52px;
+          border: 0;
+          outline: 0;
+          background: transparent;
+          color: #263470;
+          font: inherit;
+          padding: 0 14px 0 7px;
+        }
+        .kp-calculator-fields select:focus-visible,
+        .kp-currency-input:focus-within {
+          border-color: #ff6202;
+          outline: 3px solid rgba(255, 98, 2, 0.18);
+          outline-offset: 2px;
+        }
+        .kp-calculator-result {
+          margin-top: 24px;
+          padding-top: 24px;
+          border-top: 1px solid #e2e5ef;
+        }
+        .kp-calculator-retailer {
+          display: flex;
+          align-items: center;
+          gap: 16px;
+        }
+        .kp-calculator-retailer img {
+          width: 76px;
+          height: 76px;
+          padding: 4px;
+          border-radius: 50%;
+          object-fit: contain;
+          box-shadow: inset 0 2px 7px rgba(38, 52, 112, 0.16), 0 8px 18px rgba(38, 52, 112, 0.12);
+        }
+        .kp-calculator-retailer span,
+        .kp-calculator-retailer small {
+          display: block;
+          color: #66708f;
+          font-size: 12px;
+        }
+        .kp-calculator-retailer strong {
+          display: block;
+          margin: 2px 0;
+          font-size: 20px;
+        }
+        .kp-calculator-retailer small {
+          color: #4f8200;
+          font-weight: 900;
+        }
+        .kp-saving-figures {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 14px;
+          margin-top: 22px;
+        }
+        .kp-saving-figures div {
+          padding: 18px;
+          border-radius: 5px;
+          background: #f1f5e9;
+        }
+        .kp-saving-figures span {
+          display: block;
+          color: #59627f;
+          font-size: 12px;
+          font-weight: 700;
+        }
+        .kp-saving-figures strong {
+          display: block;
+          margin-top: 7px;
+          color: #263470;
+          font-size: 26px;
+          line-height: 1;
+        }
+        .kp-calculator-note {
+          margin: 18px 0 0;
+          color: #707894 !important;
+          font-size: 11px !important;
+          line-height: 1.5;
+        }
         @media (max-width: 900px) {
           .kp-feature-showcase .kp-feature-grid {
             grid-template-columns: repeat(2, minmax(0, 1fr));
           }
           .kp-retailer-logo-grid {
             grid-template-columns: repeat(4, minmax(0, 1fr));
+          }
+          .kp-savings-calculator {
+            grid-template-columns: 1fr;
           }
         }
         @media (max-width: 620px) {
@@ -250,11 +444,23 @@ export function KasiPayShell({ children }: { children: ReactNode }) {
           .kp-retailer-logo-grid {
             grid-template-columns: repeat(2, minmax(0, 1fr));
           }
+          .kp-savings-calculator {
+            gap: 28px;
+            margin-top: 52px;
+            padding: 28px 20px;
+          }
+          .kp-calculator-card {
+            padding: 20px;
+          }
+          .kp-calculator-fields,
+          .kp-saving-figures {
+            grid-template-columns: 1fr;
+          }
         }
       `}</style>
       <header className="kp-header">
         <Link className="kp-brand" href="/kasipay" aria-label="KaSiPay home">
-          <Image src="/kasipay-logo.png" alt="KaSiPay" width={160} height={68} priority />
+          <Image src="/kasipay-logo-20260808.png" alt="KaSiPay" width={463} height={150} priority />
         </Link>
         <button className="kp-menu" type="button" aria-expanded={open} aria-controls="kp-nav" onClick={() => setOpen((value) => !value)}>
           <span />
@@ -263,7 +469,7 @@ export function KasiPayShell({ children }: { children: ReactNode }) {
           <span className="sr-only">Menu</span>
         </button>
         <nav id="kp-nav" className={open ? "kp-nav is-open" : "kp-nav"} aria-label="Primary navigation">
-          {nav.map(([href, label]) => <Link key={href} href={href} onClick={() => setOpen(false)}>{label}</Link>)}
+          {nav.map(([href, label]) => <Link key={label} href={href} onClick={() => setOpen(false)}>{label}</Link>)}
           <Link className="kp-nav-cta" href="/kasipay/contact" onClick={() => setOpen(false)}>Get started</Link>
         </nav>
       </header>
@@ -272,14 +478,14 @@ export function KasiPayShell({ children }: { children: ReactNode }) {
         <div className="kp-footer-grid">
           <div>
             <Link className="kp-brand kp-brand-light" href="/kasipay">
-              <Image src="/kasipay-logo.png" alt="KaSiPay" width={160} height={68} />
+              <Image src="/kasipay-logo-20260808.png" alt="KaSiPay" width={463} height={150} />
             </Link>
             <p>Accessible payment and savings administration through the authorised KaSiPay platform.</p>
             <p className="kp-disclosure">KaSiPay provides the interface. Customer funds are held by licensed custodians or nominee institutions.</p>
           </div>
           <div>
             <h3>Explore</h3>
-            <Link href="/kasipay">KaSiPayOne</Link>
+            <Link href="/kasipay">KaSiPaY-OnE</Link>
             <Link href="/kasipay/merchant">Merchant services</Link>
             <Link href="/kasipay/pricing">Pricing</Link>
             <Link href="/kasipay/developer">Developer guide</Link>

@@ -63,7 +63,7 @@ export function MobileDashboardView() {
         <button aria-label="Open menu" onClick={() => setSidebarOpen(true)} className="absolute left-4 top-4 z-20 grid h-9 w-9 place-items-center rounded-full bg-black/35 text-white backdrop-blur-sm"><Menu className="h-6 w-6" /></button>
         <button aria-label="Notifications" onClick={() => setView("vouchers")} className="absolute right-4 top-4 z-20 grid h-9 w-9 place-items-center rounded-full bg-black/35 text-white backdrop-blur-sm"><Bell className="h-5 w-5" /></button>
         <div className="relative flex justify-center py-1">
-          <Image src="/kasihub-logo.webp" alt="KaSiHUB" width={285} height={160} priority style={{ width: "72%", height: "auto" }} className="max-w-[300px] object-contain drop-shadow-[0_8px_16px_rgba(0,0,0,.7)]" />
+          <Image src="/kasihub-logo-20260812-v2.png" alt="KaSiHUB" width={265} height={150} priority style={{ width: "72%", height: "auto" }} className="max-w-[300px] object-contain drop-shadow-[0_8px_16px_rgba(0,0,0,.7)]" />
         </div>
         <div className="relative mt-1 flex items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-3">
