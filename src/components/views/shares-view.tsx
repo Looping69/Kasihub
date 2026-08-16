@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import {
   Coins, TrendingUp, Award, FileText, Loader2, Sparkles, DollarSign,
   Check, Lock, Calendar, Printer, Gem,
+  ArrowRight, ShieldCheck,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -324,25 +325,46 @@ export function SharesView() {
   return (
     <div className="space-y-6 max-w-6xl mx-auto">
       <ActivePresaleCampaigns />
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <Coins className="h-5 w-5 text-amber-600" />
-            <h2 className="text-2xl font-black tracking-tight">KasiShares</h2>
+      {/* KaSiShares campaign-inspired presentation only. Author: Klaasvaakie ( |╲ ) */}
+      <section className="relative overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 px-5 py-6 text-slate-50 shadow-xl sm:px-7 sm:py-8">
+        <div className="pointer-events-none absolute -right-16 -top-20 h-64 w-64 rounded-full bg-amber-400/15 blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-24 left-1/3 h-56 w-56 rounded-full bg-cyan-400/10 blur-3xl" />
+        <div className="relative flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+          <div className="max-w-2xl">
+            <div className="mb-3 flex flex-wrap items-center gap-2 text-[11px] font-bold uppercase tracking-[0.18em] text-amber-300">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-300/30 bg-amber-300/10 px-2.5 py-1"><ShieldCheck className="h-3.5 w-3.5" /> Private shareholding</span>
+              <span className="text-slate-400">Own · Grow · Prosper · Together</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-amber-300 to-amber-500 text-slate-950 shadow-lg shadow-amber-500/20"><Coins className="h-5 w-5" /></div>
+              <div>
+                <h2 className="text-3xl font-black tracking-tight sm:text-4xl">KasiShares</h2>
+                <p className="mt-1 text-sm leading-6 text-slate-300">Your private-share portfolio, certificates and current phase information in one place.</p>
+              </div>
+            </div>
+            <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {[
+                ["Your holding", `${data.totalShares.toLocaleString()} shares`],
+                ["Current value", fmtUSD(data.totalValue)],
+                ["Open phase", activePhase ? `Phase ${activePhase.phase}` : "Not open"],
+                ["Certificates", `${kasiActiveCount} active`],
+              ].map(([label, value]) => (
+                <div key={label} className="rounded-xl border border-white/10 bg-white/[0.06] px-3 py-2.5 backdrop-blur-sm">
+                  <p className="text-[10px] font-medium uppercase tracking-wide text-slate-400">{label}</p>
+                  <p className="mt-1 text-sm font-bold text-white">{value}</p>
+                </div>
+              ))}
+            </div>
           </div>
-          <p className="text-sm text-muted-foreground">
-            Class B private shares sold by Solidus Holdings (Pty) Ltd. Daily profit share from KasiMall &amp; KasiMarketplace profits.
-          </p>
+          <Button
+            onClick={() => setBuyOpen(true)}
+            disabled={!activePhase}
+            className="shrink-0 bg-amber-400 text-slate-950 hover:bg-amber-300"
+          >
+            <Coins className="mr-1.5 h-4 w-4" /> Buy shares <ArrowRight className="ml-1.5 h-4 w-4" />
+          </Button>
         </div>
-        <Button
-          onClick={() => setBuyOpen(true)}
-          disabled={!activePhase}
-          className="bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700"
-        >
-          <Coins className="h-4 w-4 mr-1.5" /> Buy shares
-        </Button>
-      </div>
+      </section>
 
       {/* KasiShares stats — value × shares = total (visual equation) */}
       <Card className="p-5 border-2 border-amber-200 dark:border-amber-900 bg-gradient-to-br from-amber-50/60 via-emerald-50/30 to-amber-50/60 dark:from-amber-950/20 dark:via-emerald-950/10 dark:to-amber-950/20">
