@@ -289,6 +289,50 @@
 
 .theme-elevation { box-shadow: var(--theme-shadow, 0 8px 24px rgb(15 23 42 / .06)); }
 
+/* KaSiShares presale art direction. Author: Klaasvaakie ( |╲ ) */
+.presale-shell {
+  --presale-ink: #10183e;
+  --presale-panel: rgb(35 47 105 / 82%);
+  --presale-line: rgb(208 174 86 / 26%);
+  --presale-gold: #f2ca62;
+  --presale-gold-deep: #b98324;
+  --presale-copy: #d4d9ec;
+  background:
+    radial-gradient(circle at 9% 20%, rgb(76 91 178 / 26%), transparent 29rem),
+    radial-gradient(circle at 76% 100%, rgb(190 136 36 / 14%), transparent 33rem),
+    linear-gradient(120deg, #111940 0%, #11193f 52%, #0b1231 100%);
+  color: #fff;
+  font-family: var(--font-inter-sans), Inter, Arial, sans-serif;
+}
+
+.presale-header { border-bottom: 1px solid rgb(255 255 255 / 12%); }
+.presale-badge { border: 1px solid rgb(222 173 62 / 52%); background: rgb(220 167 59 / 9%); color: var(--presale-gold); }
+.presale-eyebrow { color: #98a8e0; font-size: .75rem; font-weight: 800; letter-spacing: .2em; text-transform: uppercase; }
+.presale-display { color: var(--presale-gold); letter-spacing: -.055em; text-wrap: balance; }
+.presale-lede { color: var(--presale-copy); }
+.presale-motifs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .75rem; border-block: 1px solid var(--presale-line); padding-block: 1.25rem; }
+.presale-motif { min-width: 0; text-align: center; color: var(--presale-gold); font-weight: 900; text-transform: uppercase; }
+.presale-motif-icon { display: grid; width: 3.4rem; height: 3.4rem; margin: 0 auto .45rem; place-items: center; border: 2px solid #d6a840; border-radius: 999px; background: linear-gradient(145deg, rgb(42 52 114 / 70%), rgb(19 25 63 / 72%)); box-shadow: inset 0 0 18px rgb(239 190 76 / 18%), 0 0 18px rgb(234 177 51 / 14%); }
+.presale-motif p { font-size: .78rem; letter-spacing: .06em; }
+.presale-motif span { display: block; margin-top: .1rem; color: #d4d9ec; font-size: .65rem; font-weight: 600; letter-spacing: 0; text-transform: none; }
+.presale-metric { border: 1px solid rgb(173 182 229 / 19%); background: linear-gradient(135deg, rgb(71 82 153 / 34%), rgb(24 30 73 / 46%)); box-shadow: inset 0 1px rgb(255 255 255 / 5%); }
+.presale-metric p:first-child { color: #99a7d8; }
+.presale-assurance { border: 1px solid rgb(173 182 229 / 20%); background: rgb(65 76 139 / 26%); color: var(--presale-copy); }
+.presale-assurance svg { color: var(--presale-gold); }
+.presale-form-card { border: 1px solid rgb(193 202 247 / 24%) !important; border-radius: 1.7rem !important; background: linear-gradient(145deg, rgb(45 58 126 / 91%), rgb(21 29 72 / 93%)) !important; box-shadow: 0 2rem 5rem rgb(0 0 0 / 27%), inset 0 1px rgb(255 255 255 / 8%); }
+.presale-shell [data-kasi-action="true"] { --kasi-action-start: #ffe17d; --kasi-action-end: #bc8121; color: #131329 !important; box-shadow: 3px 4px 0 rgb(0 0 0 / 22%) !important; }
+.presale-shell [data-kasi-action="true"]::before { background-color: #fffdf7; }
+.presale-shell [data-kasi-action="true"]::after, .presale-shell [data-kasi-action="true"] > svg { color: #131329 !important; }
+.presale-shell input, .presale-shell textarea, .presale-shell select { background-color: rgb(10 16 46 / 68%) !important; border-color: rgb(181 192 238 / 20%) !important; }
+
+@media (max-width: 639px) {
+  .presale-motifs { gap: .35rem; }
+  .presale-motif-icon { width: 2.6rem; height: 2.6rem; }
+  .presale-motif-icon svg { width: 1.3rem; height: 1.3rem; }
+  .presale-motif p { font-size: .63rem; }
+  .presale-motif span { font-size: .56rem; }
+}
+
 /* Author: Klaasvaakie ( |╲ ) — supplied mode-specific KaSiHUB artwork. */
 .kasi-app-shell {
   position: relative;

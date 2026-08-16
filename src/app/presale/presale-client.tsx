@@ -3,7 +3,8 @@
 // Author: Klaasvaakie ( |╲ )
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { CheckCircle2, ChevronLeft, ChevronRight, ClipboardCheck, Clock3, Copy, FileCheck2, Landmark, LockKeyhole, ShieldCheck, UserRound, WalletCards } from "lucide-react";
+import Image from "next/image";
+import { CheckCircle2, ChevronLeft, ChevronRight, ClipboardCheck, Clock3, Copy, FileCheck2, Handshake, Landmark, LockKeyhole, ShieldCheck, Sprout, TrendingUp, UserRound, UsersRound, WalletCards } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -231,12 +232,19 @@ export function PresaleClient({ inviteToken }: { inviteToken: string }) {
     <Shell>
       <div className="grid w-full max-w-6xl gap-8 lg:grid-cols-[1.05fr_.95fr]">
         <section className="space-y-6">
-          <div className="inline-flex items-center gap-2 rounded-full border border-amber-400/30 bg-amber-400/10 px-3 py-1 text-xs font-semibold uppercase tracking-[.18em] text-amber-300">
+          <div className="presale-badge inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[.18em]">
             <LockKeyhole className="h-3.5 w-3.5" /> Private presale
           </div>
           <div>
-            <h1 className="text-4xl font-black tracking-tight text-white sm:text-6xl">{offer.name}</h1>
-            <p className="mt-4 max-w-2xl text-lg leading-8 text-slate-300">Reserve {offer.shareClass} shares issued by {offer.issuerName} and settle the reservation in USDT.</p>
+            <p className="presale-eyebrow">KaSiShares founding allocation</p>
+            <h1 className="presale-display mt-3 text-4xl font-black tracking-tight text-white sm:text-6xl">{offer.name}</h1>
+            <p className="presale-lede mt-4 max-w-2xl text-lg leading-8">Reserve {offer.shareClass} shares issued by {offer.issuerName} and settle the reservation in USDT.</p>
+          </div>
+          <div className="presale-motifs" aria-label="Own, grow, prosper, better together">
+            <PresaleMotif icon={TrendingUp} title="Own" caption="Your future." />
+            <PresaleMotif icon={Sprout} title="Grow" caption="Your wealth." />
+            <PresaleMotif icon={UsersRound} title="Prosper" caption="Together." />
+            <PresaleMotif icon={Handshake} title="Better" caption="Stronger." />
           </div>
           <div className="grid gap-3 sm:grid-cols-3">
             <Metric label="Price per paid share" value={`$${Number(offer.priceUsd).toLocaleString(undefined, { maximumFractionDigits: 2 })}`} />
@@ -244,14 +252,14 @@ export function PresaleClient({ inviteToken }: { inviteToken: string }) {
             <Metric label="Your allocation" value={`${offer.invitationSharesRemaining.toLocaleString()} shares`} />
             <Metric label="Network" value={offer.network} />
           </div>
-          <div className="rounded-2xl border border-white/10 bg-white/[.04] p-5 text-sm leading-6 text-slate-300">
-            <div className="mb-2 flex items-center gap-2 font-semibold text-white"><ShieldCheck className="h-4 w-4 text-emerald-400" /> Clean separation by design</div>
+          <div className="presale-assurance rounded-2xl p-5 text-sm leading-6">
+            <div className="mb-2 flex items-center gap-2 font-semibold text-white"><ShieldCheck className="h-4 w-4" /> Clean separation by design</div>
             Campaign reservations remain isolated from the live share ledger. Payment evidence is verified by the central payment engine, and only settled orders may enter controlled share incorporation; this page does not issue a final share certificate.
           </div>
         </section>
 
         {!order ? (
-          <Card className="border-white/10 bg-white/[.06] text-white shadow-2xl shadow-black/20">
+          <Card className="presale-form-card text-white shadow-2xl shadow-black/20">
             <CardHeader><p className="text-xs font-bold uppercase tracking-[.18em] text-amber-300">Investor application</p><h2 className="mt-2 font-semibold leading-none">{APPLICATION_PHASES[applicationPhase - 1].title}</h2><CardDescription className="text-slate-400">Step {applicationPhase} of 6 · {APPLICATION_PHASES[applicationPhase - 1].description}</CardDescription></CardHeader>
             <CardContent><form className="space-y-5" noValidate onSubmit={createOrder}>
               <ApplicationProgress phase={applicationPhase} />
@@ -328,7 +336,7 @@ export function PresaleClient({ inviteToken }: { inviteToken: string }) {
             </form></CardContent>
           </Card>
         ) : (
-          <Card className="border-white/10 bg-white/[.06] text-white shadow-2xl shadow-black/20">
+          <Card className="presale-form-card text-white shadow-2xl shadow-black/20">
             <CardHeader><div className="flex items-start justify-between gap-4"><div><h2 className="font-semibold leading-none">{statusLabel(order.status)}</h2><CardDescription className="mt-2 font-mono text-slate-400">{order.orderReference}</CardDescription></div>
               {order.status === "confirmed" ? <CheckCircle2 className="h-8 w-8 text-emerald-400" /> : <Clock3 className="h-8 w-8 text-amber-400" />}</div></CardHeader>
             <CardContent className="space-y-5">
@@ -356,11 +364,15 @@ export function PresaleClient({ inviteToken }: { inviteToken: string }) {
 }
 
 function Shell({ children }: { children: React.ReactNode }) {
-  return <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,#173d35_0%,#08110f_42%,#050706_100%)] px-5 py-8"><div className="mx-auto mb-12 flex max-w-6xl items-center justify-between"><Link href="/" className="text-xl font-black text-white">KaSi<span className="text-amber-400">HUB</span></Link><div className="flex items-center gap-2 text-xs text-slate-400"><WalletCards className="h-4 w-4" /> USDT settlement</div></div><div className="flex justify-center">{children}</div></main>;
+  return <main className="presale-shell min-h-screen px-5 py-8"><div className="presale-header mx-auto mb-12 flex max-w-6xl items-center justify-between"><Link href="/" className="relative block h-[76px] w-[134px] sm:h-[92px] sm:w-[162px]" aria-label="KaSiHUB home"><Image src="/kasihub-logo-20260812-v2.png" alt="KaSiHUB" fill sizes="(max-width: 640px) 134px, 162px" className="object-contain object-left" priority /></Link><div className="flex items-center gap-2 text-xs text-slate-300"><WalletCards className="h-4 w-4" /> USDT settlement</div></div><div className="flex justify-center">{children}</div></main>;
 }
 
 function Metric({ label, value }: { label: string; value: string }) {
-  return <div className="rounded-xl border border-white/10 bg-black/20 p-4"><p className="text-xs uppercase tracking-wider text-slate-500">{label}</p><p className="mt-2 font-bold text-white">{value}</p></div>;
+  return <div className="presale-metric rounded-xl p-4"><p className="text-xs uppercase tracking-wider">{label}</p><p className="mt-2 font-bold text-white">{value}</p></div>;
+}
+
+function PresaleMotif({ icon: Icon, title, caption }: { icon: typeof TrendingUp; title: string; caption: string }) {
+  return <div className="presale-motif"><div className="presale-motif-icon"><Icon aria-hidden className="h-7 w-7" /></div><p>{title}</p><span>{caption}</span></div>;
 }
 
 function ApplicationProgress({ phase }: { phase: number }) {
