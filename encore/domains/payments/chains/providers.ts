@@ -6,6 +6,7 @@ import type { ChainTransactionEvidence } from "./types";
 
 const bscRpcUrl = secret("BscRpcUrl");
 const tronRpcBaseUrl = secret("TronRpcBaseUrl");
+const tronRpcApiKey = secret("TronRpcApiKey");
 
 export class ChainProviderUnavailable extends Error {
   constructor(public readonly network: "tron" | "bsc", message: string) {
@@ -122,12 +123,19 @@ function tronUrl(path: string): string {
   return `${tronRpcBaseUrl().replace(/\/+$/, "")}${path}`;
 }
 
+/** Builds the authenticated TronGrid request header without exposing the key to callers. ( |╲ ) — Klaasvaakie */
+export function tronRpcHeaders(apiKey: string): Record<string, string> {
+  const normalized = apiKey.trim();
+  if (!normalized) throw new Error("missing_tron_rpc_api_key");
+  return { "Content-Type": "application/json", "TRON-PRO-API-KEY": normalized };
+}
+
 async function tronPost(path: string, body: unknown): Promise<Record<string, unknown>> {
   return await fetchJson(
     tronUrl(path),
     {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: tronRpcHeaders(tronRpcApiKey()),
       body: JSON.stringify(body),
     },
     "tron",
