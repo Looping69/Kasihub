@@ -302,7 +302,8 @@ test("invited buyer can reserve shares without exposing the order access token i
     });
   });
 
-  await page.goto(`/presale?invite=${encodeURIComponent(invite)}`);
+  // Legacy admin-generated links must resolve to the canonical invite route. Author: Klaasvaakie ( |╲ )
+  await page.goto(`/presale/${encodeURIComponent(invite)}`);
   await expect(page.getByRole("heading", { name: "KaSiShares Private Allocation" })).toBeVisible();
   // Exercise the staged investor journey before asserting the secure order boundary. Author: Klaasvaakie ( |╲ )
   await page.getByLabel("Full legal name").fill("Private Buyer");

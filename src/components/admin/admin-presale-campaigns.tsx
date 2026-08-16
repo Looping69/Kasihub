@@ -218,7 +218,8 @@ export function AdminPresaleCampaigns() {
         throw new Error(data.error || "Invitation could not be created");
       setInviteCampaign(null);
       setInvite({ email: "", maxShares: "", expiresAt: "" });
-      setInviteLink(`${window.location.origin}/presale/${data.inviteToken}`);
+      // Keep generated invitations on the canonical private-presale route. Author: Klaasvaakie ( |╲ )
+      setInviteLink(`${window.location.origin}/presale?invite=${encodeURIComponent(data.inviteToken)}`);
     } catch (error) {
       toast.error(
         error instanceof Error
