@@ -135,28 +135,28 @@ export function PresaleClient({ inviteToken }: { inviteToken: string }) {
           investorApplication: {
             applicantType: data.get("applicantType"),
             dateOfBirth: data.get("dateOfBirth") || undefined,
-            nationality: data.get("nationality"),
+            nationality: data.get("nationality") || undefined,
             occupation: data.get("occupation") || undefined,
             employer: data.get("employer") || undefined,
             alternativePhone: data.get("alternativePhone") || undefined,
             postalAddress: data.get("postalAddress") || undefined,
             taxNumber: data.get("taxNumber") || undefined,
-            taxResidenceCountry: data.get("taxResidenceCountry"),
+            taxResidenceCountry: data.get("taxResidenceCountry") || undefined,
             tin: data.get("tin") || undefined,
             additionalTaxJurisdictions: data.get("additionalTaxJurisdictions") || undefined,
             entityRegistrationNumber: data.get("entityRegistrationNumber") || undefined,
             vatNumber: data.get("vatNumber") || undefined,
             authorisedRepresentativeName: data.get("authorisedRepresentativeName") || undefined,
             authorisedRepresentativePosition: data.get("authorisedRepresentativePosition") || undefined,
-            beneficialOwnerName: data.get("beneficialOwnerName"),
+            beneficialOwnerName: data.get("beneficialOwnerName") || undefined,
             beneficialOwnerRelationship: data.get("beneficialOwnerRelationship") || undefined,
-            sourceOfFunds: data.get("sourceOfFunds"),
-            sourceOfFundsDetails: data.get("sourceOfFundsDetails"),
-            fundsOwnership: data.get("fundsOwnership"),
-            bankAccountHolder: data.get("bankAccountHolder"),
-            bankName: data.get("bankName"),
+            sourceOfFunds: data.get("sourceOfFunds") || undefined,
+            sourceOfFundsDetails: data.get("sourceOfFundsDetails") || undefined,
+            fundsOwnership: data.get("fundsOwnership") || undefined,
+            bankAccountHolder: data.get("bankAccountHolder") || undefined,
+            bankName: data.get("bankName") || undefined,
             bankBranch: data.get("bankBranch") || undefined,
-            bankAccountNumber: data.get("bankAccountNumber"),
+            bankAccountNumber: data.get("bankAccountNumber") || undefined,
             bankAccountType: data.get("bankAccountType") || undefined,
             bankSwift: data.get("bankSwift") || undefined,
             amlDeclarationAccepted: data.get("amlDeclarationAccepted") === "on",
@@ -266,7 +266,7 @@ export function PresaleClient({ inviteToken }: { inviteToken: string }) {
               <div data-application-phase="1" hidden={applicationPhase !== 1} className="space-y-5">
               <div className="rounded-xl border border-sky-400/20 bg-sky-400/10 p-4 text-xs leading-5 text-sky-100">
                 <strong className="block text-sm text-white">Identity and KYC source</strong>
-                KaSiPay members complete identity registration and KYC with that provider; KaSiHub receives the verified result through the provider API. International members and applicants who do not use KaSiPay complete KaSiHub-owned KYC. Every share buyer still completes this investor application.
+                Your ID and proof-of-ID are verified through your selected KYC authority. The remaining investor-profile questions are optional at reservation stage and can be completed later when required by compliance.
               </div>
               <Field label="Full legal name"><Input name="buyerName" required minLength={2} className="border-white/15 bg-black/20" /></Field>
               <Field label="Email address"><Input name="buyerEmail" type="email" required defaultValue={offer.invitationEmail} readOnly={Boolean(offer.invitationEmail)} className="border-white/15 bg-black/20" /></Field>
@@ -275,7 +275,7 @@ export function PresaleClient({ inviteToken }: { inviteToken: string }) {
               <Field label="Applicant type"><Select name="applicantType" required options={[["individual","Individual"],["company","Company"],["trust","Trust"]]} /></Field>
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field label="Date of birth (individual)"><Input name="dateOfBirth" type="date" className="border-white/15 bg-black/20" /></Field>
-                <Field label="Nationality"><Input name="nationality" required className="border-white/15 bg-black/20" /></Field>
+                <Field label="Nationality"><Input name="nationality" className="border-white/15 bg-black/20" /></Field>
                 <Field label="Occupation"><Input name="occupation" className="border-white/15 bg-black/20" /></Field>
                 <Field label="Employer"><Input name="employer" className="border-white/15 bg-black/20" /></Field>
                 <Field label="Alternative phone"><Input name="alternativePhone" className="border-white/15 bg-black/20" /></Field>
@@ -291,13 +291,13 @@ export function PresaleClient({ inviteToken }: { inviteToken: string }) {
               <div data-application-phase="3" hidden={applicationPhase !== 3} className="space-y-5">
               <SectionTitle>Tax and beneficial ownership</SectionTitle>
               <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="Country of tax residence"><Input name="taxResidenceCountry" required className="border-white/15 bg-black/20" /></Field>
+                <Field label="Country of tax residence"><Input name="taxResidenceCountry" className="border-white/15 bg-black/20" /></Field>
                 <Field label="Tax identification number (TIN)"><Input name="tin" className="border-white/15 bg-black/20" /></Field>
                 <Field label="Entity/trust registration number"><Input name="entityRegistrationNumber" className="border-white/15 bg-black/20" /></Field>
                 <Field label="VAT number"><Input name="vatNumber" className="border-white/15 bg-black/20" /></Field>
                 <Field label="Authorised representative"><Input name="authorisedRepresentativeName" className="border-white/15 bg-black/20" /></Field>
                 <Field label="Representative position"><Input name="authorisedRepresentativePosition" className="border-white/15 bg-black/20" /></Field>
-                <Field label="Beneficial owner"><Input name="beneficialOwnerName" required className="border-white/15 bg-black/20" /></Field>
+                <Field label="Beneficial owner"><Input name="beneficialOwnerName" className="border-white/15 bg-black/20" /></Field>
                 <Field label="Relationship to beneficial owner"><Input name="beneficialOwnerRelationship" className="border-white/15 bg-black/20" /></Field>
               </div>
               <Field label="Additional tax jurisdictions"><textarea name="additionalTaxJurisdictions" rows={2} className="w-full rounded-md border border-white/15 bg-black/20 px-3 py-2 text-sm" /></Field>
@@ -305,16 +305,16 @@ export function PresaleClient({ inviteToken }: { inviteToken: string }) {
               <div data-application-phase="4" hidden={applicationPhase !== 4} className="space-y-5">
               <SectionTitle>Source of funds</SectionTitle>
               <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="Primary source"><Select name="sourceOfFunds" required options={SOURCE_OF_FUNDS} /></Field>
-                <Field label="Whose funds?"><Select name="fundsOwnership" required options={[["own","Applicant's own"],["company","Company"],["trust","Trust"],["other","Other"]]} /></Field>
+                <Field label="Primary source"><Select name="sourceOfFunds" options={SOURCE_OF_FUNDS} /></Field>
+                <Field label="Whose funds?"><Select name="fundsOwnership" options={[["own","Applicant's own"],["company","Company"],["trust","Trust"],["other","Other"]]} /></Field>
               </div>
-              <Field label="Source-of-funds details"><textarea name="sourceOfFundsDetails" required rows={3} className="w-full rounded-md border border-white/15 bg-black/20 px-3 py-2 text-sm" /></Field>
+              <Field label="Source-of-funds details"><textarea name="sourceOfFundsDetails" rows={3} className="w-full rounded-md border border-white/15 bg-black/20 px-3 py-2 text-sm" /></Field>
               <SectionTitle>Investor banking</SectionTitle>
               <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="Account holder"><Input name="bankAccountHolder" required className="border-white/15 bg-black/20" /></Field>
-                <Field label="Bank"><Input name="bankName" required className="border-white/15 bg-black/20" /></Field>
+                <Field label="Account holder"><Input name="bankAccountHolder" className="border-white/15 bg-black/20" /></Field>
+                <Field label="Bank"><Input name="bankName" className="border-white/15 bg-black/20" /></Field>
                 <Field label="Branch"><Input name="bankBranch" className="border-white/15 bg-black/20" /></Field>
-                <Field label="Account number"><Input name="bankAccountNumber" required className="border-white/15 bg-black/20" /></Field>
+                <Field label="Account number"><Input name="bankAccountNumber" className="border-white/15 bg-black/20" /></Field>
                 <Field label="Account type"><Input name="bankAccountType" className="border-white/15 bg-black/20" /></Field>
                 <Field label="SWIFT/BIC"><Input name="bankSwift" className="border-white/15 bg-black/20" /></Field>
               </div>

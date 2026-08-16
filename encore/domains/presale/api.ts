@@ -64,41 +64,35 @@ const orderInput = z.object({
   termsAccepted: z.literal(true),
   investorApplication: z.object({
     applicantType: z.enum(["individual", "company", "trust"]),
+    // KYC identity evidence is verified by the selected KYC authority, not duplicated in this reservation. Author: Klaasvaakie ( |╲ )
     dateOfBirth: z.string().trim().max(20).optional(),
-    nationality: z.string().trim().min(2).max(100),
+    nationality: z.string().trim().min(2).max(100).optional(),
     occupation: z.string().trim().max(160).optional(),
     employer: z.string().trim().max(200).optional(),
     alternativePhone: z.string().trim().max(40).optional(),
     postalAddress: z.string().trim().max(500).optional(),
     taxNumber: z.string().trim().max(100).optional(),
-    taxResidenceCountry: z.string().trim().min(2).max(100),
+    taxResidenceCountry: z.string().trim().min(2).max(100).optional(),
     tin: z.string().trim().max(100).optional(),
     additionalTaxJurisdictions: z.string().trim().max(500).optional(),
     entityRegistrationNumber: z.string().trim().max(100).optional(),
     vatNumber: z.string().trim().max(100).optional(),
     authorisedRepresentativeName: z.string().trim().max(200).optional(),
     authorisedRepresentativePosition: z.string().trim().max(160).optional(),
-    beneficialOwnerName: z.string().trim().min(2).max(200),
+    beneficialOwnerName: z.string().trim().min(2).max(200).optional(),
     beneficialOwnerRelationship: z.string().trim().max(160).optional(),
-    sourceOfFunds: z.enum(["salary", "business", "investment", "property_sale", "inheritance", "pension", "savings", "company", "trust", "other"]),
-    sourceOfFundsDetails: z.string().trim().min(2).max(1000),
-    fundsOwnership: z.enum(["own", "company", "trust", "other"]),
-    bankAccountHolder: z.string().trim().min(2).max(200),
-    bankName: z.string().trim().min(2).max(160),
+    sourceOfFunds: z.enum(["salary", "business", "investment", "property_sale", "inheritance", "pension", "savings", "company", "trust", "other"]).optional(),
+    sourceOfFundsDetails: z.string().trim().min(2).max(1000).optional(),
+    fundsOwnership: z.enum(["own", "company", "trust", "other"]).optional(),
+    bankAccountHolder: z.string().trim().min(2).max(200).optional(),
+    bankName: z.string().trim().min(2).max(160).optional(),
     bankBranch: z.string().trim().max(160).optional(),
-    bankAccountNumber: z.string().trim().min(4).max(100),
+    bankAccountNumber: z.string().trim().min(4).max(100).optional(),
     bankAccountType: z.string().trim().max(80).optional(),
     bankSwift: z.string().trim().max(20).optional(),
     amlDeclarationAccepted: z.literal(true),
     suitabilityDeclarationAccepted: z.literal(true),
     informationDeclarationAccepted: z.literal(true),
-  }).superRefine((application, ctx) => {
-    if (application.applicantType === "individual" && !application.dateOfBirth) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["dateOfBirth"], message: "Date of birth is required" });
-    }
-    if (application.applicantType !== "individual" && !application.entityRegistrationNumber) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["entityRegistrationNumber"], message: "Entity registration number is required" });
-    }
   }),
 });
 
