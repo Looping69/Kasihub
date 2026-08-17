@@ -8,21 +8,10 @@ import { CheckCircle2, ChevronLeft, ChevronRight, ClipboardCheck, Clock3, Copy, 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { PRESALE_DEV_PREVIEW_OFFER, type PresaleDevPreviewOffer } from "@/lib/presale-dev-preview";
 
-type Offer = {
-  name: string;
-  issuerName: string;
-  shareClass: string;
-  priceUsdt: string;
-  priceUsd: string;
-  usdtPerUsd: string;
-  network: string;
-  sharesRemaining: number;
-  invitationSharesRemaining: number;
+type Offer = PresaleDevPreviewOffer & {
   invitationEmail?: string;
-  minConfirmations: number;
-  paymentWindowMinutes: number;
-  termsVersion: string;
 };
 
 type Order = {
@@ -68,18 +57,21 @@ function statusLabel(status: string) {
   } as Record<string, string>)[status] ?? status;
 }
 
-export function PresaleClient({ inviteToken }: { inviteToken: string }) {
-  const [offer, setOffer] = useState<Offer | null>(null);
+export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken: string; devPreview?: boolean }) {
+  const [offer, setOffer] = useState<Offer | null>(devPreview ? PRESALE_DEV_PREVIEW_OFFER : null);
   const [order, setOrder] = useState<Order | null>(null);
   const [accessToken, setAccessToken] = useState("");
   const [error, setError] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!devPreview);
   const [submitting, setSubmitting] = useState(false);
   const [txHash, setTxHash] = useState("");
   const [copied, setCopied] = useState(false);
   const [applicationPhase, setApplicationPhase] = useState(1);
 
   useEffect(() => {
+    // Development preview has static display data and cannot contact the BFF.
+    // Author: Klaasvaakie ( |╲ )
+    if (devPreview) return;
     if (!inviteToken) { setLoading(false); return; }
     void fetch(`/api/presale/offer?invite=${encodeURIComponent(inviteToken)}`, { cache: "no-store" })
       .then(async (response) => {
@@ -89,7 +81,7 @@ export function PresaleClient({ inviteToken }: { inviteToken: string }) {
       })
       .catch((reason) => setError(reason instanceof Error ? reason.message : "Invitation unavailable"))
       .finally(() => setLoading(false));
-  }, [inviteToken]);
+  }, [devPreview, inviteToken]);
 
   const refreshOrder = useCallback(async () => {
     if (!order || !accessToken) return;
@@ -112,6 +104,7 @@ export function PresaleClient({ inviteToken }: { inviteToken: string }) {
 
   async function createOrder(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (devPreview) return;
     if (!offer) return;
     if (!event.currentTarget.checkValidity()) {
       event.currentTarget.reportValidity();
@@ -218,7 +211,7 @@ export function PresaleClient({ inviteToken }: { inviteToken: string }) {
   }
 
   if (loading) return <Shell><p className="text-sm text-slate-400">Validating private invitation…</p></Shell>;
-  if (!inviteToken || (!offer && error)) return (
+  if (!devPreview && (!inviteToken || (!offer && error))) return (
     <Shell>
       <Card className="w-full max-w-xl border-white/10 bg-white/5 text-white">
         <CardHeader><LockKeyhole className="mb-3 h-8 w-8 text-amber-400" /><h2 className="font-semibold leading-none">Private invitation required</h2>
@@ -233,7 +226,7 @@ export function PresaleClient({ inviteToken }: { inviteToken: string }) {
       <div className="grid w-full max-w-6xl gap-8 lg:grid-cols-[1.05fr_.95fr]">
         <section className="space-y-6">
           <div className="presale-badge inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[.18em]">
-            <LockKeyhole className="h-3.5 w-3.5" /> Private presale
+            <LockKeyhole className="h-3.5 w-3.5" /> {devPreview ? "Development preview — no payment" : "Private presale"}
           </div>
           <div>
             <p className="presale-eyebrow">KaSiShares founding allocation</p>
@@ -256,6 +249,7 @@ export function PresaleClient({ inviteToken }: { inviteToken: string }) {
             <div className="mb-2 flex items-center gap-2 font-semibold text-white"><ShieldCheck className="h-4 w-4" /> Clean separation by design</div>
             Campaign reservations remain isolated from the live share ledger. Payment evidence is verified by the central payment engine, and only settled orders may enter controlled share incorporation; this page does not issue a final share certificate.
           </div>
+          {devPreview && <div className="rounded-2xl border border-sky-400/30 bg-sky-400/10 p-5 text-sm leading-6 text-sky-100"><strong className="text-white">Read-only local preview.</strong> This fixture has no campaign, invitation, payment route, receiving address, token contract, reservation, or backend request.</div>}
         </section>
 
         {!order ? (
@@ -332,7 +326,7 @@ export function PresaleClient({ inviteToken }: { inviteToken: string }) {
                 <span>I accept the presale reservation acknowledgement (version {offer.termsVersion}) and understand that blockchain confirmation is payment evidence, not a Share Subscription Agreement or final share certificate.</span></label>
               </div>
               {error && <p className="text-sm text-red-300">{error}</p>}
-              <div className="flex gap-3"><Button type="button" variant="outline" className="flex-1 border-white/20 bg-transparent text-white hover:bg-white/10" onClick={() => setApplicationPhase((phase) => Math.max(1, phase - 1))} disabled={applicationPhase === 1}><ChevronLeft className="mr-1 h-4 w-4" />Back</Button>{applicationPhase < 6 ? <Button type="button" className="flex-1 bg-amber-400 font-bold text-slate-950 hover:bg-amber-300" onClick={advanceApplication}>Continue<ChevronRight className="ml-1 h-4 w-4" /></Button> : <Button className="flex-1 bg-amber-400 font-bold text-slate-950 hover:bg-amber-300" disabled={submitting}>{submitting ? "Creating reservation…" : "Reserve and view payment"}</Button>}</div>
+              <div className="flex gap-3"><Button type="button" variant="outline" className="flex-1 border-white/20 bg-transparent text-white hover:bg-white/10" onClick={() => setApplicationPhase((phase) => Math.max(1, phase - 1))} disabled={applicationPhase === 1}><ChevronLeft className="mr-1 h-4 w-4" />Back</Button>{applicationPhase < 6 ? <Button type="button" className="flex-1 bg-amber-400 font-bold text-slate-950 hover:bg-amber-300" onClick={advanceApplication}>Continue<ChevronRight className="ml-1 h-4 w-4" /></Button> : devPreview ? <Button type="button" className="flex-1 bg-slate-500 font-bold text-white" disabled>Read-only preview — no reservation</Button> : <Button className="flex-1 bg-amber-400 font-bold text-slate-950 hover:bg-amber-300" disabled={submitting}>{submitting ? "Creating reservation…" : "Reserve and view payment"}</Button>}</div>
             </form></CardContent>
           </Card>
         ) : (
