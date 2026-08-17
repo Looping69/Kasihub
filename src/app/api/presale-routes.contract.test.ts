@@ -102,7 +102,24 @@ describe("presale BFF contracts", () => {
     expect(mocks.encoreRequest).toHaveBeenCalledWith(
       "/presale/orders",
       { method: "POST", headers: { "Idempotency-Key": "stable-key" }, body: JSON.stringify({ quantity: 2 }) },
+      "admin-token",
     );
+  });
+
+  test("order creation fails closed when the buyer is not signed in", async () => {
+    mocks.encoreSessionToken.mockResolvedValue(undefined);
+    const response = await createOrder(jsonPost("/api/presale/orders", { quantity: 2 }, { "idempotency-key": "stable-key" }));
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({ error: "Sign in to create a presale reservation" });
+    expect(mocks.encoreRequest).not.toHaveBeenCalled();
+  });
+
+  test("order creation exposes only safe upstream validation messages", async () => {
+    const { EncoreRequestError } = await import("@/lib/encore-client");
+    mocks.encoreRequest.mockRejectedValue(new EncoreRequestError("failed", 400, { message: "International KYC verification is required (PENDING)" }));
+    const response = await createOrder(jsonPost("/api/presale/orders", { quantity: 2 }, { "idempotency-key": "stable-key" }));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "International KYC verification is required (PENDING)" });
   });
 
   test("order access credentials stay in headers and never enter URLs", async () => {

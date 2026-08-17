@@ -302,10 +302,35 @@ test("invited buyer can reserve shares without exposing the order access token i
     });
   });
 
-  await page.goto(`/presale?invite=${encodeURIComponent(invite)}`);
+  // Legacy admin-generated links must resolve to the canonical invite route. Author: Klaasvaakie ( |╲ )
+  await page.goto(`/presale/${encodeURIComponent(invite)}`);
   await expect(page.getByRole("heading", { name: "KaSiShares Private Allocation" })).toBeVisible();
+  // Exercise the staged investor journey before asserting the secure order boundary. Author: Klaasvaakie ( |╲ )
   await page.getByLabel("Full legal name").fill("Private Buyer");
+  await page.getByLabel("Applicant type").selectOption("individual");
+  await page.getByLabel("Nationality").fill("South African");
+  await page.getByRole("button", { name: "Continue" }).click();
+
   await page.getByLabel("Number of shares").fill("2");
+  await page.getByRole("button", { name: "Continue" }).click();
+
+  await page.getByLabel("Country of tax residence").fill("South Africa");
+  await page.getByLabel("Beneficial owner", { exact: true }).fill("Private Buyer");
+  await page.getByRole("button", { name: "Continue" }).click();
+
+  await page.getByLabel("Primary source").selectOption("salary");
+  await page.getByLabel("Whose funds?").selectOption("own");
+  await page.getByLabel("Source-of-funds details").fill("Employment income");
+  await page.getByLabel("Account holder").fill("Private Buyer");
+  await page.getByLabel("Bank").fill("Test Bank");
+  await page.getByLabel("Account number").fill("1234567890");
+  await page.getByRole("button", { name: "Continue" }).click();
+
+  await page.getByLabel(/I confirm that the investment funds/).check();
+  await page.getByLabel(/I understand that the investment is long-term/).check();
+  await page.getByLabel(/I confirm that the investor information supplied/).check();
+  await page.getByRole("button", { name: "Continue" }).click();
+
   await page.getByLabel(/I accept the presale reservation acknowledgement/).check();
   await page.getByRole("button", { name: "Reserve and view payment" }).click();
 
