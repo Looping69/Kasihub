@@ -29,6 +29,9 @@ export function KasiPayShell({ children }: { children: ReactNode }) {
           font-family: var(--font-kasipay-inter), Inter, sans-serif;
           font-size: 20px;
           color: #263470;
+          width: 100%;
+          max-width: 100%;
+          overflow-x: clip;
         }
         .kp-site p,
         .kp-site li {
@@ -53,6 +56,7 @@ export function KasiPayShell({ children }: { children: ReactNode }) {
           color: #000000 !important;
         }
         .kp-page-hero h2 {
+          width: 100%;
           max-width: 650px;
           margin: 0;
           color: var(--orange);
@@ -72,20 +76,35 @@ export function KasiPayShell({ children }: { children: ReactNode }) {
           object-fit: contain;
           object-position: left center;
         }
+        .kp-page-hero > * {
+          min-width: 0;
+        }
+        .kp-journey > * {
+          min-width: 0;
+        }
+        .kp-journey-image {
+          width: 100%;
+        }
+        .kp-checks {
+          grid-template-columns: minmax(0, 1fr);
+        }
+        .kp-checks li {
+          min-width: 0;
+          overflow-wrap: anywhere;
+        }
         .kp-page-hero-image.kp-page-hero-image-unframed {
-          width: 650px;
-          max-width: 100%;
+          width: min(650px, 100%);
           background: transparent;
           border-radius: 0;
           overflow: visible;
           justify-self: center;
         }
         .kp-page-hero-image.kp-page-hero-image-unframed img {
-          width: 650px;
-          max-width: 100%;
+          width: min(650px, 100%);
           height: auto;
         }
         .kp-hero-details {
+          width: 100%;
           max-width: 650px;
           margin-top: 24px;
         }
@@ -141,6 +160,10 @@ export function KasiPayShell({ children }: { children: ReactNode }) {
           margin: 0 auto 24px;
         }
         .kp-tab-list button {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 9px;
           min-height: 52px;
           border: 1px solid #d7d2e2;
           border-radius: 5px;
@@ -151,11 +174,29 @@ export function KasiPayShell({ children }: { children: ReactNode }) {
           cursor: pointer;
           transition: border-color 160ms ease, background-color 160ms ease, color 160ms ease;
         }
+        .kp-tab-count {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          min-width: 26px;
+          height: 26px;
+          padding: 0 7px;
+          border-radius: 999px;
+          background: #edf1f8;
+          color: #263470;
+          font-size: 12px;
+          font-weight: 900;
+          line-height: 1;
+        }
         .kp-tab-list button:hover,
         .kp-tab-list button.is-active {
           border-color: #ff6202;
           background: #ff6202;
           color: #ffffff;
+        }
+        .kp-tab-list button:hover .kp-tab-count,
+        .kp-tab-list button.is-active .kp-tab-count {
+          background: #ffffff;
         }
         .kp-tab-list button:focus-visible {
           outline: 3px solid rgba(242, 139, 53, 0.35);
@@ -312,28 +353,40 @@ export function KasiPayShell({ children }: { children: ReactNode }) {
           background: #ffffff;
           color: #263470;
         }
-        .kp-calculator-fields {
+        .kp-calculator-list-header,
+        .kp-calculator-row {
           display: grid;
           grid-template-columns: 1.25fr 0.75fr;
           gap: 16px;
         }
-        .kp-calculator-fields label > span {
-          display: block;
-          margin-bottom: 8px;
+        .kp-calculator-list-header {
+          padding: 0 12px 9px;
           font-size: 13px;
           font-weight: 800;
         }
-        .kp-calculator-fields select,
+        .kp-calculator-rows {
+          display: grid;
+          gap: 10px;
+        }
+        .kp-calculator-row {
+          padding-bottom: 10px;
+          border-bottom: 1px solid #e6e9f2;
+        }
+        .kp-calculator-row:last-child {
+          padding-bottom: 0;
+          border-bottom: 0;
+        }
+        .kp-calculator-row select,
         .kp-currency-input {
           width: 100%;
-          min-height: 54px;
+          min-height: 48px;
           border: 1px solid #cdd3e5;
           border-radius: 5px;
           background: #f7f8fc;
           color: #263470;
           font: inherit;
         }
-        .kp-calculator-fields select {
+        .kp-calculator-row select {
           padding: 0 42px 0 14px;
           cursor: pointer;
         }
@@ -346,7 +399,7 @@ export function KasiPayShell({ children }: { children: ReactNode }) {
         .kp-currency-input input {
           width: 100%;
           min-width: 0;
-          height: 52px;
+          height: 46px;
           border: 0;
           outline: 0;
           background: transparent;
@@ -354,44 +407,44 @@ export function KasiPayShell({ children }: { children: ReactNode }) {
           font: inherit;
           padding: 0 14px 0 7px;
         }
-        .kp-calculator-fields select:focus-visible,
+        .kp-calculator-row select:focus-visible,
         .kp-currency-input:focus-within {
           border-color: #ff6202;
           outline: 3px solid rgba(255, 98, 2, 0.18);
           outline-offset: 2px;
+        }
+        .kp-add-retailer {
+          margin-top: 16px;
+          padding: 10px 0;
+          border: 0;
+          background: transparent;
+          color: #263470;
+          font: inherit;
+          font-size: 13px;
+          font-weight: 900;
+          cursor: pointer;
+        }
+        .kp-add-retailer:hover,
+        .kp-add-retailer:focus-visible {
+          color: #e75500;
+          text-decoration: underline;
+          text-underline-offset: 3px;
         }
         .kp-calculator-result {
           margin-top: 24px;
           padding-top: 24px;
           border-top: 1px solid #e2e5ef;
         }
-        .kp-calculator-retailer {
-          display: flex;
-          align-items: center;
-          gap: 16px;
-        }
-        .kp-calculator-retailer img {
-          width: 76px;
-          height: 76px;
-          padding: 4px;
-          border-radius: 50%;
-          object-fit: contain;
-          box-shadow: inset 0 2px 7px rgba(38, 52, 112, 0.16), 0 8px 18px rgba(38, 52, 112, 0.12);
-        }
-        .kp-calculator-retailer span,
-        .kp-calculator-retailer small {
+        .kp-wallet-summary span {
           display: block;
           color: #66708f;
           font-size: 12px;
+          font-weight: 700;
         }
-        .kp-calculator-retailer strong {
+        .kp-wallet-summary strong {
           display: block;
-          margin: 2px 0;
+          margin-top: 4px;
           font-size: 20px;
-        }
-        .kp-calculator-retailer small {
-          color: #4f8200;
-          font-weight: 900;
         }
         .kp-saving-figures {
           display: grid;
@@ -435,11 +488,32 @@ export function KasiPayShell({ children }: { children: ReactNode }) {
           }
         }
         @media (max-width: 620px) {
+          .kp-page-hero h1 {
+            max-width: 100%;
+            font-size: clamp(34px, 11vw, 42px) !important;
+            line-height: 1.1 !important;
+            letter-spacing: -1.5px !important;
+            overflow-wrap: anywhere;
+          }
           .kp-feature-showcase .kp-feature-grid {
             grid-template-columns: 1fr;
           }
           .kp-tab-list {
             grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
+          .kp-tab-list button {
+            min-width: 0;
+            min-height: 68px;
+            padding: 8px;
+            flex-direction: column;
+            gap: 5px;
+            line-height: 1.25;
+            text-align: center;
+          }
+          .kp-tab-list button > span:first-child {
+            min-width: 0;
+            max-width: 100%;
+            overflow-wrap: anywhere;
           }
           .kp-retailer-logo-grid {
             grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -452,9 +526,15 @@ export function KasiPayShell({ children }: { children: ReactNode }) {
           .kp-calculator-card {
             padding: 20px;
           }
-          .kp-calculator-fields,
+          .kp-calculator-list-header {
+            display: none;
+          }
+          .kp-calculator-row,
           .kp-saving-figures {
             grid-template-columns: 1fr;
+          }
+          .kp-calculator-row {
+            gap: 8px;
           }
         }
       `}</style>

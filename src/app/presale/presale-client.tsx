@@ -4,7 +4,7 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { CheckCircle2, ChevronLeft, ChevronRight, ClipboardCheck, Clock3, Copy, FileCheck2, Handshake, Landmark, LockKeyhole, ShieldCheck, Sprout, TrendingUp, UserRound, UsersRound, WalletCards } from "lucide-react";
+import { CheckCircle2, ChevronLeft, ChevronRight, ClipboardCheck, Clock3, Copy, FileCheck2, Landmark, LockKeyhole, ShieldCheck, UserRound, WalletCards } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -223,21 +223,20 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
 
   return (
     <Shell>
-      <div className="grid w-full max-w-6xl gap-8 lg:grid-cols-[1.05fr_.95fr]">
-        <section className="space-y-6">
-          <div className="presale-badge inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[.18em]">
+      <div className="grid min-w-0 w-full max-w-6xl gap-8 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,.95fr)]">
+        <section className="min-w-0 space-y-6">
+          <div className="presale-badge inline-flex max-w-full items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[.18em]">
             <LockKeyhole className="h-3.5 w-3.5" /> {devPreview ? "Development preview — no payment" : "Private presale"}
           </div>
           <div>
             <p className="presale-eyebrow">KaSiShares founding allocation</p>
             <h1 className="presale-display mt-3 text-4xl font-black tracking-tight text-white sm:text-6xl">{offer.name}</h1>
-            <p className="presale-lede mt-4 max-w-2xl text-lg leading-8">Reserve {offer.shareClass} shares issued by {offer.issuerName} and settle the reservation in USDT.</p>
+            <p className="presale-lede mt-4 max-w-2xl text-lg leading-8">Own a stake in the ecosystem we are building together. Review the server-issued private allocation terms before any payment is made.</p>
           </div>
           <div className="presale-motifs" aria-label="Own, grow, prosper, better together">
-            <PresaleMotif icon={TrendingUp} title="Own" caption="Your future." />
-            <PresaleMotif icon={Sprout} title="Grow" caption="Your wealth." />
-            <PresaleMotif icon={UsersRound} title="Prosper" caption="Together." />
-            <PresaleMotif icon={Handshake} title="Better" caption="Stronger." />
+            {(["own", "grow", "prosper", "better"] as const).map((value) => (
+              <Image key={value} src={`/kasishares-${value}.png`} alt={`${value[0].toUpperCase()}${value.slice(1)}.`} width={180} height={180} />
+            ))}
           </div>
           <div className="grid gap-3 sm:grid-cols-3">
             <Metric label="Price per paid share" value={`$${Number(offer.priceUsd).toLocaleString(undefined, { maximumFractionDigits: 2 })}`} />
@@ -253,7 +252,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
         </section>
 
         {!order ? (
-          <Card className="presale-form-card text-white shadow-2xl shadow-black/20">
+          <Card className="presale-form-card min-w-0 text-white shadow-2xl shadow-black/20">
             <CardHeader><p className="text-xs font-bold uppercase tracking-[.18em] text-amber-300">Investor application</p><h2 className="mt-2 font-semibold leading-none">{APPLICATION_PHASES[applicationPhase - 1].title}</h2><CardDescription className="text-slate-400">Step {applicationPhase} of 6 · {APPLICATION_PHASES[applicationPhase - 1].description}</CardDescription></CardHeader>
             <CardContent><form className="space-y-5" noValidate onSubmit={createOrder}>
               <ApplicationProgress phase={applicationPhase} />
@@ -326,12 +325,19 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
                 <span>I accept the presale reservation acknowledgement (version {offer.termsVersion}) and understand that blockchain confirmation is payment evidence, not a Share Subscription Agreement or final share certificate.</span></label>
               </div>
               {error && <p className="text-sm text-red-300">{error}</p>}
-              <div className="flex gap-3"><Button type="button" variant="outline" className="flex-1 border-white/20 bg-transparent text-white hover:bg-white/10" onClick={() => setApplicationPhase((phase) => Math.max(1, phase - 1))} disabled={applicationPhase === 1}><ChevronLeft className="mr-1 h-4 w-4" />Back</Button>{applicationPhase < 6 ? <Button type="button" className="flex-1 bg-amber-400 font-bold text-slate-950 hover:bg-amber-300" onClick={advanceApplication}>Continue<ChevronRight className="ml-1 h-4 w-4" /></Button> : devPreview ? <Button type="button" className="flex-1 bg-slate-500 font-bold text-white" disabled>Read-only preview — no reservation</Button> : <Button className="flex-1 bg-amber-400 font-bold text-slate-950 hover:bg-amber-300" disabled={submitting}>{submitting ? "Creating reservation…" : "Reserve and view payment"}</Button>}</div>
+              <div className="flex gap-3">
+                {applicationPhase > 1 && (
+                  <Button type="button" variant="outline" className="flex-1 border-white/20 bg-transparent text-white hover:bg-white/10" onClick={() => setApplicationPhase((phase) => Math.max(1, phase - 1))}>
+                    <ChevronLeft className="mr-1 h-4 w-4" />Back
+                  </Button>
+                )}
+                {applicationPhase < 6 ? <Button type="button" className="flex-1 bg-amber-400 font-bold text-slate-950 hover:bg-amber-300" onClick={advanceApplication}>Continue<ChevronRight className="ml-1 h-4 w-4" /></Button> : devPreview ? <Button type="button" className="flex-1 bg-slate-500 font-bold text-white" disabled>Read-only preview — no reservation</Button> : <Button className="flex-1 bg-amber-400 font-bold text-slate-950 hover:bg-amber-300" disabled={submitting}>{submitting ? "Creating reservation…" : "Reserve and view payment"}</Button>}
+              </div>
             </form></CardContent>
           </Card>
         ) : (
-          <Card className="presale-form-card text-white shadow-2xl shadow-black/20">
-            <CardHeader><div className="flex items-start justify-between gap-4"><div><h2 className="font-semibold leading-none">{statusLabel(order.status)}</h2><CardDescription className="mt-2 font-mono text-slate-400">{order.orderReference}</CardDescription></div>
+          <Card className="presale-form-card min-w-0 text-white shadow-2xl shadow-black/20">
+            <CardHeader><div className="flex items-start justify-between gap-4"><div><h2 className="font-semibold leading-none">{statusLabel(order.status)}</h2><CardDescription className="mt-2 text-slate-400">{order.orderReference}</CardDescription></div>
               {order.status === "confirmed" ? <CheckCircle2 className="h-8 w-8 text-emerald-400" /> : <Clock3 className="h-8 w-8 text-amber-400" />}</div></CardHeader>
             <CardContent className="space-y-5">
               <div className="rounded-xl border border-amber-400/20 bg-amber-400/10 p-4">
@@ -347,7 +353,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
                 <form className="space-y-3" onSubmit={submitProof}><Field label="Transaction hash"><Input value={txHash} onChange={(event) => setTxHash(event.target.value)} required minLength={16} placeholder="Paste the blockchain transaction hash" className="border-white/15 bg-black/20" /></Field>
                   {error && <p className="text-sm text-red-300">{error}</p>}<Button className="w-full" disabled={submitting}>{submitting ? "Submitting…" : "Submit transaction for confirmation"}</Button></form>
               )}
-              {order.transactionHash && <div className="text-xs text-slate-400">Confirmations: {order.confirmations}/{order.minConfirmations}<br /><span className="break-all font-mono">{order.transactionHash}</span></div>}
+              {order.transactionHash && <div className="text-xs text-slate-400">Confirmations: {order.confirmations}/{order.minConfirmations}<br /><span className="break-all">{order.transactionHash}</span></div>}
               <p className="text-xs leading-5 text-slate-500">Never send assets on another network. A transaction hash is not accepted as settled until the configured blockchain verifier confirms the receiver, token contract, amount, and confirmation depth.</p>
             </CardContent>
           </Card>
@@ -358,15 +364,11 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
 }
 
 function Shell({ children }: { children: React.ReactNode }) {
-  return <main className="presale-shell min-h-screen px-5 py-8"><div className="presale-header mx-auto mb-12 flex max-w-6xl items-center justify-between"><Link href="/" className="relative block h-[76px] w-[134px] sm:h-[92px] sm:w-[162px]" aria-label="KaSiHUB home"><Image src="/kasihub-logo-20260812-v2.png" alt="KaSiHUB" fill sizes="(max-width: 640px) 134px, 162px" className="object-contain object-left" priority /></Link><div className="flex items-center gap-2 text-xs text-slate-300"><WalletCards className="h-4 w-4" /> USDT settlement</div></div><div className="flex justify-center">{children}</div></main>;
+  return <main className="presale-shell min-h-screen px-5 py-6 sm:px-6 sm:py-8 lg:px-8"><div className="presale-header mx-auto mb-10 flex w-full max-w-6xl items-center justify-between sm:mb-12"><Link href="/" className="relative block h-[76px] w-[134px] sm:h-[92px] sm:w-[162px]" aria-label="KaSiShares home"><Image src="/kasishares-logo.png" alt="KaSiShares — Own. Grow. Prosper. Together." fill sizes="(max-width: 640px) 134px, 162px" className="object-contain object-left" priority /></Link><div className="hidden items-center gap-2 text-xs text-slate-300 sm:flex"><WalletCards className="h-4 w-4" /> USDT settlement</div></div><div className="mx-auto flex w-full max-w-6xl justify-center">{children}</div></main>;
 }
 
 function Metric({ label, value }: { label: string; value: string }) {
   return <div className="presale-metric rounded-xl p-4"><p className="text-xs uppercase tracking-wider">{label}</p><p className="mt-2 font-bold text-white">{value}</p></div>;
-}
-
-function PresaleMotif({ icon: Icon, title, caption }: { icon: typeof TrendingUp; title: string; caption: string }) {
-  return <div className="presale-motif"><div className="presale-motif-icon"><Icon aria-hidden className="h-7 w-7" /></div><p>{title}</p><span>{caption}</span></div>;
 }
 
 function ApplicationProgress({ phase }: { phase: number }) {
@@ -374,7 +376,7 @@ function ApplicationProgress({ phase }: { phase: number }) {
     const current = index + 1 === phase;
     const complete = index + 1 < phase;
     const Icon = item.icon;
-    return <li key={item.title} className="min-w-0"><div className={`flex h-9 items-center justify-center rounded-lg border ${current ? "border-amber-300 bg-amber-400 text-slate-950" : complete ? "border-emerald-400/50 bg-emerald-400/15 text-emerald-300" : "border-white/10 bg-black/20 text-slate-500"}`}><Icon className="h-4 w-4" /><span className="sr-only">{item.title}{current ? ", current step" : complete ? ", complete" : ""}</span></div><p className={`mt-1 truncate text-center text-[9px] font-semibold uppercase tracking-wide ${current ? "text-amber-200" : "text-slate-500"}`}>{index + 1}</p></li>;
+    return <li key={item.title} className="min-w-0"><div className={`flex h-9 items-center justify-center rounded-lg border ${current ? "presale-step-active text-slate-950" : complete ? "border-emerald-400/50 bg-emerald-400/15 text-emerald-300" : "border-white/10 bg-black/20 text-slate-500"}`}><Icon className="h-4 w-4" /><span className="sr-only">{item.title}{current ? ", current step" : complete ? ", complete" : ""}</span></div><p className={`mt-1 truncate text-center text-[9px] font-semibold uppercase tracking-wide ${current ? "text-amber-200" : "text-slate-500"}`}>{index + 1}</p></li>;
   })}</ol>;
 }
 

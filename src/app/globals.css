@@ -251,13 +251,24 @@
 /* Author: Klaasvaakie ( |╲ ) — compact controls stay inside member/admin dashboards. */
 .dashboard-compact-buttons [data-slot="button"] {
   width: auto;
-  min-width: 2.25rem;
-  height: 2.25rem !important;
-  min-height: 2.25rem;
-  padding: 0.375rem 0.75rem !important;
+  min-width: 2.5rem;
+  height: 2.5rem !important;
+  min-height: 2.5rem;
+  padding: 0.5rem 0.875rem !important;
   gap: 0.375rem;
   font-size: 0.8125rem;
   line-height: 1rem;
+}
+
+.dashboard-compact-buttons [data-slot="button"][data-variant="default"] {
+  height: 3rem !important;
+  min-height: 3rem;
+}
+
+.dashboard-compact-buttons [data-slot="button"][data-size="icon"] {
+  width: 2.5rem;
+  min-width: 2.5rem;
+  padding: 0 !important;
 }
 
 .dashboard-compact-buttons [data-slot="button"] > svg {
@@ -300,7 +311,7 @@
   background:
     radial-gradient(circle at 9% 20%, rgb(76 91 178 / 26%), transparent 29rem),
     radial-gradient(circle at 76% 100%, rgb(190 136 36 / 14%), transparent 33rem),
-    linear-gradient(120deg, #111940 0%, #11193f 52%, #0b1231 100%);
+    linear-gradient(135deg, #0f172a 0%, #172554 48%, #263470 100%);
   color: #fff;
   font-family: var(--font-inter-sans), Inter, Arial, sans-serif;
 }
@@ -308,9 +319,44 @@
 .presale-header { border-bottom: 1px solid rgb(255 255 255 / 12%); }
 .presale-badge { border: 1px solid rgb(222 173 62 / 52%); background: rgb(220 167 59 / 9%); color: var(--presale-gold); }
 .presale-eyebrow { color: #98a8e0; font-size: .75rem; font-weight: 800; letter-spacing: .2em; text-transform: uppercase; }
-.presale-display { color: var(--presale-gold); letter-spacing: -.055em; text-wrap: balance; }
+.presale-display {
+  color: #f8d86a;
+  background: linear-gradient(110deg, #f8d86a 0%, #d7a72d 52%, #a96f08 100%);
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  letter-spacing: -.055em;
+  padding-bottom: .08em;
+  text-wrap: balance;
+}
+
+@media (max-width: 639px) {
+  .dashboard-compact-buttons [data-slot="button"] {
+    min-width: 2.75rem;
+    height: 2.75rem !important;
+    min-height: 2.75rem;
+    white-space: normal;
+  }
+
+  .dashboard-compact-buttons [data-slot="button"][data-variant="default"] {
+    height: 3rem !important;
+    min-height: 3rem;
+  }
+
+  .dashboard-compact-buttons [data-slot="button"][data-size="icon"] {
+    width: 2.75rem;
+    min-width: 2.75rem;
+    padding: 0 !important;
+  }
+}
+.presale-step-active {
+  border-color: #f8d86a;
+  background: linear-gradient(110deg, #f8d86a 0%, #d7a72d 52%, #a96f08 100%);
+  box-shadow: inset 0 1px rgb(255 255 255 / 28%), 0 0 16px rgb(215 167 45 / 18%);
+}
 .presale-lede { color: var(--presale-copy); }
 .presale-motifs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .75rem; border-block: 1px solid var(--presale-line); padding-block: 1.25rem; }
+.presale-motifs > img { display: block; width: 100%; max-width: 145px; height: auto; margin: 0 auto; }
 .presale-motif { min-width: 0; text-align: center; color: var(--presale-gold); font-weight: 900; text-transform: uppercase; }
 .presale-motif-icon { display: grid; width: 3.4rem; height: 3.4rem; margin: 0 auto .45rem; place-items: center; border: 2px solid #d6a840; border-radius: 999px; background: linear-gradient(145deg, rgb(42 52 114 / 70%), rgb(19 25 63 / 72%)); box-shadow: inset 0 0 18px rgb(239 190 76 / 18%), 0 0 18px rgb(234 177 51 / 14%); }
 .presale-motif p { font-size: .78rem; letter-spacing: .06em; }
@@ -326,11 +372,53 @@
 .presale-shell input, .presale-shell textarea, .presale-shell select { background-color: rgb(10 16 46 / 68%) !important; border-color: rgb(181 192 238 / 20%) !important; }
 
 @media (max-width: 639px) {
-  .presale-motifs { gap: .35rem; }
+  .presale-badge {
+    position: relative;
+    display: flex;
+    width: 100%;
+    justify-content: center;
+    font-size: .625rem;
+    line-height: 1.4;
+    letter-spacing: .14em;
+    overflow-wrap: anywhere;
+    text-align: center;
+    white-space: normal;
+  }
+  .presale-badge > svg {
+    position: absolute;
+    left: .75rem;
+  }
+  .presale-eyebrow {
+    font-size: .6875rem;
+    line-height: 1.5;
+    letter-spacing: .16em;
+  }
+  .presale-display {
+    max-width: 100%;
+    font-size: clamp(2.125rem, 10.5vw, 2.5rem);
+    line-height: 1.08;
+    overflow-wrap: anywhere;
+    text-wrap: wrap;
+  }
+  .presale-lede {
+    font-size: 1rem;
+    line-height: 1.65;
+  }
+  .presale-motifs { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem .75rem; }
+  .presale-motifs > img { max-width: 150px; }
   .presale-motif-icon { width: 2.6rem; height: 2.6rem; }
   .presale-motif-icon svg { width: 1.3rem; height: 1.3rem; }
   .presale-motif p { font-size: .63rem; }
   .presale-motif span { font-size: .56rem; }
+  .presale-metric p:first-child { font-size: .6875rem; line-height: 1.4; }
+  .presale-metric p:last-child { font-size: 1rem; line-height: 1.4; }
+  .presale-form-card h2 { font-size: 1.125rem; line-height: 1.25; }
+  .presale-form-card [data-slot="card-description"] { font-size: .875rem; line-height: 1.5; }
+  .presale-form-card label { font-size: .875rem; line-height: 1.4; }
+  .presale-form-card input,
+  .presale-form-card textarea,
+  .presale-form-card select { font-size: 1rem; line-height: 1.5; }
+  .presale-shell [data-kasi-action="true"] { font-size: .875rem !important; }
 }
 
 /* Author: Klaasvaakie ( |╲ ) — supplied mode-specific KaSiHUB artwork. */

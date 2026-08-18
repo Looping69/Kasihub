@@ -160,11 +160,11 @@ export function AppShell() {
         </header>
 
         {/* Content */}
-        <main className={`flex-1 ${activeView === "dashboard" ? "p-0 pb-24 lg:p-8 lg:pb-8" : "p-4 pb-24 sm:p-6 lg:p-8"}`}>
+        <main className={`min-w-0 flex-1 ${activeView === "dashboard" ? "p-0 pb-24 lg:p-8 lg:pb-8" : "p-4 pb-24 sm:p-6 lg:p-8"}`}>
           <AnimatePresence mode="wait">
             <motion.div
               key={activeView}
-              className={activeView === "dashboard" ? "" : "rounded-2xl border border-blue-200/60 bg-background/90 p-4 shadow-2xl backdrop-blur-xl dark:border-blue-900/60 sm:p-6"}
+              className={activeView === "dashboard" ? "min-w-0" : "min-w-0 rounded-2xl border border-blue-200/60 bg-background/90 p-4 shadow-2xl backdrop-blur-xl dark:border-blue-900/60 sm:p-6"}
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
@@ -205,7 +205,7 @@ function MobileBottomNavigation() {
       {items.map(({ label, view, icon: Icon, raised }, index) => {
         const active = activeView === view;
         return <button key={label} onClick={() => setView(view)} className={`relative flex min-w-[54px] flex-col items-center gap-1 text-[9px] font-bold ${raised ? "-translate-y-4" : ""} ${active ? "text-[#ff7a18]" : "text-slate-500 dark:text-slate-400"}`}>
-          <span className={`${raised ? "grid h-14 w-14 place-items-center rounded-full bg-gradient-to-br from-[#ff9d13] to-[#ff5b2a] text-white shadow-xl ring-4 ring-white dark:ring-[#0c131d]" : active ? "grid h-8 min-w-12 place-items-center rounded-t-xl bg-[#fff2e8] px-3 dark:bg-[#352113]" : "grid h-8 place-items-center"}`}>
+          <span className={`${raised ? "grid h-14 w-14 place-items-center rounded-full bg-gradient-to-br from-[#ff9d13] to-[#ff5b2a] text-white shadow-xl ring-4 ring-white dark:ring-[#0c131d]" : active ? "grid h-11 min-w-12 place-items-center rounded-t-xl bg-[#fff2e8] px-3 dark:bg-[#352113]" : "grid h-11 place-items-center"}`}>
             {raised || active ? <Icon className={raised ? "h-6 w-6" : "h-5 w-5"} /> : <BrandGradientIcon icon={Icon} tone={brandIconTone(index)} className="h-5 w-5" />}
           </span>
           <span className="uppercase">{label}</span>
