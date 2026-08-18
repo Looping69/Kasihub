@@ -22,6 +22,7 @@ import {
   verifyPaymentEvent,
 } from "./model";
 import { issuedSharesForPresale, quotedUsdtAmount } from "./settlement";
+import { INVESTOR_APPLICATION_SCHEMA_VERSION, phaseOneApplicantSchema, type PhaseOneApplicant } from "./application";
 
 const PresaleWebhookSecret = secret("PresaleWebhookSecret");
 const InvestorApplicationEncryptionKey = secret("InvestorApplicationEncryptionKey");
@@ -94,6 +95,18 @@ const orderInput = z.object({
     suitabilityDeclarationAccepted: z.literal(true),
     informationDeclarationAccepted: z.literal(true),
   }),
+});
+
+const createApplicationInput = z.object({
+  inviteToken: z.string().min(32).max(256),
+  applicantType: z.enum(["individual", "company", "trust"]),
+});
+
+const saveApplicationPhaseInput = z.object({
+  applicationId: z.string().uuid(),
+  phase: z.literal(1),
+  rowVersion: z.number().int().positive(),
+  payload: phaseOneApplicantSchema,
 });
 
 const proofInput = z.object({
@@ -478,6 +491,133 @@ export async function fulfilSettledPresalePayment(
     throw error;
   }
 }
+
+type ApplicationDraftResponse = {
+  applicationId: string;
+  applicationNumber: string;
+  status: "draft";
+  applicantType: "individual" | "company" | "trust";
+  rowVersion: number;
+  phaseCompleted: number;
+  schemaVersion: string;
+};
+
+interface CreatePresaleApplicationRequest {
+  inviteToken: string;
+  applicantType: "individual" | "company" | "trust";
+}
+
+interface SavePresaleApplicationPhaseRequest {
+  applicationId: string;
+  phase: number;
+  rowVersion: number;
+  payload: PhaseOneApplicant;
+}
+
+export const createPresaleApplication = api<CreatePresaleApplicationRequest, { application: ApplicationDraftResponse }>(
+  { method: "POST", path: "/presale/applications", expose: true },
+  async (request) => {
+    const payload = createApplicationInput.parse(request);
+    const session = await requireSession();
+    const invitation = await presaleDb.rawQueryRow<{ id: string; campaign_id: string; email: string | null }>(
+      `SELECT i.id, i.campaign_id, i.email
+       FROM presale_invitations i JOIN presale_campaigns c ON c.id = i.campaign_id
+       WHERE i.token_hash = $1 AND i.status = 'active' AND (i.expires_at IS NULL OR i.expires_at > now())
+         AND c.status IN ('draft', 'active', 'paused')`,
+      hashSecret(payload.inviteToken),
+    );
+    if (!invitation) throw APIError.permissionDenied("A valid private invitation is required");
+    if (invitation.email && normalizeEmail(invitation.email) !== normalizeEmail(session.user.email)) {
+      throw APIError.permissionDenied("This invitation belongs to another account");
+    }
+
+    const applicationId = crypto.randomUUID();
+    const applicationNumber = `KSA-${crypto.randomUUID().slice(0, 8).toUpperCase()}-${Date.now().toString(36).toUpperCase()}`;
+    await presaleDb.rawExec(
+      `INSERT INTO presale_applications
+         (id, application_number, external_profile_id, campaign_id, invitation_id, applicant_type)
+       VALUES ($1,$2,$3,$4,$5,$6)
+       ON CONFLICT DO NOTHING`,
+      applicationId, applicationNumber, session.profile.id, invitation.campaign_id, invitation.id, payload.applicantType,
+    );
+    const row = await presaleDb.rawQueryRow<{
+      id: string; application_number: string; status: "draft"; applicant_type: "individual" | "company" | "trust";
+      row_version: number; phase_completed: number;
+    }>(
+      `SELECT id, application_number, status, applicant_type, row_version, phase_completed
+       FROM presale_applications
+       WHERE external_profile_id = $1 AND campaign_id = $2
+         AND status NOT IN ('withdrawn','expired','superseded','compliance_rejected','exco_rejected')
+       ORDER BY created_at DESC LIMIT 1`,
+      session.profile.id, invitation.campaign_id,
+    );
+    if (!row || row.status !== "draft") throw APIError.failedPrecondition("The current application cannot be edited as a draft");
+    return { application: { applicationId: row.id, applicationNumber: row.application_number, status: "draft",
+      applicantType: row.applicant_type, rowVersion: Number(row.row_version), phaseCompleted: row.phase_completed,
+      schemaVersion: INVESTOR_APPLICATION_SCHEMA_VERSION } };
+  },
+);
+
+export const savePresaleApplicationPhase = api<SavePresaleApplicationPhaseRequest, { application: ApplicationDraftResponse }>(
+  { method: "PATCH", path: "/presale/applications/:applicationId/phases/:phase", expose: true },
+  async (request) => {
+    const payload = saveApplicationPhaseInput.parse(request);
+    const session = await requireSession();
+    const encrypted = encryptInvestorApplication(payload.payload);
+    const payloadHash = createNodeHash("sha256").update(JSON.stringify(payload.payload)).digest("hex");
+    const versionId = crypto.randomUUID();
+    const tx = await presaleDb.begin();
+    try {
+      const application = await tx.rawQueryRow<{
+        id: string; application_number: string; status: string; applicant_type: "individual" | "company" | "trust";
+        current_version: number; row_version: number;
+      }>(
+        `SELECT id, application_number, status, applicant_type, current_version, row_version
+         FROM presale_applications WHERE id = $1 AND external_profile_id = $2 FOR UPDATE`,
+        payload.applicationId, session.profile.id,
+      );
+      if (!application) throw APIError.notFound("Investor application not found");
+      if (application.status !== "draft") throw APIError.failedPrecondition("Submitted applications cannot be edited");
+      if (Number(application.row_version) !== payload.rowVersion) throw APIError.aborted("The application changed; reload before saving");
+      if (application.applicant_type !== payload.payload.applicantType) {
+        throw APIError.invalidArgument("Applicant type must match the application draft");
+      }
+      const nextVersion = application.current_version + 1;
+      await tx.rawExec(
+        `UPDATE presale_application_versions SET status = 'superseded'
+         WHERE application_id = $1 AND status = 'draft'`, application.id,
+      );
+      await tx.rawExec(
+        `INSERT INTO presale_application_versions
+           (id, application_id, version, schema_version, status, public_summary,
+            payload_ciphertext, payload_nonce, payload_auth_tag, encryption_key_version, payload_sha256,
+            created_by_profile_id, created_by_user_id)
+         VALUES ($1,$2,$3,$4,'draft',$5::jsonb,$6,$7,$8,'v1',$9,$10,$11)`,
+        versionId, application.id, nextVersion, INVESTOR_APPLICATION_SCHEMA_VERSION,
+        JSON.stringify({ applicantType: payload.payload.applicantType, phaseOneComplete: true }),
+        encrypted.ciphertext, encrypted.nonce, encrypted.authTag, payloadHash, session.profile.id, session.user.id,
+      );
+      const updated = await tx.rawQueryRow<{ row_version: number }>(
+        `UPDATE presale_applications SET current_version = $2, phase_completed = GREATEST(phase_completed, 1),
+           completion_percent = GREATEST(completion_percent, 16), row_version = row_version + 1, updated_at = now()
+         WHERE id = $1 RETURNING row_version`, application.id, nextVersion,
+      );
+      await tx.rawExec(
+        `INSERT INTO presale_application_events
+           (id, application_id, application_version_id, event_type, actor_type, actor_id, safe_metadata)
+         VALUES ($1,$2,$3,'phase_saved','applicant',$4,$5::jsonb)`,
+        crypto.randomUUID(), application.id, versionId, session.profile.id, JSON.stringify({ phase: 1, schemaVersion: INVESTOR_APPLICATION_SCHEMA_VERSION }),
+      );
+      await tx.commit();
+      return { application: { applicationId: application.id, applicationNumber: application.application_number, status: "draft",
+        applicantType: application.applicant_type, rowVersion: Number(updated?.row_version ?? payload.rowVersion + 1), phaseCompleted: 1,
+        schemaVersion: INVESTOR_APPLICATION_SCHEMA_VERSION } };
+    } catch (error) {
+      await tx.rollback();
+      throw error;
+    }
+  },
+);
 
 export const getPresaleOffer = api<
   { inviteToken: string },

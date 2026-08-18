@@ -230,8 +230,8 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
           </div>
           <div>
             <p className="presale-eyebrow">KaSiShares founding allocation</p>
-            <h1 className="presale-display mt-3 text-4xl font-black tracking-tight text-white sm:text-6xl">Own a stake in the ecosystem we are building together.</h1>
-            <p className="presale-lede mt-4 max-w-2xl text-lg leading-8">Reserve your KaSiShares allocation through a controlled private presale. Review the campaign terms before any payment is made.</p>
+            <h1 className="presale-display mt-3 text-4xl font-black tracking-tight text-white sm:text-6xl">{offer.name}</h1>
+            <p className="presale-lede mt-4 max-w-2xl text-lg leading-8">Own a stake in the ecosystem we are building together. Review the server-issued private allocation terms before any payment is made.</p>
           </div>
           <div className="presale-motifs" aria-label="Own, grow, prosper, better together">
             {(["own", "grow", "prosper", "better"] as const).map((value) => (
