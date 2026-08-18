@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Image from "next/image";
 import { motion } from "framer-motion";
 import {
   Coins, TrendingUp, Award, FileText, Loader2, Sparkles, DollarSign,
@@ -325,44 +326,53 @@ export function SharesView() {
   return (
     <div className="space-y-6 max-w-6xl mx-auto">
       <ActivePresaleCampaigns />
-      {/* KaSiShares campaign-inspired presentation only. Author: Klaasvaakie ( |╲ ) */}
-      <section className="relative overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 px-5 py-6 text-slate-50 shadow-xl sm:px-7 sm:py-8">
-        <div className="pointer-events-none absolute -right-16 -top-20 h-64 w-64 rounded-full bg-amber-400/15 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-24 left-1/3 h-56 w-56 rounded-full bg-cyan-400/10 blur-3xl" />
-        <div className="relative flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-          <div className="max-w-2xl">
-            <div className="mb-3 flex flex-wrap items-center gap-2 text-[11px] font-bold uppercase tracking-[0.18em] text-amber-300">
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-300/30 bg-amber-300/10 px-2.5 py-1"><ShieldCheck className="h-3.5 w-3.5" /> Private shareholding</span>
-              <span className="text-slate-400">Own · Grow · Prosper · Together</span>
+      {/* The member portfolio uses the approved KaSiShares campaign assets without changing server authority. Author: Klaasvaakie ( |╲ ) */}
+      <section className="relative overflow-hidden rounded-[1.75rem] border border-[#d7a72d]/35 bg-[linear-gradient(135deg,#0f172a_0%,#172554_48%,#263470_100%)] px-5 py-6 text-slate-50 shadow-2xl shadow-blue-950/25 sm:px-7 sm:py-8 lg:px-9">
+        <div className="pointer-events-none absolute -right-16 -top-20 h-72 w-72 rounded-full bg-[#f8d86a]/15 blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-24 left-1/3 h-64 w-64 rounded-full bg-indigo-400/15 blur-3xl" />
+        <div className="relative grid min-w-0 gap-8 lg:grid-cols-[minmax(0,1.1fr)_minmax(18rem,.9fr)] lg:items-end">
+          <div className="min-w-0">
+            <div className="mb-5 flex flex-wrap items-center gap-2 text-[10px] font-bold uppercase tracking-[0.18em] text-[#f8d86a] sm:text-[11px]">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-[#f8d86a]/35 bg-[#f8d86a]/10 px-3 py-1.5"><ShieldCheck className="h-3.5 w-3.5" /> Private member shareholding</span>
+              <span className="text-indigo-200">Server-backed portfolio</span>
             </div>
-            <div className="flex items-center gap-3">
-              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-amber-300 to-amber-500 text-slate-950 shadow-lg shadow-amber-500/20"><Coins className="h-5 w-5" /></div>
-              <div>
-                <h2 className="text-3xl font-black tracking-tight sm:text-4xl">KasiShares</h2>
-                <p className="mt-1 text-sm leading-6 text-slate-300">Your private-share portfolio, certificates and current phase information in one place.</p>
-              </div>
+            <Image src="/kasishares-logo.png" alt="KaSiShares — Own. Grow. Prosper. Together." width={330} height={125} className="h-auto w-full max-w-[330px] object-contain object-left" priority />
+            <h2 className="mt-5 max-w-3xl bg-gradient-to-r from-[#f8d86a] via-[#d7a72d] to-[#a96f08] bg-clip-text text-3xl font-black leading-tight tracking-[-0.04em] text-transparent sm:text-4xl lg:text-5xl">
+              Own a stake in the ecosystem we are building together.
+            </h2>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-indigo-100 sm:text-base">Your private-share portfolio, certificates and current phase information—bound to the authoritative KaSiHub shares ledger.</p>
+            <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4" aria-label="Own, grow, prosper, better together">
+              {(["own", "grow", "prosper", "better"] as const).map((value) => (
+                <div key={value} className="rounded-2xl border border-white/10 bg-white/[0.05] p-2 backdrop-blur-sm">
+                  <Image src={`/kasishares-${value}.png`} alt={`${value[0].toUpperCase()}${value.slice(1)}.`} width={180} height={180} className="mx-auto h-auto w-full max-w-[135px]" />
+                </div>
+              ))}
             </div>
-            <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-4">
+          </div>
+          <div className="min-w-0 rounded-3xl border border-white/10 bg-[#080f2c]/55 p-4 shadow-xl backdrop-blur-md sm:p-5">
+            <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#f8d86a]">Your KaSiShares position</p>
+            <div className="mt-4 grid grid-cols-2 gap-2">
               {[
                 ["Your holding", `${data.totalShares.toLocaleString()} shares`],
                 ["Current value", fmtUSD(data.totalValue)],
                 ["Open phase", activePhase ? `Phase ${activePhase.phase}` : "Not open"],
                 ["Certificates", `${kasiActiveCount} active`],
               ].map(([label, value]) => (
-                <div key={label} className="rounded-xl border border-white/10 bg-white/[0.06] px-3 py-2.5 backdrop-blur-sm">
-                  <p className="text-[10px] font-medium uppercase tracking-wide text-slate-400">{label}</p>
+                <div key={label} className="min-w-0 rounded-xl border border-white/10 bg-white/[0.06] px-3 py-3">
+                  <p className="text-[10px] font-medium uppercase tracking-wide text-indigo-200">{label}</p>
                   <p className="mt-1 text-sm font-bold text-white">{value}</p>
                 </div>
               ))}
             </div>
+            <Button
+              onClick={() => setBuyOpen(true)}
+              disabled={!activePhase}
+              className="mt-4 min-h-12 w-full bg-gradient-to-r from-[#f8d86a] via-[#d7a72d] to-[#b57b16] font-black text-[#111936] shadow-lg shadow-amber-950/20 hover:brightness-105"
+            >
+              <Coins className="mr-1.5 h-4 w-4" /> Buy KaSiShares <ArrowRight className="ml-1.5 h-4 w-4" />
+            </Button>
+            <p className="mt-3 text-xs leading-5 text-indigo-200">Purchases remain controlled by the existing open-phase and server validation rules.</p>
           </div>
-          <Button
-            onClick={() => setBuyOpen(true)}
-            disabled={!activePhase}
-            className="shrink-0 bg-amber-400 text-slate-950 hover:bg-amber-300"
-          >
-            <Coins className="mr-1.5 h-4 w-4" /> Buy shares <ArrowRight className="ml-1.5 h-4 w-4" />
-          </Button>
         </div>
       </section>
 
