@@ -60,8 +60,8 @@ export function MobileDashboardView() {
         <Image src="/kasi-township-bg.png" alt="Blue KaSiHUB township background" fill sizes="(max-width: 520px) 100vw, 520px" priority className="object-cover opacity-95 dark:hidden" />
         <Image src="/kasi-energy-bg.webp" alt="Blue and orange KaSiHUB energy" fill sizes="(max-width: 520px) 100vw, 520px" priority className="hidden object-cover opacity-65 dark:block" />
         <div className="absolute inset-0 bg-[#002b9c]/25 dark:bg-black/25" />
-        <button aria-label="Open menu" onClick={() => setSidebarOpen(true)} className="absolute left-4 top-4 z-20 grid h-9 w-9 place-items-center rounded-full bg-black/35 text-white backdrop-blur-sm"><Menu className="h-6 w-6" /></button>
-        <button aria-label="Notifications" onClick={() => setView("vouchers")} className="absolute right-4 top-4 z-20 grid h-9 w-9 place-items-center rounded-full bg-black/35 text-white backdrop-blur-sm"><Bell className="h-5 w-5" /></button>
+        <button aria-label="Open menu" onClick={() => setSidebarOpen(true)} className="absolute left-4 top-4 z-20 grid h-11 w-11 place-items-center rounded-full bg-black/35 text-white backdrop-blur-sm"><Menu className="h-6 w-6" /></button>
+        <button aria-label="Notifications" onClick={() => setView("vouchers")} className="absolute right-4 top-4 z-20 grid h-11 w-11 place-items-center rounded-full bg-black/35 text-white backdrop-blur-sm"><Bell className="h-5 w-5" /></button>
         <div className="relative flex justify-center py-1">
           <Image src="/kasihub-logo-20260812-v2.png" alt="KaSiHUB" width={265} height={150} priority style={{ width: "72%", height: "auto" }} className="max-w-[300px] object-contain drop-shadow-[0_8px_16px_rgba(0,0,0,.7)]" />
         </div>
@@ -75,7 +75,7 @@ export function MobileDashboardView() {
               <p className="text-[11px] text-white/70">Welcome to KaSiHUB</p>
             </div>
           </div>
-          <button onClick={() => setView("ecosystem")} className="flex shrink-0 items-center gap-1.5 rounded-full border border-white/30 bg-[#071e58]/80 px-3 py-1.5 text-[11px] font-bold shadow-lg">
+          <button onClick={() => setView("ecosystem")} className="flex min-h-11 shrink-0 items-center gap-1.5 rounded-full border border-white/30 bg-[#071e58]/80 px-3 py-1.5 text-[11px] font-bold shadow-lg">
             <Crown className="h-3.5 w-3.5 text-[#ffd028]" /> KaSi Member
           </button>
         </div>
@@ -115,7 +115,7 @@ export function MobileDashboardView() {
           <Crown className="absolute bottom-4 right-6 z-10 h-16 w-16 text-[#ffc400]" strokeWidth={1.4} />
         </button>
 
-        <div className="mt-4 flex items-center justify-between"><h3 className="text-xs font-black text-slate-900 dark:text-white">Popular categories</h3><button onClick={() => setView("marketplace")} className="text-[10px] font-bold text-blue-600 dark:text-blue-400">View all</button></div>
+        <div className="mt-4 flex items-center justify-between"><h3 className="text-xs font-black text-slate-900 dark:text-white">Popular categories</h3><button onClick={() => setView("marketplace")} className="min-h-11 px-2 text-[10px] font-bold text-blue-600 dark:text-blue-400">View all</button></div>
         <div className="mt-2 grid grid-cols-5 gap-2">
           {categories.map(({ label, icon: Icon, color }) => <button key={label} onClick={() => setView("marketplace")} className="flex min-w-0 flex-col items-center rounded-xl bg-white px-1 py-2 shadow-sm ring-1 ring-slate-200 dark:bg-[#0c131d] dark:ring-[#23466a]"><Icon className={`h-7 w-7 ${color}`} /><span className="mt-1 text-[7px] font-bold leading-tight text-slate-700 dark:text-slate-200">{label}</span></button>)}
         </div>
