@@ -92,12 +92,39 @@ const calculatorRetailers = categories.flatMap((category) =>
 
 export function RetailerTabs() {
   const [activeCategory, setActiveCategory] = useState<Category>("TakeAway/Restuarant");
-  const [selectedRetailerValue, setSelectedRetailerValue] = useState(calculatorRetailers[0].value);
-  const [monthlySpend, setMonthlySpend] = useState("");
-  const selectedRetailer = calculatorRetailers.find((retailer) => retailer.value === selectedRetailerValue) ?? calculatorRetailers[0];
-  const validMonthlySpend = Math.max(0, Number.parseFloat(monthlySpend) || 0);
-  const monthlySaving = validMonthlySpend * (selectedRetailer.rate / 100);
+  const [calculatorRows, setCalculatorRows] = useState(() =>
+    calculatorRetailers.slice(0, 6).map((retailer, index) => ({
+      id: index,
+      retailerValue: retailer.value,
+      monthlySpend: "",
+    })),
+  );
+  const calculatorSelections = calculatorRows.map((row) => ({
+    ...row,
+    retailer: calculatorRetailers.find((retailer) => retailer.value === row.retailerValue) ?? calculatorRetailers[0],
+  }));
+  const totalMonthlySpend = calculatorSelections.reduce(
+    (total, row) => total + Math.max(0, Number.parseFloat(row.monthlySpend) || 0),
+    0,
+  );
+  const monthlySaving = calculatorSelections.reduce(
+    (total, row) => total + Math.max(0, Number.parseFloat(row.monthlySpend) || 0) * (row.retailer.rate / 100),
+    0,
+  );
   const annualSaving = monthlySaving * 12;
+
+  const updateCalculatorRow = (id: number, field: "retailerValue" | "monthlySpend", value: string) => {
+    setCalculatorRows((rows) => rows.map((row) => (row.id === id ? { ...row, [field]: value } : row)));
+  };
+
+  const addCalculatorRow = () => {
+    setCalculatorRows((rows) => {
+      const nextRetailer = calculatorRetailers[rows.length % calculatorRetailers.length];
+      const nextId = rows.reduce((largestId, row) => Math.max(largestId, row.id), -1) + 1;
+
+      return [...rows, { id: nextId, retailerValue: nextRetailer.value, monthlySpend: "" }];
+    });
+  };
 
   return (
     <section className="kp-retailer-tabs" aria-label="Participating retailer categories">
@@ -113,7 +140,13 @@ export function RetailerTabs() {
             role="tab"
             type="button"
           >
-            {category}
+            <span>{category}</span>
+            <span
+              className="kp-tab-count"
+              aria-label={`${retailerLogos[category].length} ${retailerLogos[category].length === 1 ? "retailer" : "retailers"}`}
+            >
+              {retailerLogos[category].length}
+            </span>
           </button>
         ))}
       </div>
@@ -171,55 +204,67 @@ export function RetailerTabs() {
         <div className="kp-savings-calculator-copy">
           <span className="kp-calculator-kicker">Cashback calculator</span>
           <h2 id="kp-savings-calculator-title">See what your spending could put back in your pocket.</h2>
-          <p>Choose a participating retailer and enter your estimated monthly spend. We&apos;ll calculate the potential monthly and annual cashback using the displayed retailer rate.</p>
+          <p>Add your estimated monthly spend across at least six participating retailers. We&apos;ll combine their displayed cashback rates into one estimated KaSiPay Wallet saving.</p>
         </div>
 
         <div className="kp-calculator-card">
-          <div className="kp-calculator-fields">
-            <label>
-              <span>Retailer and cashback rate</span>
-              <select value={selectedRetailerValue} onChange={(event) => setSelectedRetailerValue(event.target.value)}>
-                {categories.map((category) => (
-                  <optgroup key={category} label={category}>
-                    {calculatorRetailers.filter((retailer) => retailer.category === category).map((retailer) => (
-                      <option key={retailer.value} value={retailer.value}>
-                        {retailer.name} — {formatCashback(retailer.cashback ?? "0%")}
-                      </option>
-                    ))}
-                  </optgroup>
-                ))}
-              </select>
-            </label>
-
-            <label>
-              <span>Estimated monthly spend</span>
-              <div className="kp-currency-input">
-                <span aria-hidden="true">R</span>
-                <input
-                  inputMode="decimal"
-                  min="0"
-                  onChange={(event) => setMonthlySpend(event.target.value)}
-                  placeholder="2 500"
-                  step="100"
-                  type="number"
-                  value={monthlySpend}
-                />
-              </div>
-            </label>
+          <div className="kp-calculator-list-header" aria-hidden="true">
+            <span>Retailer and cashback rate</span>
+            <span>Estimated monthly spend</span>
           </div>
 
-          <div className="kp-calculator-result" aria-live="polite">
-            <div className="kp-calculator-retailer">
-              <Image src={selectedRetailer.src} alt="" width={76} height={76} />
-              <div>
-                <span>{selectedRetailer.category}</span>
-                <strong>{selectedRetailer.name}</strong>
-                <small>{formatCashback(selectedRetailer.cashback ?? "0%")} cashback</small>
+          <div className="kp-calculator-rows">
+            {calculatorSelections.map((row, index) => (
+              <div className="kp-calculator-row" key={row.id}>
+                <label>
+                  <span className="sr-only">Retailer {index + 1} and cashback rate</span>
+                  <select
+                    aria-label={`Retailer ${index + 1} and cashback rate`}
+                    value={row.retailerValue}
+                    onChange={(event) => updateCalculatorRow(row.id, "retailerValue", event.target.value)}
+                  >
+                    {categories.map((category) => (
+                      <optgroup key={category} label={category}>
+                        {calculatorRetailers.filter((retailer) => retailer.category === category).map((retailer) => (
+                          <option key={retailer.value} value={retailer.value}>
+                            {retailer.name} — {formatCashback(retailer.cashback ?? "0%")}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </select>
+                </label>
+
+                <label>
+                  <span className="sr-only">Estimated monthly spend at {row.retailer.name}</span>
+                  <div className="kp-currency-input">
+                    <span aria-hidden="true">R</span>
+                    <input
+                      aria-label={`Estimated monthly spend at ${row.retailer.name}`}
+                      inputMode="decimal"
+                      min="0"
+                      onChange={(event) => updateCalculatorRow(row.id, "monthlySpend", event.target.value)}
+                      placeholder="0"
+                      step="100"
+                      type="number"
+                      value={row.monthlySpend}
+                    />
+                  </div>
+                </label>
               </div>
+            ))}
+          </div>
+
+          <button className="kp-add-retailer" onClick={addCalculatorRow} type="button">+ Add another retailer</button>
+
+          <div className="kp-calculator-result" aria-live="polite">
+            <div className="kp-wallet-summary">
+              <span>Estimated qualifying monthly spend</span>
+              <strong>{formatZar(totalMonthlySpend)}</strong>
             </div>
             <div className="kp-saving-figures">
-              <div><span>Estimated monthly saving</span><strong>{formatZar(monthlySaving)}</strong></div>
-              <div><span>Estimated annual saving</span><strong>{formatZar(annualSaving)}</strong></div>
+              <div><span>Estimated monthly cashback to your KaSiPay Wallet</span><strong>{formatZar(monthlySaving)}</strong></div>
+              <div><span>Estimated annual cashback</span><strong>{formatZar(annualSaving)}</strong></div>
             </div>
             <p className="kp-calculator-note">Estimate only. Actual cashback depends on qualifying purchases, retailer terms and the live offer available when you transact.</p>
           </div>

@@ -323,7 +323,7 @@ export function RegistrationWizard() {
     <Dialog open onOpenChange={(o) => !o && !submitting && closeRegistration()}>
       <DialogContent
         showCloseButton={false}
-        className="w-[80vw] max-w-[80vw] sm:max-w-[80vw] max-h-[92vh] overflow-y-auto p-0 gap-0 scrollbar-kasi"
+        className="max-h-[92vh] w-[calc(100vw-2rem)] max-w-[calc(100vw-2rem)] gap-0 overflow-y-auto p-0 scrollbar-kasi sm:w-[80vw] sm:max-w-[80vw]"
       >
         <DialogHeader className="px-6 pt-6 pb-0">
           <div className="flex items-center justify-between">

@@ -54,6 +54,8 @@ function Button({
   return (
     <Comp
       data-slot="button"
+      data-size={size ?? "default"}
+      data-variant={variant ?? "default"}
       data-kasi-action={isAction ? "true" : undefined}
       data-kasi-tone={isAction ? resolvedTone : undefined}
       className={cn(buttonVariants({ variant, size, className }))}
