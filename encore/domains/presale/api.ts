@@ -552,6 +552,9 @@ export const createPresaleApplication = api<CreatePresaleApplicationRequest, { a
       session.profile.id, invitation.campaign_id,
     );
     if (!row || row.status !== "draft") throw APIError.failedPrecondition("The current application cannot be edited as a draft");
+    if (row.applicant_type !== payload.applicantType) {
+      throw APIError.failedPrecondition("The existing application draft has a different applicant type");
+    }
     return { application: { applicationId: row.id, applicationNumber: row.application_number, status: "draft",
       applicantType: row.applicant_type, rowVersion: Number(row.row_version), phaseCompleted: row.phase_completed,
       schemaVersion: INVESTOR_APPLICATION_SCHEMA_VERSION } };
