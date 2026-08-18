@@ -104,7 +104,7 @@ const createApplicationInput = z.object({
 
 const saveApplicationPhaseInput = z.object({
   applicationId: z.string().uuid(),
-  phase: z.literal(1),
+  phase: z.coerce.number().int().min(1).max(1),
   rowVersion: z.number().int().positive(),
   payload: phaseOneApplicantSchema,
 });
