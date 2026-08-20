@@ -22,7 +22,8 @@ Current international citizenship classifications:
 
 For these members:
 - KYC authority: Kasihub international KYC.
-- Payment rail: provider-independent USDT on-chain attestation.
+- Inbound USDT point: an approved Remitano deposit route for each supported network.
+- Settlement evidence: matching canonical on-chain evidence and Remitano custody evidence.
 - Initial supported blockchain families planned: TRON/TRC-20 and BSC/BEP-20.
 - KYC must be verified before regulated/paid international actions are allowed.
 
@@ -204,12 +205,13 @@ Rotation retires the previous active configuration for that network/currency and
 
 ### Remitano collection routes
 
-Remitano may be selected as the collection provider for an approved
-international USDT route. A route is still locked by KaSiHub to one network,
+Remitano is the inbound collection provider for approved international USDT
+routes. A route is still locked by KaSiHub to one network,
 receiver, exact USDT contract, decimal precision, confirmation policy and
-payment-intent TTL. A Remitano provider event, balance change or payment URL
-does not settle a payment obligation on its own: KaSiHub's chain-evidence
-verification remains authoritative.
+payment-intent TTL. Every Remitano route requires custody reconciliation. A
+Remitano provider event, balance change or payment URL does not settle a payment
+obligation on its own: matching canonical chain evidence and Remitano deposit
+evidence are required before KaSiHub authoritatively settles the obligation.
 
 TRON and BSC routes must be configured separately. The administrator enters
 the controlled receiving address through the privileged receiving-config API;
@@ -326,13 +328,13 @@ The payments schema includes request/idempotency hashes and unique event keys so
 1. Product domain creates authoritative payment obligation.
 2. Member has approved Kasihub international KYC.
 3. Member requests a USDT intent for an obligation and supported network.
-4. Server selects approved receiving configuration and locks payment terms.
-5. Member transfers USDT.
+4. Server selects an approved Remitano receiving configuration and locks payment terms.
+5. Member transfers USDT to the locked Remitano deposit address.
 6. Member submits transaction hash.
 7. Submission queues verifier work; no confirmation occurs yet.
 8. Verifier obtains canonical chain evidence.
-9. Required confirmations are reached.
-10. Kasihub settles atomically/idempotently.
+9. Required confirmations are reached and the Remitano custody adapter confirms the same deposit.
+10. Kasihub settles atomically/idempotently only after both evidence gates pass.
 11. Durable settled event triggers product fulfilment.
 12. Product domain fulfils shares/membership/order without duplicating financial verification logic.
 
@@ -351,17 +353,20 @@ Author: Klaasvaakie ( |╲ )
 
 ## Remitano boundary
 
-Remitano is not the inbound USDT source of truth.
+Remitano is the approved inbound USDT receiving and custody point. It owns the
+deposit account and reports custody evidence; it does not own KaSiHub order,
+ledger, fulfilment or settlement state.
 
-Inbound international settlement must be based on blockchain evidence.
+Inbound settlement requires two matching facts: canonical blockchain evidence
+and Remitano custody evidence. Neither source can settle a payment alone.
 
 ### Optional custody reconciliation
 
 Author: Klaasvaakie ( |╲ )
 
-Receiving routes may now opt into a custody-reconciliation gate without adding
-another payment state machine. Existing and direct KaSiHub wallet routes remain
-unchanged. When the flag is enabled, canonical blockchain verification must
+Remitano receiving routes must use the custody-reconciliation gate without
+adding another payment state machine. Existing direct KaSiHub wallet routes
+remain available for controlled fallback only. Canonical blockchain verification must
 pass first and a server-side custody adapter must independently return the same
 provider, transaction hash, receiver, currency, and exact amount before central
 Payments may settle the obligation.
@@ -374,7 +379,9 @@ The default custody reader deliberately fails closed until a real provider
 adapter is installed. Enabling the route policy before that adapter is ready
 will keep payments pending rather than approving them incorrectly.
 
-Remitano may later be introduced behind a replaceable outbound payout adapter only after inbound payment settlement is stable. Provider credentials must be server-only managed secrets.
+Remitano provider credentials must be server-only managed secrets. Outbound
+payouts remain a separate, later adapter and must never be coupled to inbound
+deposit detection or settlement.
 
 ## Security invariants
 
@@ -425,7 +432,7 @@ Before production rollout, validate:
 7. KasiShares first production integration.
 8. Admin operations/observability.
 9. Controlled production pilot.
-10. Remitano outbound payout adapter, if still required.
+10. Remitano outbound payout adapter, if still required; inbound Remitano collection is part of steps 4-6.
 
 ## Known unresolved items
 
