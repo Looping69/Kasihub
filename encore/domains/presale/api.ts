@@ -97,12 +97,30 @@ const orderInput = z.object({
     informationDeclarationAccepted: z.literal(true),
   }),
 }).superRefine((value, context) => {
-  if (value.buyerPhone?.trim() !== value.investorApplication.confirmMobileNumber) {
+  const buyerPhone = value.buyerPhone?.trim();
+  const confirmPhone = value.investorApplication.confirmMobileNumber.trim();
+
+  if (!buyerPhone) {
+    context.addIssue({ code: "custom", path: ["buyerPhone"], message: "Cellphone number is required" });
+  } else if (buyerPhone !== confirmPhone) {
     context.addIssue({ code: "custom", path: ["investorApplication", "confirmMobileNumber"], message: "Cellphone numbers must match" });
   }
+
+  for (const field of ["nationality", "occupation", "employer", "taxNumber"] as const) {
+    if (!value.investorApplication[field]?.trim()) {
+      context.addIssue({ code: "custom", path: ["investorApplication", field], message: "This field is required" });
+    }
+  }
+
   if (value.investorApplication.applicantType !== "individual") {
     for (const field of ["entityRegistrationNumber", "authorisedRepresentativeName", "authorisedRepresentativePosition"] as const) {
-      if (!value.investorApplication[field]?.trim()) context.addIssue({ code: "custom", path: ["investorApplication", field], message: `${field} is required` });
+      if (!value.investorApplication[field]?.trim()) {
+        context.addIssue({ code: "custom", path: ["investorApplication", field], message: "This field is required" });
+      }
+    }
+
+    if (value.investorApplication.applicantType === "company" && !value.investorApplication.vatNumber?.trim()) {
+      context.addIssue({ code: "custom", path: ["investorApplication", "vatNumber"], message: "VAT number is required for company applications" });
     }
   }
 });
