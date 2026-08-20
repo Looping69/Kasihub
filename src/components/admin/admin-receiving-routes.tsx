@@ -72,6 +72,7 @@ export function AdminReceivingRoutes() {
           decimals: Number(route.decimals),
           minimumConfirmations: Number(route.minimumConfirmations),
           intentTtlSeconds: Number(route.intentTtlSeconds),
+          custodyReconciliationRequired: true,
         }),
       });
       const data = await response.json() as { error?: string };
@@ -103,7 +104,7 @@ export function AdminReceivingRoutes() {
           <div><Label htmlFor="route-confirmations">Minimum confirmations</Label><Input id="route-confirmations" className="mt-1" inputMode="numeric" value={route.minimumConfirmations} onChange={(event) => setRoute({ ...route, minimumConfirmations: event.target.value })} /></div>
           <div><Label htmlFor="route-ttl">Payment window (seconds)</Label><Input id="route-ttl" className="mt-1" inputMode="numeric" value={route.intentTtlSeconds} onChange={(event) => setRoute({ ...route, intentTtlSeconds: event.target.value })} /></div>
         </div>
-        <div className="mt-4 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" /><span>Registering a route changes where future USDT payment obligations expect funds. It does not issue shares or activate a public campaign.</span></div>
+        <div className="mt-4 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" /><span>Remitano is the inbound USDT custodian. Every route requires matching on-chain and Remitano deposit evidence before KaSiHub can settle the obligation. Registering a route does not issue shares or activate a public campaign.</span></div>
         <Button className="mt-4 bg-emerald-600 hover:bg-emerald-700" disabled={saving || !route.addressReference || !route.tokenContract} onClick={register}>{saving ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Registering route</> : "Register receiving route"}</Button>
         {routes.length > 0 && <div className="mt-5 space-y-2"><p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Configured routes</p>{routes.map((configured) => <div className="rounded-md border bg-background p-3 text-xs" key={configured.id}><strong className="uppercase">{configured.network}</strong> · {configured.provider} · {configured.status}<br /><span className="font-mono text-muted-foreground">{configured.addressReference}</span><br /><span className="text-muted-foreground">Custody reconciliation: {configured.custodyReconciliationRequired ? "required before settlement" : "not required"}</span></div>)}</div>}
       </>}

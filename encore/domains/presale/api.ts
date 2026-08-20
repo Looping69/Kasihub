@@ -70,8 +70,9 @@ const orderInput = z.object({
     nationality: z.string().trim().min(2).max(100).optional(),
     occupation: z.string().trim().max(160).optional(),
     employer: z.string().trim().max(200).optional(),
-    alternativePhone: z.string().trim().max(40).optional(),
-    postalAddress: z.string().trim().max(500).optional(),
+    countryOfResidence: z.string().trim().min(2).max(100),
+    physicalAddress: z.string().trim().min(5).max(500),
+    confirmMobileNumber: z.string().trim().min(5).max(40),
     taxNumber: z.string().trim().max(100).optional(),
     taxResidenceCountry: z.string().trim().min(2).max(100).optional(),
     tin: z.string().trim().max(100).optional(),
@@ -95,6 +96,33 @@ const orderInput = z.object({
     suitabilityDeclarationAccepted: z.literal(true),
     informationDeclarationAccepted: z.literal(true),
   }),
+}).superRefine((value, context) => {
+  const buyerPhone = value.buyerPhone?.trim();
+  const confirmPhone = value.investorApplication.confirmMobileNumber.trim();
+
+  if (!buyerPhone) {
+    context.addIssue({ code: "custom", path: ["buyerPhone"], message: "Cellphone number is required" });
+  } else if (buyerPhone !== confirmPhone) {
+    context.addIssue({ code: "custom", path: ["investorApplication", "confirmMobileNumber"], message: "Cellphone numbers must match" });
+  }
+
+  for (const field of ["nationality", "occupation", "employer", "taxNumber"] as const) {
+    if (!value.investorApplication[field]?.trim()) {
+      context.addIssue({ code: "custom", path: ["investorApplication", field], message: "This field is required" });
+    }
+  }
+
+  if (value.investorApplication.applicantType !== "individual") {
+    for (const field of ["entityRegistrationNumber", "authorisedRepresentativeName", "authorisedRepresentativePosition"] as const) {
+      if (!value.investorApplication[field]?.trim()) {
+        context.addIssue({ code: "custom", path: ["investorApplication", field], message: "This field is required" });
+      }
+    }
+
+    if (value.investorApplication.applicantType === "company" && !value.investorApplication.vatNumber?.trim()) {
+      context.addIssue({ code: "custom", path: ["investorApplication", "vatNumber"], message: "VAT number is required for company applications" });
+    }
+  }
 });
 
 const createApplicationInput = z.object({
@@ -714,8 +742,11 @@ export const createPresaleOrder = api<CreatePresaleOrderRequest, { order: Presal
       const email = normalizeEmail(session.user.email);
       if (invitation.email && normalizeEmail(invitation.email) !== email) throw APIError.permissionDenied("This invitation belongs to a different email address");
       if (invitation.used_shares + payload.quantity > invitation.max_shares) throw APIError.failedPrecondition("The invitation share limit would be exceeded");
-      const campaignBefore = await tx.rawQueryRow<Pick<CampaignRow, "bonus_buy_one_get_one">>("SELECT bonus_buy_one_get_one FROM presale_campaigns WHERE id = $1 FOR UPDATE", invitation.campaign_id);
+      const campaignBefore = await tx.rawQueryRow<Pick<CampaignRow, "bonus_buy_one_get_one" | "share_phase_number">>("SELECT bonus_buy_one_get_one, share_phase_number FROM presale_campaigns WHERE id = $1 FOR UPDATE", invitation.campaign_id);
       if (!campaignBefore) throw APIError.notFound("Presale campaign not found");
+      if (campaignBefore.share_phase_number === 1 && payload.quantity > 300) {
+        throw APIError.invalidArgument("Phase 1 applications are limited to 300 paid shares");
+      }
       const issuedQuantity = issuedSharesForPresale(payload.quantity, campaignBefore.bonus_buy_one_get_one);
       const campaign = await tx.rawQueryRow<CampaignRow>(
         `UPDATE presale_campaigns SET reserved_shares = reserved_shares + $2, updated_at = now()

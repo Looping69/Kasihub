@@ -4,7 +4,12 @@ import * as log from "encore.dev/log";
 import { z } from "zod";
 import { auditDb, paymentsDb } from "../../resources";
 import { requireAdminAccess } from "../auth/access";
-import { RECEIVING_PROVIDERS, type ReceivingProvider, validateReceivingRoute } from "./receiving-config";
+import {
+  RECEIVING_PROVIDERS,
+  type ReceivingProvider,
+  validateReceivingProviderPolicy,
+  validateReceivingRoute,
+} from "./receiving-config";
 
 export interface ReceivingConfigurationRequest {
   provider?: ReceivingProvider;
@@ -29,11 +34,13 @@ const receivingConfigRequest = z.object({
   intentTtlSeconds: z.number().int().min(300).max(86_400),
   custodyReconciliationRequired: z.boolean().default(false),
 }).superRefine((value, context) => {
-  if (value.custodyReconciliationRequired && value.provider !== "remitano") {
+  try {
+    validateReceivingProviderPolicy(value.provider, value.custodyReconciliationRequired);
+  } catch (error) {
     context.addIssue({
       code: "custom",
       path: ["custodyReconciliationRequired"],
-      message: "Custody reconciliation requires a supported custody provider",
+      message: error instanceof Error ? error.message : "Invalid custody reconciliation policy",
     });
   }
 });

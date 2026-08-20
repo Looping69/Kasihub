@@ -37,12 +37,10 @@ type Order = {
 };
 
 const APPLICATION_PHASES = [
-  { title: "Tell us about you", description: "Investor identity and contact details", icon: UserRound },
+  { title: "Application details", description: "Applicant identity, contact and ownership details", icon: UserRound },
   { title: "Choose your investment", description: "Allocation and live server quote", icon: Landmark },
-  { title: "Tax and ownership", description: "Tax residence and beneficial ownership", icon: ClipboardCheck },
-  { title: "Funds and banking", description: "Source of funds and refund details", icon: Landmark },
-  { title: "Declarations", description: "Evidence readiness and investor confirmations", icon: FileCheck2 },
-  { title: "Review and reserve", description: "Confirm the terms before a reservation", icon: ShieldCheck },
+  { title: "Declarations", description: "Tax, funds, ownership and evidence confirmations", icon: FileCheck2 },
+  { title: "Terms and reserve", description: "Read and accept the terms before reservation", icon: ShieldCheck },
 ] as const;
 
 function statusLabel(status: string) {
@@ -67,6 +65,8 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
   const [txHash, setTxHash] = useState("");
   const [copied, setCopied] = useState(false);
   const [applicationPhase, setApplicationPhase] = useState(1);
+  const [applicantType, setApplicantType] = useState<"individual" | "company" | "trust">("individual");
+  const [termsRead, setTermsRead] = useState(false);
 
   useEffect(() => {
     // Development preview has static display data and cannot contact the BFF.
@@ -131,8 +131,9 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
             nationality: data.get("nationality") || undefined,
             occupation: data.get("occupation") || undefined,
             employer: data.get("employer") || undefined,
-            alternativePhone: data.get("alternativePhone") || undefined,
-            postalAddress: data.get("postalAddress") || undefined,
+            countryOfResidence: data.get("countryOfResidence") || undefined,
+            physicalAddress: data.get("physicalAddress") || undefined,
+            confirmMobileNumber: data.get("confirmMobileNumber") || undefined,
             taxNumber: data.get("taxNumber") || undefined,
             taxResidenceCountry: data.get("taxResidenceCountry") || undefined,
             tin: data.get("tin") || undefined,
@@ -207,7 +208,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
       invalid.focus();
       return;
     }
-    setApplicationPhase((phase) => Math.min(6, phase + 1));
+    setApplicationPhase((phase) => Math.min(4, phase + 1));
   }
 
   if (loading) return <Shell><p className="text-sm text-slate-400">Validating private invitation…</p></Shell>;
@@ -253,32 +254,35 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
 
         {!order ? (
           <Card className="presale-form-card min-w-0 text-white shadow-2xl shadow-black/20">
-            <CardHeader><p className="text-xs font-bold uppercase tracking-[.18em] text-amber-300">Investor application</p><h2 className="mt-2 font-semibold leading-none">{APPLICATION_PHASES[applicationPhase - 1].title}</h2><CardDescription className="text-slate-400">Step {applicationPhase} of 6 · {APPLICATION_PHASES[applicationPhase - 1].description}</CardDescription></CardHeader>
+            <CardHeader><p className="text-xs font-bold uppercase tracking-[.18em] text-amber-300">Investor application</p><h2 className="mt-2 font-semibold leading-none">{APPLICATION_PHASES[applicationPhase - 1].title}</h2><CardDescription className="text-slate-400">Step {applicationPhase} of 4 · {APPLICATION_PHASES[applicationPhase - 1].description}</CardDescription></CardHeader>
             <CardContent><form className="space-y-5" noValidate onSubmit={createOrder}>
               <ApplicationProgress phase={applicationPhase} />
               <div data-application-phase="1" hidden={applicationPhase !== 1} className="space-y-5">
               <div className="rounded-xl border border-sky-400/20 bg-sky-400/10 p-4 text-xs leading-5 text-sky-100">
                 <strong className="block text-sm text-white">Identity and KYC source</strong>
-                Your ID and proof-of-ID are verified through your selected KYC authority. The remaining investor-profile questions are optional at reservation stage and can be completed later when required by compliance.
+                All marked fields are compulsory. Identity evidence is still verified through the server-selected KYC authority and is never accepted from browser claims alone.
               </div>
               <Field label="Full legal name"><Input name="buyerName" required minLength={2} className="border-white/15 bg-black/20" /></Field>
               <Field label="Email address"><Input name="buyerEmail" type="email" required defaultValue={offer.invitationEmail} readOnly={Boolean(offer.invitationEmail)} className="border-white/15 bg-black/20" /></Field>
-              <Field label="Phone number (optional)"><Input name="buyerPhone" className="border-white/15 bg-black/20" /></Field>
+              <Field label="Cellphone number *"><Input name="buyerPhone" required className="border-white/15 bg-black/20" /></Field>
+              <Field label="Confirm cellphone number *"><Input name="confirmMobileNumber" required className="border-white/15 bg-black/20" /></Field>
               <SectionTitle>Investor identity</SectionTitle>
-              <Field label="Applicant type"><Select name="applicantType" required options={[["individual","Individual"],["company","Company"],["trust","Trust"]]} /></Field>
+              <Field label="Application type *"><select name="applicantType" required value={applicantType} onChange={(event) => setApplicantType(event.target.value as typeof applicantType)} className="h-10 w-full rounded-md border border-white/15 bg-slate-950 px-3 text-sm"><option value="individual">Individual application</option><option value="company">Company application</option><option value="trust">Trust application</option></select></Field>
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field label="Date of birth (individual)"><Input name="dateOfBirth" type="date" className="border-white/15 bg-black/20" /></Field>
-                <Field label="Nationality"><Input name="nationality" className="border-white/15 bg-black/20" /></Field>
-                <Field label="Occupation"><Input name="occupation" className="border-white/15 bg-black/20" /></Field>
-                <Field label="Employer"><Input name="employer" className="border-white/15 bg-black/20" /></Field>
-                <Field label="Alternative phone"><Input name="alternativePhone" className="border-white/15 bg-black/20" /></Field>
-                <Field label="Tax number"><Input name="taxNumber" className="border-white/15 bg-black/20" /></Field>
+                <Field label="Nationality *"><Input name="nationality" required className="border-white/15 bg-black/20" /></Field>
+                <Field label="Country of residence *"><Input name="countryOfResidence" required className="border-white/15 bg-black/20" /></Field>
+                <Field label="Occupation *"><Input name="occupation" required className="border-white/15 bg-black/20" /></Field>
+                <Field label="Employer *"><Input name="employer" required className="border-white/15 bg-black/20" /></Field>
+                <Field label="Tax number *"><Input name="taxNumber" required className="border-white/15 bg-black/20" /></Field>
               </div>
-              <Field label="Postal address"><textarea name="postalAddress" rows={2} className="w-full rounded-md border border-white/15 bg-black/20 px-3 py-2 text-sm" /></Field>
+              <Field label="Physical address *"><textarea name="physicalAddress" required rows={2} className="w-full rounded-md border border-white/15 bg-black/20 px-3 py-2 text-sm" /></Field>
+              {applicantType !== "individual" && <div className="grid gap-4 sm:grid-cols-2"><Field label={`${applicantType === "company" ? "Company" : "Trust"} registration number *`}><Input name="entityRegistrationNumber" required className="border-white/15 bg-black/20" /></Field>{applicantType === "company" && <Field label="VAT number *"><Input name="vatNumber" required className="border-white/15 bg-black/20" /></Field>}<Field label="Authorised representative *"><Input name="authorisedRepresentativeName" required className="border-white/15 bg-black/20" /></Field><Field label="Representative position *"><Input name="authorisedRepresentativePosition" required className="border-white/15 bg-black/20" /></Field></div>}
               </div>
               <div data-application-phase="2" hidden={applicationPhase !== 2} className="space-y-5">
               <SectionTitle>Investment</SectionTitle>
-              <Field label="Number of shares"><Input name="quantity" type="number" required min={1} max={Math.min(offer.invitationSharesRemaining, offer.sharesRemaining)} defaultValue={1} className="border-white/15 bg-black/20" /></Field>
+              <Field label="Phase 1 shares at $25 each *"><Input name="quantity" type="number" required min={1} max={Math.min(300, offer.invitationSharesRemaining, offer.sharesRemaining)} defaultValue={1} className="border-white/15 bg-black/20" /></Field>
+              <p className="text-xs text-emerald-200">Phase 1 is capped at 300 paid shares per application. Each paid share receives one bonus share free.</p>
               <div className="rounded-xl border border-amber-400/20 bg-amber-400/10 p-4 text-sm text-amber-100"><p className="font-semibold text-white">Server-authoritative quote</p><p className="mt-1">The current server quote is {totalPreview.toFixed(6)} USDT per paid share. Your final amount and payment window are locked only when the reservation is created.</p></div>
               </div>
               <div data-application-phase="3" hidden={applicationPhase !== 3} className="space-y-5">
@@ -294,8 +298,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
                 <Field label="Relationship to beneficial owner"><Input name="beneficialOwnerRelationship" className="border-white/15 bg-black/20" /></Field>
               </div>
               <Field label="Additional tax jurisdictions"><textarea name="additionalTaxJurisdictions" rows={2} className="w-full rounded-md border border-white/15 bg-black/20 px-3 py-2 text-sm" /></Field>
-              </div>
-              <div data-application-phase="4" hidden={applicationPhase !== 4} className="space-y-5">
+
               <SectionTitle>Source of funds</SectionTitle>
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field label="Primary source"><Select name="sourceOfFunds" options={SOURCE_OF_FUNDS} /></Field>
@@ -311,18 +314,19 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
                 <Field label="Account type"><Input name="bankAccountType" className="border-white/15 bg-black/20" /></Field>
                 <Field label="SWIFT/BIC"><Input name="bankSwift" className="border-white/15 bg-black/20" /></Field>
               </div>
-              </div>
-              <div data-application-phase="5" hidden={applicationPhase !== 5} className="space-y-5">
+
               <SectionTitle>Supporting documents and declarations</SectionTitle>
               <div className="rounded-xl border border-white/10 bg-black/20 p-4 text-sm leading-6 text-slate-300"><div className="flex gap-3"><FileCheck2 className="mt-0.5 h-5 w-5 shrink-0 text-amber-300" /><p>Keep your identity, address, tax and bank evidence ready. Secure document collection is handled only through the approved compliance workflow; this step does not upload or retain documents in your browser.</p></div></div>
               <Declaration name="amlDeclarationAccepted">I confirm that the investment funds are not proceeds of crime, money laundering, or terrorist financing.</Declaration>
               <Declaration name="suitabilityDeclarationAccepted">I understand that the investment is long-term, may be illiquid, returns are not guaranteed, and I may lose the invested capital.</Declaration>
               <Declaration name="informationDeclarationAccepted">I confirm that the investor information supplied is complete and accurate and that I will provide supporting information when requested.</Declaration>
               </div>
-              <div data-application-phase="6" hidden={applicationPhase !== 6} className="space-y-5">
-              <SectionTitle>Review and reserve</SectionTitle>
-              <label className="flex items-start gap-3 text-xs leading-5 text-slate-300"><input name="termsAccepted" type="checkbox" required className="mt-1" />
+              <div data-application-phase="4" hidden={applicationPhase !== 4} className="space-y-5">
+              <SectionTitle>Terms and reservation</SectionTitle>
+              <div tabIndex={0} onScroll={(event) => { const node = event.currentTarget; if (node.scrollTop + node.clientHeight >= node.scrollHeight - 8) setTermsRead(true); }} className="h-56 overflow-y-auto rounded-xl border border-white/15 bg-black/30 p-4 text-xs leading-6 text-slate-300" aria-label="Investor terms"><p className="font-semibold text-white">Class B Share Offering — Investor Terms</p><p className="mt-3">You are applying for a private Phase 1 allocation at USD 25 per paid share, subject to the server-issued invitation, eligibility, KYC and compliance approval, available allocation and the governing offering documents.</p><p className="mt-3">The buy-one-get-one bonus applies only to Phase 1 and does not alter the rights attached to the paid or bonus shares. A reservation is not final incorporation, a share certificate, guaranteed liquidity or guaranteed return.</p><p className="mt-3">USDT payment must be sent only to the exact server-issued Remitano receiving route on the stated network. KaSiHub settles only after matching canonical blockchain and custody evidence. Wrong-network or wrong-token transfers may be irrecoverable.</p><p className="mt-3">Your application information must be accurate and may be verified. KaSiHub may request further evidence, reject an application, or pause settlement where legal, compliance, fraud, custody or reconciliation controls require it.</p><p className="mt-3">Scroll to the end to enable acceptance. The authoritative wording remains the version identified below and must be approved before production activation.</p><p className="mt-3 font-semibold text-amber-200">End of terms — version {offer.termsVersion}</p></div>
+              <label className="flex items-start gap-3 text-xs leading-5 text-slate-300"><input name="termsAccepted" type="checkbox" required disabled={!termsRead} className="mt-1" />
                 <span>I accept the presale reservation acknowledgement (version {offer.termsVersion}) and understand that blockchain confirmation is payment evidence, not a Share Subscription Agreement or final share certificate.</span></label>
+              {!termsRead && <p className="text-xs text-amber-200">Read and scroll through the complete terms to enable acceptance.</p>}
               </div>
               {error && <p className="text-sm text-red-300">{error}</p>}
               <div className="flex gap-3">
@@ -331,7 +335,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
                     <ChevronLeft className="mr-1 h-4 w-4" />Back
                   </Button>
                 )}
-                {applicationPhase < 6 ? <Button type="button" className="flex-1 bg-amber-400 font-bold text-slate-950 hover:bg-amber-300" onClick={advanceApplication}>Continue<ChevronRight className="ml-1 h-4 w-4" /></Button> : devPreview ? <Button type="button" className="flex-1 bg-slate-500 font-bold text-white" disabled>Read-only preview — no reservation</Button> : <Button className="flex-1 bg-amber-400 font-bold text-slate-950 hover:bg-amber-300" disabled={submitting}>{submitting ? "Creating reservation…" : "Reserve and view payment"}</Button>}
+                {applicationPhase < 4 ? <Button type="button" className="flex-1 bg-amber-400 font-bold text-slate-950 hover:bg-amber-300" onClick={advanceApplication}>Continue<ChevronRight className="ml-1 h-4 w-4" /></Button> : devPreview ? <Button type="button" className="flex-1 bg-slate-500 font-bold text-white" disabled>Read-only preview — no reservation</Button> : <Button className="flex-1 bg-amber-400 font-bold text-slate-950 hover:bg-amber-300" disabled={submitting || !termsRead}>{submitting ? "Creating reservation…" : "Reserve and view payment"}</Button>}
               </div>
             </form></CardContent>
           </Card>
@@ -372,7 +376,7 @@ function Metric({ label, value }: { label: string; value: string }) {
 }
 
 function ApplicationProgress({ phase }: { phase: number }) {
-  return <ol aria-label="Investor application progress" className="grid grid-cols-6 gap-1.5">{APPLICATION_PHASES.map((item, index) => {
+  return <ol aria-label="Investor application progress" className="grid grid-cols-4 gap-1.5">{APPLICATION_PHASES.map((item, index) => {
     const current = index + 1 === phase;
     const complete = index + 1 < phase;
     const Icon = item.icon;
