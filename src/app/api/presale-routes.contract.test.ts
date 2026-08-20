@@ -30,6 +30,7 @@ import { GET as getOffer } from "./presale/offer/route";
 import { POST as createOrder } from "./presale/orders/route";
 import { POST as uploadKycDocument } from "./presale/kyc-documents/route";
 import { GET as getKycVerification } from "./presale/kyc-status/route";
+import { POST as createKycSession } from "./presale/kyc-session/route";
 import { GET as getOrder } from "./presale/orders/[reference]/route";
 import { POST as submitProof } from "./presale/orders/[reference]/payment-proof/route";
 
@@ -159,6 +160,21 @@ describe("presale BFF contracts", () => {
     });
     expect(mocks.encoreRequest).toHaveBeenNthCalledWith(1, "/profiles/me", {}, "admin-token");
     expect(mocks.encoreRequest).toHaveBeenNthCalledWith(2, "/kyc/international/status/profile%2F1", {}, "admin-token");
+  });
+
+  test("Didit session creation is bound to the signed-in profile and KYC case", async () => {
+    mocks.encoreRequest
+      .mockResolvedValueOnce({ member: { id: "profile-1" } })
+      .mockResolvedValueOnce({ id: "case/1" })
+      .mockResolvedValueOnce({ sessionId: "session-1", url: "https://verify.didit.me/session/token", status: "Not Started" });
+
+    const response = await createKycSession();
+
+    expect(response.status).toBe(200);
+    expect(mocks.encoreRequest).toHaveBeenNthCalledWith(2, "/kyc/international/cases", {
+      method: "POST", body: JSON.stringify({ profileId: "profile-1" }),
+    }, "admin-token");
+    expect(mocks.encoreRequest).toHaveBeenNthCalledWith(3, "/kyc/international/cases/case%2F1/didit-session", { method: "POST" }, "admin-token");
   });
 
   test("identity evidence upload rejects unauthenticated and invalid selfie files", async () => {

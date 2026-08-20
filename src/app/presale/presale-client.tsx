@@ -75,7 +75,8 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
   const [applicationPhase, setApplicationPhase] = useState(1);
   const [applicantType, setApplicantType] = useState<"individual" | "company" | "trust">("individual");
   const [termsRead, setTermsRead] = useState(false);
-  const [documentsUploaded, setDocumentsUploaded] = useState(false);
+  const [verificationStarted, setVerificationStarted] = useState(false);
+  const [diditUrl, setDiditUrl] = useState("");
   const [kycVerification, setKycVerification] = useState<KycVerification | null>(null);
 
   useEffect(() => {
@@ -122,10 +123,10 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
   }, [accessToken, order, refreshOrder]);
 
   useEffect(() => {
-    if (!documentsUploaded || kycVerification?.verified || devPreview) return;
+    if (!verificationStarted || kycVerification?.verified || devPreview) return;
     const timer = window.setInterval(() => { void refreshKycVerification().catch(() => undefined); }, 10_000);
     return () => window.clearInterval(timer);
-  }, [devPreview, documentsUploaded, kycVerification?.verified, refreshKycVerification]);
+  }, [devPreview, verificationStarted, kycVerification?.verified, refreshKycVerification]);
 
   const totalPreview = offer ? Number(offer.priceUsdt) : 0;
 
@@ -225,23 +226,16 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
     window.setTimeout(() => setCopied(false), 1500);
   }
 
-  async function uploadIdentityEvidence(form: HTMLFormElement) {
-    if (documentsUploaded || devPreview) return;
-    const data = new FormData(form);
-    const files = [
-      ["identity_document", data.get("identityDocument")],
-      ["identity_selfie", data.get("identitySelfie")],
-    ] as const;
-    for (const [documentType, file] of files) {
-      if (!(file instanceof File) || file.size === 0) throw new Error("Select both your ID document and selfie");
-      const upload = new FormData();
-      upload.set("documentType", documentType);
-      upload.set("file", file);
-      const response = await fetch("/api/presale/kyc-documents", { method: "POST", body: upload });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error ?? "Identity evidence could not be uploaded");
+  async function startIdentityVerification() {
+    if (devPreview || verificationStarted) return;
+    const response = await fetch("/api/presale/kyc-session", { method: "POST" });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error ?? "Identity verification could not be started");
+    if (typeof payload.session?.url !== "string" || !payload.session.url.startsWith("https://verify.didit.me/")) {
+      throw new Error("Identity verification returned an invalid session");
     }
-    setDocumentsUploaded(true);
+    setDiditUrl(payload.session.url);
+    setVerificationStarted(true);
   }
 
   async function advanceApplication(event: React.MouseEvent<HTMLButtonElement>) {
@@ -258,7 +252,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
       setSubmitting(true);
       setError("");
       try {
-        await uploadIdentityEvidence(form);
+        await startIdentityVerification();
         const verification = await refreshKycVerification();
         if (!verification?.verified) return;
       } catch (reason) {
@@ -364,19 +358,15 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
               </div>
 
               <div data-application-phase="4" hidden={applicationPhase !== 4} className="space-y-5">
-              <SectionTitle>Identity documents</SectionTitle>
-              <div className="rounded-xl border border-sky-400/20 bg-sky-400/10 p-4 text-sm leading-6 text-sky-100"><div className="flex gap-3"><Upload className="mt-0.5 h-5 w-5 shrink-0 text-sky-300" /><p>{devPreview ? "Preview mode validates your file selections locally and does not send or retain them." : "Files are sent directly to KaSiHub's private compliance store. PDF, JPEG and PNG are accepted, up to 10 MB per file."}</p></div></div>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <UploadField label="ID document or passport *" name="identityDocument" accept="application/pdf,image/jpeg,image/png" hint="PDF, JPG or PNG · max 10 MB" onChange={() => setDocumentsUploaded(false)} />
-                <UploadField label="Selfie holding your ID *" name="identitySelfie" accept="image/jpeg,image/png" hint="JPG or PNG · max 10 MB" onChange={() => setDocumentsUploaded(false)} />
-              </div>
-              {documentsUploaded && <p className="text-xs font-medium text-emerald-300">Identity evidence uploaded securely.</p>}
+              <SectionTitle>Identity verification</SectionTitle>
+              <div className="rounded-xl border border-sky-400/20 bg-sky-400/10 p-4 text-sm leading-6 text-sky-100"><div className="flex gap-3"><Upload className="mt-0.5 h-5 w-5 shrink-0 text-sky-300" /><p>{devPreview ? "Preview mode does not create an external verification session." : "Didit securely performs the government-ID check, liveness test and face match. KaSiHub receives only the signed verification outcome needed for the compliance decision."}</p></div></div>
+              {diditUrl && <iframe title="Didit identity verification" src={diditUrl} allow="camera; microphone; fullscreen; autoplay; encrypted-media" className="h-[680px] w-full rounded-xl border border-white/15 bg-white" />}
 
               <SectionTitle>Declarations</SectionTitle>
               <Declaration name="amlDeclarationAccepted">I confirm that the investment funds are not proceeds of crime, money laundering, or terrorist financing.</Declaration>
               <Declaration name="suitabilityDeclarationAccepted">I understand that the investment is long-term, may be illiquid, returns are not guaranteed, and I may lose the invested capital.</Declaration>
               <Declaration name="informationDeclarationAccepted">I confirm that the investor information supplied is complete and accurate and that I will provide supporting information when requested.</Declaration>
-              {documentsUploaded && !kycVerification?.verified && <div className="rounded-xl border border-amber-400/30 bg-amber-400/10 p-4 text-sm leading-6 text-amber-100"><strong className="block text-white">Submitted for identity review</strong>Your ID document and selfie were uploaded securely. This page checks for the administrator&apos;s decision automatically. Payment details remain locked until verification is approved.<Button type="button" variant="outline" className="mt-3 border-amber-200/30 bg-transparent text-amber-50 hover:bg-amber-300/10" onClick={() => void refreshKycVerification().catch((reason) => setError(reason instanceof Error ? reason.message : "Identity verification status is unavailable"))}>Check verification status</Button></div>}
+              {verificationStarted && !kycVerification?.verified && <div className="rounded-xl border border-amber-400/30 bg-amber-400/10 p-4 text-sm leading-6 text-amber-100"><strong className="block text-white">Identity verification in progress</strong>Complete the secure Didit flow above. This page checks the signed result automatically. Payment details remain locked until ID, liveness and face match are approved.<Button type="button" variant="outline" className="mt-3 border-amber-200/30 bg-transparent text-amber-50 hover:bg-amber-300/10" onClick={() => void refreshKycVerification().catch((reason) => setError(reason instanceof Error ? reason.message : "Identity verification status is unavailable"))}>Check verification status</Button></div>}
               </div>
               <div data-application-phase="5" hidden={applicationPhase !== 5} className="space-y-5">
               <SectionTitle>Terms and reservation</SectionTitle>
@@ -392,7 +382,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
                     <ChevronLeft className="mr-1 h-4 w-4" />Back
                   </Button>
                 )}
-                {applicationPhase < 5 ? <Button type="button" className="flex-1 bg-amber-400 font-bold text-slate-950 hover:bg-amber-300" disabled={submitting || (applicationPhase === 4 && documentsUploaded && !kycVerification?.verified)} onClick={advanceApplication}>{submitting && applicationPhase === 4 ? "Uploading…" : applicationPhase === 4 && documentsUploaded && !kycVerification?.verified ? "Awaiting verification" : "Continue"}<ChevronRight className="ml-1 h-4 w-4" /></Button> : devPreview ? <Button type="button" className="flex-1 bg-slate-500 font-bold text-white" disabled>Read-only preview — no reservation</Button> : <Button className="flex-1 bg-amber-400 font-bold text-slate-950 hover:bg-amber-300" disabled={submitting || !termsRead}>{submitting ? "Creating reservation…" : "Reserve and view payment"}</Button>}
+                {applicationPhase < 5 ? <Button type="button" className="flex-1 bg-amber-400 font-bold text-slate-950 hover:bg-amber-300" disabled={submitting || (applicationPhase === 4 && verificationStarted && !kycVerification?.verified)} onClick={advanceApplication}>{submitting && applicationPhase === 4 ? "Starting verification…" : applicationPhase === 4 && verificationStarted && !kycVerification?.verified ? "Awaiting verification" : applicationPhase === 4 ? "Start identity verification" : "Continue"}<ChevronRight className="ml-1 h-4 w-4" /></Button> : devPreview ? <Button type="button" className="flex-1 bg-slate-500 font-bold text-white" disabled>Read-only preview — no reservation</Button> : <Button className="flex-1 bg-amber-400 font-bold text-slate-950 hover:bg-amber-300" disabled={submitting || !termsRead}>{submitting ? "Creating reservation…" : "Reserve and view payment"}</Button>}
               </div>
             </form></CardContent>
           </Card>
@@ -443,10 +433,6 @@ function ApplicationProgress({ phase }: { phase: number }) {
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return <label className="block space-y-2 text-sm font-medium text-slate-200"><span>{label}</span>{children}</label>;
-}
-
-function UploadField({ label, name, accept, hint, onChange }: { label: string; name: string; accept: string; hint: string; onChange: () => void }) {
-  return <label className="block rounded-xl border border-dashed border-white/20 bg-black/20 p-4 text-sm font-medium text-slate-200 transition-colors hover:border-sky-300/50"><span className="flex items-center gap-2"><Upload className="h-4 w-4 text-sky-300" />{label}</span><input name={name} type="file" accept={accept} required onChange={onChange} className="mt-3 block w-full cursor-pointer text-xs text-slate-300 file:mr-3 file:rounded-md file:border-0 file:bg-sky-300 file:px-3 file:py-2 file:font-semibold file:text-slate-950" /><span className="mt-2 block text-xs font-normal text-slate-400">{hint}</span></label>;
 }
 
 const SOURCE_OF_FUNDS: Array<[string, string]> = [
