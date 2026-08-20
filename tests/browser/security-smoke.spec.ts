@@ -302,10 +302,15 @@ test("invited buyer can reserve shares without exposing the order access token i
       } }),
     });
   });
-  await page.route("**/api/presale/kyc-documents", (route) => route.fulfill({
-    status: 201,
+  await page.route("**/api/presale/kyc-session", (route) => route.fulfill({
+    status: 200,
     contentType: "application/json",
-    body: JSON.stringify({ document: { id: crypto.randomUUID(), status: "uploaded", duplicate: false } }),
+    body: JSON.stringify({ session: { id: crypto.randomUUID(), url: "https://verify.didit.me/test-session", status: "Not Started" } }),
+  }));
+  await page.route("**/api/presale/kyc-status", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ verification: { required: true, verified: true, status: "VERIFIED", caseId: crypto.randomUUID() } }),
   }));
   await page.route(`**/api/presale/orders/${orderReference}/payment-proof`, (route) => route.fulfill({
     status: 200,
@@ -368,20 +373,10 @@ test("invited buyer can reserve shares without exposing the order access token i
   await page.getByLabel("Account number").fill("1234567890");
   await page.getByRole("button", { name: "Continue" }).click();
 
-  await page.getByLabel("ID document or passport *").setInputFiles({
-    name: "identity.png",
-    mimeType: "image/png",
-    buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-  });
-  await page.getByLabel("Selfie holding your ID *").setInputFiles({
-    name: "selfie.jpg",
-    mimeType: "image/jpeg",
-    buffer: Buffer.from([0xff, 0xd8, 0xff]),
-  });
   await page.getByLabel(/I confirm that the investment funds/).check();
   await page.getByLabel(/I understand that the investment is long-term/).check();
   await page.getByLabel(/I confirm that the investor information supplied/).check();
-  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: "Start identity verification" }).click();
 
   await page.getByLabel("Investor terms").evaluate((node) => { node.scrollTop = node.scrollHeight; node.dispatchEvent(new Event("scroll", { bubbles: true })); });
   await page.getByLabel(/I accept the presale reservation acknowledgement/).check();
