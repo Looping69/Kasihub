@@ -1,5 +1,6 @@
 // Author: Klaasvaakie ( |╲ )
 import { readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
 
@@ -12,7 +13,7 @@ describe("presale application migration history", () => {
       .sort();
     const versions = migrations.map((name) => name.split("_", 1)[0]);
     const encryptionMigration = readFileSync(
-      `${migrationDirectory}8_application_review_encryption_metadata.up.sql`,
+      join(migrationDirectory, "8_application_review_encryption_metadata.up.sql"),
       "utf8",
     );
 
