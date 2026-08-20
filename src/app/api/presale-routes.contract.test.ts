@@ -29,6 +29,7 @@ import { GET as listAvailableCampaigns } from "./presale/campaigns/route";
 import { GET as getOffer } from "./presale/offer/route";
 import { POST as createOrder } from "./presale/orders/route";
 import { POST as uploadKycDocument } from "./presale/kyc-documents/route";
+import { GET as getKycVerification } from "./presale/kyc-status/route";
 import { GET as getOrder } from "./presale/orders/[reference]/route";
 import { POST as submitProof } from "./presale/orders/[reference]/payment-proof/route";
 
@@ -143,6 +144,21 @@ describe("presale BFF contracts", () => {
       method: "POST",
       headers: expect.objectContaining({ "Content-Type": "image/jpeg", "X-Document-Type": "identity_selfie" }),
     }), "admin-token");
+  });
+
+  test("identity verification polling is session-bound to the signed-in profile", async () => {
+    mocks.encoreRequest
+      .mockResolvedValueOnce({ member: { id: "profile/1" } })
+      .mockResolvedValueOnce({ required: true, verified: false, status: "PENDING", caseId: "case-1" });
+
+    const response = await getKycVerification();
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      verification: { required: true, verified: false, status: "PENDING", caseId: "case-1" },
+    });
+    expect(mocks.encoreRequest).toHaveBeenNthCalledWith(1, "/profiles/me", {}, "admin-token");
+    expect(mocks.encoreRequest).toHaveBeenNthCalledWith(2, "/kyc/international/status/profile%2F1", {}, "admin-token");
   });
 
   test("identity evidence upload rejects unauthenticated and invalid selfie files", async () => {

@@ -36,6 +36,13 @@ type Order = {
   incorporationStatus: string;
 };
 
+type KycVerification = {
+  required: boolean;
+  verified: boolean;
+  status: string;
+  caseId: string | null;
+};
+
 const APPLICATION_PHASES = [
   { title: "Application details", description: "Applicant identity, contact and ownership details", icon: UserRound },
   { title: "Choose your investment", description: "Allocation and live server quote", icon: Landmark },
@@ -69,6 +76,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
   const [applicantType, setApplicantType] = useState<"individual" | "company" | "trust">("individual");
   const [termsRead, setTermsRead] = useState(false);
   const [documentsUploaded, setDocumentsUploaded] = useState(false);
+  const [kycVerification, setKycVerification] = useState<KycVerification | null>(null);
 
   useEffect(() => {
     // Development preview has static display data and cannot contact the BFF.
@@ -96,11 +104,28 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
     if (response.ok) setOrder((await response.json()).order);
   }, [accessToken, order]);
 
+  const refreshKycVerification = useCallback(async () => {
+    if (devPreview) return null;
+    const response = await fetch("/api/presale/kyc-status", { cache: "no-store" });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error ?? "Identity verification status is unavailable");
+    const verification = payload.verification as KycVerification;
+    setKycVerification(verification);
+    if (verification.verified) setApplicationPhase(5);
+    return verification;
+  }, [devPreview]);
+
   useEffect(() => {
     if (!order || !accessToken || ["confirmed", "expired", "cancelled", "incorporated"].includes(order.status)) return;
     const timer = window.setInterval(() => { void refreshOrder(); }, 10_000);
     return () => window.clearInterval(timer);
   }, [accessToken, order, refreshOrder]);
+
+  useEffect(() => {
+    if (!documentsUploaded || kycVerification?.verified || devPreview) return;
+    const timer = window.setInterval(() => { void refreshKycVerification().catch(() => undefined); }, 10_000);
+    return () => window.clearInterval(timer);
+  }, [devPreview, documentsUploaded, kycVerification?.verified, refreshKycVerification]);
 
   const totalPreview = offer ? Number(offer.priceUsdt) : 0;
 
@@ -234,6 +259,8 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
       setError("");
       try {
         await uploadIdentityEvidence(form);
+        const verification = await refreshKycVerification();
+        if (!verification?.verified) return;
       } catch (reason) {
         setError(reason instanceof Error ? reason.message : "Identity evidence could not be uploaded");
         return;
@@ -349,6 +376,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
               <Declaration name="amlDeclarationAccepted">I confirm that the investment funds are not proceeds of crime, money laundering, or terrorist financing.</Declaration>
               <Declaration name="suitabilityDeclarationAccepted">I understand that the investment is long-term, may be illiquid, returns are not guaranteed, and I may lose the invested capital.</Declaration>
               <Declaration name="informationDeclarationAccepted">I confirm that the investor information supplied is complete and accurate and that I will provide supporting information when requested.</Declaration>
+              {documentsUploaded && !kycVerification?.verified && <div className="rounded-xl border border-amber-400/30 bg-amber-400/10 p-4 text-sm leading-6 text-amber-100"><strong className="block text-white">Submitted for identity review</strong>Your ID document and selfie were uploaded securely. This page checks for the administrator&apos;s decision automatically. Payment details remain locked until verification is approved.<Button type="button" variant="outline" className="mt-3 border-amber-200/30 bg-transparent text-amber-50 hover:bg-amber-300/10" onClick={() => void refreshKycVerification().catch((reason) => setError(reason instanceof Error ? reason.message : "Identity verification status is unavailable"))}>Check verification status</Button></div>}
               </div>
               <div data-application-phase="5" hidden={applicationPhase !== 5} className="space-y-5">
               <SectionTitle>Terms and reservation</SectionTitle>
@@ -364,7 +392,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
                     <ChevronLeft className="mr-1 h-4 w-4" />Back
                   </Button>
                 )}
-                {applicationPhase < 5 ? <Button type="button" className="flex-1 bg-amber-400 font-bold text-slate-950 hover:bg-amber-300" disabled={submitting} onClick={advanceApplication}>{submitting && applicationPhase === 4 ? "Uploading…" : "Continue"}<ChevronRight className="ml-1 h-4 w-4" /></Button> : devPreview ? <Button type="button" className="flex-1 bg-slate-500 font-bold text-white" disabled>Read-only preview — no reservation</Button> : <Button className="flex-1 bg-amber-400 font-bold text-slate-950 hover:bg-amber-300" disabled={submitting || !termsRead}>{submitting ? "Creating reservation…" : "Reserve and view payment"}</Button>}
+                {applicationPhase < 5 ? <Button type="button" className="flex-1 bg-amber-400 font-bold text-slate-950 hover:bg-amber-300" disabled={submitting || (applicationPhase === 4 && documentsUploaded && !kycVerification?.verified)} onClick={advanceApplication}>{submitting && applicationPhase === 4 ? "Uploading…" : applicationPhase === 4 && documentsUploaded && !kycVerification?.verified ? "Awaiting verification" : "Continue"}<ChevronRight className="ml-1 h-4 w-4" /></Button> : devPreview ? <Button type="button" className="flex-1 bg-slate-500 font-bold text-white" disabled>Read-only preview — no reservation</Button> : <Button className="flex-1 bg-amber-400 font-bold text-slate-950 hover:bg-amber-300" disabled={submitting || !termsRead}>{submitting ? "Creating reservation…" : "Reserve and view payment"}</Button>}
               </div>
             </form></CardContent>
           </Card>
