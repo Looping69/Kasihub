@@ -8,6 +8,7 @@ import "./domains/engagement/api";
 import "./domains/engagement/dashboard";
 import "./domains/finance/api";
 import "./domains/identity/api";
+import "./domains/identity/admin-bootstrap";
 import "./domains/kyc/api";
 import "./domains/membership/api";
 import "./domains/network/api";
