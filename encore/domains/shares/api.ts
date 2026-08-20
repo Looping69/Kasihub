@@ -194,9 +194,18 @@ export const listSharePhases = api<
   },
 );
 
+const DIRECT_SHARE_PURCHASES_ENABLED = false;
+
 export const purchaseShares = api<SharePurchaseRequest, SharePurchaseResponse>(
   { method: "POST", path: "/shares/purchase", expose: true },
   async (req) => {
+    // New share issuance must pass through the invitation, KYC, payment
+    // verification and incorporation workflow. Keep the legacy endpoint
+    // fail-closed while historical wallet purchases remain readable.
+    if (!DIRECT_SHARE_PURCHASES_ENABLED) {
+      throw APIError.failedPrecondition("Direct share purchases are disabled; use the private presale application");
+    }
+
     const payload = sharePurchaseRequest.parse(req);
     const session = await requireProfileAccess(payload.profileId);
     const idempotencyKey = requireIdempotencyKey();

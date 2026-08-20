@@ -1,8 +1,9 @@
 // Author: Klaasvaakie ( |╲ )
-import { api } from "encore.dev/api";
+import { api, APIError } from "encore.dev/api";
 import { z } from "zod";
 import { auditDb, identityDb, kycDb } from "../../resources";
 import { requireAdminAccess, requireProfileAccess } from "../auth/access";
+import { INTERNATIONAL_KYC_PROVIDER } from "./policy";
 
 interface KycCaseCreateRequest {
   profileId: string;
@@ -81,8 +82,8 @@ export const reviewProfileKyc = api<
   { method: "POST", path: "/admin/kyc/profiles/:profileId/review", expose: true },
   async (req) => {
     await requireAdminAccess();
-    let kycCase = await kycDb.rawQueryRow<{ id: string }>(
-      "SELECT id FROM kyc_cases WHERE profile_id = $1 ORDER BY submitted_at DESC NULLS LAST LIMIT 1",
+    let kycCase = await kycDb.rawQueryRow<{ id: string; provider: string }>(
+      "SELECT id, provider FROM kyc_cases WHERE profile_id = $1 ORDER BY submitted_at DESC NULLS LAST LIMIT 1",
       req.profileId,
     );
     if (!kycCase) {
@@ -91,7 +92,19 @@ export const reviewProfileKyc = api<
         "INSERT INTO kyc_cases (id, profile_id, provider, status, submitted_at) VALUES ($1, $2, 'manual', 'pending', now())",
         id, req.profileId,
       );
-      kycCase = { id };
+      kycCase = { id, provider: "manual" };
+    }
+    if (req.action === "APPROVE" && kycCase.provider === INTERNATIONAL_KYC_PROVIDER) {
+      const approved = await kycDb.rawQueryRow<{ evidence_count: number }>(
+        `SELECT COUNT(DISTINCT document_type)::int AS evidence_count
+           FROM kyc_documents
+          WHERE kyc_case_id = $1 AND status = 'approved'
+            AND document_type IN ('identity_document', 'identity_selfie')`,
+        kycCase.id,
+      );
+      if (Number(approved?.evidence_count ?? 0) < 2) {
+        throw APIError.failedPrecondition("Approve both the identity document and selfie before verifying this member");
+      }
     }
     const status = req.action === "APPROVE" ? "approved" : "rejected";
     await kycDb.rawExec(

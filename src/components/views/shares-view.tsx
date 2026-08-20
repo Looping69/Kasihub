@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import { motion } from "framer-motion";
 import {
   Coins, TrendingUp, Award, FileText, Loader2, Sparkles, DollarSign,
@@ -16,14 +17,6 @@ import { Separator } from "@/components/ui/separator";
 import {
   Tabs, TabsList, TabsTrigger, TabsContent,
 } from "@/components/ui/tabs";
-import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
-} from "@/components/ui/dialog";
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from "@/components/ui/select";
-import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
 import { useKasiStore } from "@/lib/store";
 import type { Share, SharePhase, AureusShare, Member } from "@/lib/types";
 import { toast } from "sonner";
@@ -254,12 +247,6 @@ export function SharesView() {
   const { currentMember } = useKasiStore();
   const [data, setData] = useState<SharesData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [buyOpen, setBuyOpen] = useState(false);
-  const [selectedPhase, setSelectedPhase] = useState<number>(1);
-  const [quantity, setQuantity] = useState(10);
-  const [buying, setBuying] = useState(false);
-  // Author: Klaasvaakie ( |╲ )
-  const purchaseKey = useRef<string | null>(null);
 
   async function load() {
     if (!currentMember) return;
@@ -274,32 +261,6 @@ export function SharesView() {
   useEffect(() => {
     load();
   }, [currentMember]);
-
-  async function handleBuy() {
-    if (!currentMember) return;
-    purchaseKey.current ??= crypto.randomUUID();
-    setBuying(true);
-    try {
-      const res = await fetch("/api/shares/buy", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Idempotency-Key": purchaseKey.current },
-        body: JSON.stringify({ memberId: currentMember.id, phase: selectedPhase, quantity }),
-      });
-      const result = await res.json();
-      purchaseKey.current = null;
-      if (!res.ok) {
-        toast.error(result.error || "Purchase failed");
-      } else {
-        toast.success(`Purchased ${quantity} share${quantity > 1 ? "s" : ""}! Certificate ${result.certificateNo} issued.`);
-        setBuyOpen(false);
-        await load();
-      }
-    } catch {
-      toast.error("Network error");
-    } finally {
-      setBuying(false);
-    }
-  }
 
   if (loading || !data) {
     return (
@@ -364,14 +325,10 @@ export function SharesView() {
                 </div>
               ))}
             </div>
-            <Button
-              onClick={() => setBuyOpen(true)}
-              disabled={!activePhase}
-              className="mt-4 min-h-12 w-full bg-gradient-to-r from-[#f8d86a] via-[#d7a72d] to-[#b57b16] font-black text-[#111936] shadow-lg shadow-amber-950/20 hover:brightness-105"
-            >
-              <Coins className="mr-1.5 h-4 w-4" /> Buy KaSiShares <ArrowRight className="ml-1.5 h-4 w-4" />
+            <Button asChild className="mt-4 min-h-12 w-full bg-gradient-to-r from-[#f8d86a] via-[#d7a72d] to-[#b57b16] font-black text-[#111936] shadow-lg shadow-amber-950/20 hover:brightness-105">
+              <Link href="/presale"><ShieldCheck className="mr-1.5 h-4 w-4" /> Open private application <ArrowRight className="ml-1.5 h-4 w-4" /></Link>
             </Button>
-            <p className="mt-3 text-xs leading-5 text-indigo-200">Purchases remain controlled by the existing open-phase and server validation rules.</p>
+            <p className="mt-3 text-xs leading-5 text-indigo-200">New purchases require a private invitation, investor application, identity verification and server-approved settlement.</p>
           </div>
         </div>
       </section>
@@ -523,11 +480,7 @@ export function SharesView() {
                       {p.status === "UPCOMING" && "Upcoming"}
                       {p.status === "SOLD_OUT" && "Sold out"}
                     </Badge>
-                    {isOpen && (
-                      <Button size="sm" onClick={() => { setSelectedPhase(p.phase); setBuyOpen(true); }}>
-                        Buy
-                      </Button>
-                    )}
+                    {isOpen && <Button size="sm" asChild><Link href="/presale">Apply</Link></Button>}
                     {!isOpen && <Lock className="h-4 w-4 text-muted-foreground" />}
                   </div>
                 </div>
@@ -581,8 +534,8 @@ export function SharesView() {
                 </div>
                 <p className="font-semibold mb-1">No active certificates yet</p>
                 <p className="text-sm text-muted-foreground mb-4">Purchase your first shares to receive a digital certificate.</p>
-                <Button onClick={() => setBuyOpen(true)} className="bg-gradient-to-r from-amber-500 to-amber-600">
-                  <Coins className="h-4 w-4 mr-1.5" /> Buy your first shares
+                <Button asChild className="bg-gradient-to-r from-amber-500 to-amber-600">
+                  <Link href="/presale"><ShieldCheck className="h-4 w-4 mr-1.5" /> Open private application</Link>
                 </Button>
               </div>
             ) : (
@@ -874,69 +827,6 @@ export function SharesView() {
         </div>
       </Card>
 
-      {/* Buy dialog */}
-      <Dialog open={buyOpen} onOpenChange={setBuyOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Coins className="h-5 w-5 text-amber-600" /> Buy KasiShares
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div>
-              <Label>Phase</Label>
-              <Select value={String(selectedPhase)} onValueChange={(v) => setSelectedPhase(parseInt(v))}>
-                <SelectTrigger className="mt-1.5">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {data.phases.filter((p) => p.status === "OPEN").map((p) => (
-                    <SelectItem key={p.phase} value={String(p.phase)}>
-                      Phase {p.phase} — {fmtUSD(p.pricePerShare)}/share {p.bonusBuyOneGet ? "(BOGO)" : ""}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label>Quantity</Label>
-              <Input
-                type="number"
-                min={1}
-                value={quantity}
-                onChange={(e) => setQuantity(Math.max(1, parseInt(e.target.value) || 1))}
-                className="mt-1.5"
-              />
-            </div>
-            {(() => {
-              const phase = data.phases.find((p) => p.phase === selectedPhase);
-              if (!phase) return null;
-              const total = phase.pricePerShare * quantity;
-              const effective = phase.bonusBuyOneGet ? quantity * 2 : quantity;
-              return (
-                <Card className="p-4 bg-muted/30">
-                  <div className="space-y-2 text-sm">
-                    <div className="flex justify-between"><span className="text-muted-foreground">Price per share</span><span className="font-semibold">{fmtUSD(phase.pricePerShare)}</span></div>
-                    <div className="flex justify-between"><span className="text-muted-foreground">Quantity</span><span className="font-semibold">{quantity}</span></div>
-                    {phase.bonusBuyOneGet && (
-                      <div className="flex justify-between text-amber-600"><span className="flex items-center gap-1"><Sparkles className="h-3 w-3" /> BOGO bonus</span><span className="font-semibold">+{quantity} free</span></div>
-                    )}
-                    <Separator />
-                    <div className="flex justify-between"><span className="text-muted-foreground">Total shares issued</span><span className="font-bold">{effective}</span></div>
-                    <div className="flex justify-between"><span className="font-semibold">Total cost</span><span className="font-bold text-amber-600">{fmtUSD(total)}</span></div>
-                  </div>
-                </Card>
-              );
-            })()}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setBuyOpen(false)}>Cancel</Button>
-            <Button onClick={handleBuy} disabled={buying} className="bg-gradient-to-r from-amber-500 to-amber-600">
-              {buying ? <><Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> Processing...</> : <>Confirm purchase</>}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

@@ -4,7 +4,7 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { CheckCircle2, ChevronLeft, ChevronRight, ClipboardCheck, Clock3, Copy, FileCheck2, Landmark, LockKeyhole, ShieldCheck, UserRound, WalletCards } from "lucide-react";
+import { CheckCircle2, ChevronLeft, ChevronRight, ClipboardCheck, Clock3, Copy, FileCheck2, Landmark, LockKeyhole, ShieldCheck, Upload, UserRound, WalletCards } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -39,7 +39,8 @@ type Order = {
 const APPLICATION_PHASES = [
   { title: "Application details", description: "Applicant identity, contact and ownership details", icon: UserRound },
   { title: "Choose your investment", description: "Allocation and live server quote", icon: Landmark },
-  { title: "Declarations", description: "Tax, funds, ownership and evidence confirmations", icon: FileCheck2 },
+  { title: "Funding details", description: "Source of funds and investor banking", icon: WalletCards },
+  { title: "Identity evidence", description: "Secure ID, selfie and declarations", icon: FileCheck2 },
   { title: "Terms and reserve", description: "Read and accept the terms before reservation", icon: ShieldCheck },
 ] as const;
 
@@ -67,6 +68,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
   const [applicationPhase, setApplicationPhase] = useState(1);
   const [applicantType, setApplicantType] = useState<"individual" | "company" | "trust">("individual");
   const [termsRead, setTermsRead] = useState(false);
+  const [documentsUploaded, setDocumentsUploaded] = useState(false);
 
   useEffect(() => {
     // Development preview has static display data and cannot contact the BFF.
@@ -198,7 +200,26 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
     window.setTimeout(() => setCopied(false), 1500);
   }
 
-  function advanceApplication(event: React.MouseEvent<HTMLButtonElement>) {
+  async function uploadIdentityEvidence(form: HTMLFormElement) {
+    if (documentsUploaded || devPreview) return;
+    const data = new FormData(form);
+    const files = [
+      ["identity_document", data.get("identityDocument")],
+      ["identity_selfie", data.get("identitySelfie")],
+    ] as const;
+    for (const [documentType, file] of files) {
+      if (!(file instanceof File) || file.size === 0) throw new Error("Select both your ID document and selfie");
+      const upload = new FormData();
+      upload.set("documentType", documentType);
+      upload.set("file", file);
+      const response = await fetch("/api/presale/kyc-documents", { method: "POST", body: upload });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error ?? "Identity evidence could not be uploaded");
+    }
+    setDocumentsUploaded(true);
+  }
+
+  async function advanceApplication(event: React.MouseEvent<HTMLButtonElement>) {
     const form = event.currentTarget.form;
     if (!form) return;
     const invalid = Array.from(form.querySelectorAll<HTMLElement>(`[data-application-phase="${applicationPhase}"] [required]`))
@@ -208,7 +229,19 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
       invalid.focus();
       return;
     }
-    setApplicationPhase((phase) => Math.min(4, phase + 1));
+    if (applicationPhase === 4) {
+      setSubmitting(true);
+      setError("");
+      try {
+        await uploadIdentityEvidence(form);
+      } catch (reason) {
+        setError(reason instanceof Error ? reason.message : "Identity evidence could not be uploaded");
+        return;
+      } finally {
+        setSubmitting(false);
+      }
+    }
+    setApplicationPhase((phase) => Math.min(5, phase + 1));
   }
 
   if (loading) return <Shell><p className="text-sm text-slate-400">Validating private invitation…</p></Shell>;
@@ -254,7 +287,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
 
         {!order ? (
           <Card className="presale-form-card min-w-0 text-white shadow-2xl shadow-black/20">
-            <CardHeader><p className="text-xs font-bold uppercase tracking-[.18em] text-amber-300">Investor application</p><h2 className="mt-2 font-semibold leading-none">{APPLICATION_PHASES[applicationPhase - 1].title}</h2><CardDescription className="text-slate-400">Step {applicationPhase} of 4 · {APPLICATION_PHASES[applicationPhase - 1].description}</CardDescription></CardHeader>
+            <CardHeader><p className="text-xs font-bold uppercase tracking-[.18em] text-amber-300">Investor application</p><h2 className="mt-2 font-semibold leading-none">{APPLICATION_PHASES[applicationPhase - 1].title}</h2><CardDescription className="text-slate-400">Step {applicationPhase} of 5 · {APPLICATION_PHASES[applicationPhase - 1].description}</CardDescription></CardHeader>
             <CardContent><form className="space-y-5" noValidate onSubmit={createOrder}>
               <ApplicationProgress phase={applicationPhase} />
               <div data-application-phase="1" hidden={applicationPhase !== 1} className="space-y-5">
@@ -286,19 +319,6 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
               <div className="rounded-xl border border-amber-400/20 bg-amber-400/10 p-4 text-sm text-amber-100"><p className="font-semibold text-white">Server-authoritative quote</p><p className="mt-1">The current server quote is {totalPreview.toFixed(6)} USDT per paid share. Your final amount and payment window are locked only when the reservation is created.</p></div>
               </div>
               <div data-application-phase="3" hidden={applicationPhase !== 3} className="space-y-5">
-              <SectionTitle>Tax and beneficial ownership</SectionTitle>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="Country of tax residence"><Input name="taxResidenceCountry" className="border-white/15 bg-black/20" /></Field>
-                <Field label="Tax identification number (TIN)"><Input name="tin" className="border-white/15 bg-black/20" /></Field>
-                <Field label="Entity/trust registration number"><Input name="entityRegistrationNumber" className="border-white/15 bg-black/20" /></Field>
-                <Field label="VAT number"><Input name="vatNumber" className="border-white/15 bg-black/20" /></Field>
-                <Field label="Authorised representative"><Input name="authorisedRepresentativeName" className="border-white/15 bg-black/20" /></Field>
-                <Field label="Representative position"><Input name="authorisedRepresentativePosition" className="border-white/15 bg-black/20" /></Field>
-                <Field label="Beneficial owner"><Input name="beneficialOwnerName" className="border-white/15 bg-black/20" /></Field>
-                <Field label="Relationship to beneficial owner"><Input name="beneficialOwnerRelationship" className="border-white/15 bg-black/20" /></Field>
-              </div>
-              <Field label="Additional tax jurisdictions"><textarea name="additionalTaxJurisdictions" rows={2} className="w-full rounded-md border border-white/15 bg-black/20 px-3 py-2 text-sm" /></Field>
-
               <SectionTitle>Source of funds</SectionTitle>
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field label="Primary source"><Select name="sourceOfFunds" options={SOURCE_OF_FUNDS} /></Field>
@@ -314,14 +334,23 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
                 <Field label="Account type"><Input name="bankAccountType" className="border-white/15 bg-black/20" /></Field>
                 <Field label="SWIFT/BIC"><Input name="bankSwift" className="border-white/15 bg-black/20" /></Field>
               </div>
+              </div>
 
-              <SectionTitle>Supporting documents and declarations</SectionTitle>
-              <div className="rounded-xl border border-white/10 bg-black/20 p-4 text-sm leading-6 text-slate-300"><div className="flex gap-3"><FileCheck2 className="mt-0.5 h-5 w-5 shrink-0 text-amber-300" /><p>Keep your identity, address, tax and bank evidence ready. Secure document collection is handled only through the approved compliance workflow; this step does not upload or retain documents in your browser.</p></div></div>
+              <div data-application-phase="4" hidden={applicationPhase !== 4} className="space-y-5">
+              <SectionTitle>Identity documents</SectionTitle>
+              <div className="rounded-xl border border-sky-400/20 bg-sky-400/10 p-4 text-sm leading-6 text-sky-100"><div className="flex gap-3"><Upload className="mt-0.5 h-5 w-5 shrink-0 text-sky-300" /><p>{devPreview ? "Preview mode validates your file selections locally and does not send or retain them." : "Files are sent directly to KaSiHub's private compliance store. PDF, JPEG and PNG are accepted, up to 10 MB per file."}</p></div></div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <UploadField label="ID document or passport *" name="identityDocument" accept="application/pdf,image/jpeg,image/png" hint="PDF, JPG or PNG · max 10 MB" onChange={() => setDocumentsUploaded(false)} />
+                <UploadField label="Selfie holding your ID *" name="identitySelfie" accept="image/jpeg,image/png" hint="JPG or PNG · max 10 MB" onChange={() => setDocumentsUploaded(false)} />
+              </div>
+              {documentsUploaded && <p className="text-xs font-medium text-emerald-300">Identity evidence uploaded securely.</p>}
+
+              <SectionTitle>Declarations</SectionTitle>
               <Declaration name="amlDeclarationAccepted">I confirm that the investment funds are not proceeds of crime, money laundering, or terrorist financing.</Declaration>
               <Declaration name="suitabilityDeclarationAccepted">I understand that the investment is long-term, may be illiquid, returns are not guaranteed, and I may lose the invested capital.</Declaration>
               <Declaration name="informationDeclarationAccepted">I confirm that the investor information supplied is complete and accurate and that I will provide supporting information when requested.</Declaration>
               </div>
-              <div data-application-phase="4" hidden={applicationPhase !== 4} className="space-y-5">
+              <div data-application-phase="5" hidden={applicationPhase !== 5} className="space-y-5">
               <SectionTitle>Terms and reservation</SectionTitle>
               <div tabIndex={0} onScroll={(event) => { const node = event.currentTarget; if (node.scrollTop + node.clientHeight >= node.scrollHeight - 8) setTermsRead(true); }} className="h-56 overflow-y-auto rounded-xl border border-white/15 bg-black/30 p-4 text-xs leading-6 text-slate-300" aria-label="Investor terms"><p className="font-semibold text-white">Class B Share Offering — Investor Terms</p><p className="mt-3">You are applying for a private Phase 1 allocation at USD 25 per paid share, subject to the server-issued invitation, eligibility, KYC and compliance approval, available allocation and the governing offering documents.</p><p className="mt-3">The buy-one-get-one bonus applies only to Phase 1 and does not alter the rights attached to the paid or bonus shares. A reservation is not final incorporation, a share certificate, guaranteed liquidity or guaranteed return.</p><p className="mt-3">USDT payment must be sent only to the exact server-issued Remitano receiving route on the stated network. KaSiHub settles only after matching canonical blockchain and custody evidence. Wrong-network or wrong-token transfers may be irrecoverable.</p><p className="mt-3">Your application information must be accurate and may be verified. KaSiHub may request further evidence, reject an application, or pause settlement where legal, compliance, fraud, custody or reconciliation controls require it.</p><p className="mt-3">Scroll to the end to enable acceptance. The authoritative wording remains the version identified below and must be approved before production activation.</p><p className="mt-3 font-semibold text-amber-200">End of terms — version {offer.termsVersion}</p></div>
               <label className="flex items-start gap-3 text-xs leading-5 text-slate-300"><input name="termsAccepted" type="checkbox" required disabled={!termsRead} className="mt-1" />
@@ -335,7 +364,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
                     <ChevronLeft className="mr-1 h-4 w-4" />Back
                   </Button>
                 )}
-                {applicationPhase < 4 ? <Button type="button" className="flex-1 bg-amber-400 font-bold text-slate-950 hover:bg-amber-300" onClick={advanceApplication}>Continue<ChevronRight className="ml-1 h-4 w-4" /></Button> : devPreview ? <Button type="button" className="flex-1 bg-slate-500 font-bold text-white" disabled>Read-only preview — no reservation</Button> : <Button className="flex-1 bg-amber-400 font-bold text-slate-950 hover:bg-amber-300" disabled={submitting || !termsRead}>{submitting ? "Creating reservation…" : "Reserve and view payment"}</Button>}
+                {applicationPhase < 5 ? <Button type="button" className="flex-1 bg-amber-400 font-bold text-slate-950 hover:bg-amber-300" disabled={submitting} onClick={advanceApplication}>{submitting && applicationPhase === 4 ? "Uploading…" : "Continue"}<ChevronRight className="ml-1 h-4 w-4" /></Button> : devPreview ? <Button type="button" className="flex-1 bg-slate-500 font-bold text-white" disabled>Read-only preview — no reservation</Button> : <Button className="flex-1 bg-amber-400 font-bold text-slate-950 hover:bg-amber-300" disabled={submitting || !termsRead}>{submitting ? "Creating reservation…" : "Reserve and view payment"}</Button>}
               </div>
             </form></CardContent>
           </Card>
@@ -376,7 +405,7 @@ function Metric({ label, value }: { label: string; value: string }) {
 }
 
 function ApplicationProgress({ phase }: { phase: number }) {
-  return <ol aria-label="Investor application progress" className="grid grid-cols-4 gap-1.5">{APPLICATION_PHASES.map((item, index) => {
+  return <ol aria-label="Investor application progress" className="grid grid-cols-5 gap-1.5">{APPLICATION_PHASES.map((item, index) => {
     const current = index + 1 === phase;
     const complete = index + 1 < phase;
     const Icon = item.icon;
@@ -386,6 +415,10 @@ function ApplicationProgress({ phase }: { phase: number }) {
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return <label className="block space-y-2 text-sm font-medium text-slate-200"><span>{label}</span>{children}</label>;
+}
+
+function UploadField({ label, name, accept, hint, onChange }: { label: string; name: string; accept: string; hint: string; onChange: () => void }) {
+  return <label className="block rounded-xl border border-dashed border-white/20 bg-black/20 p-4 text-sm font-medium text-slate-200 transition-colors hover:border-sky-300/50"><span className="flex items-center gap-2"><Upload className="h-4 w-4 text-sky-300" />{label}</span><input name={name} type="file" accept={accept} required onChange={onChange} className="mt-3 block w-full cursor-pointer text-xs text-slate-300 file:mr-3 file:rounded-md file:border-0 file:bg-sky-300 file:px-3 file:py-2 file:font-semibold file:text-slate-950" /><span className="mt-2 block text-xs font-normal text-slate-400">{hint}</span></label>;
 }
 
 const SOURCE_OF_FUNDS: Array<[string, string]> = [

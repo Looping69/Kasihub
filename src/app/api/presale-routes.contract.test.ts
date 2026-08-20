@@ -28,6 +28,7 @@ import { GET as listOrders } from "./admin/presale/orders/route";
 import { GET as listAvailableCampaigns } from "./presale/campaigns/route";
 import { GET as getOffer } from "./presale/offer/route";
 import { POST as createOrder } from "./presale/orders/route";
+import { POST as uploadKycDocument } from "./presale/kyc-documents/route";
 import { GET as getOrder } from "./presale/orders/[reference]/route";
 import { POST as submitProof } from "./presale/orders/[reference]/payment-proof/route";
 
@@ -120,6 +121,42 @@ describe("presale BFF contracts", () => {
     const response = await createOrder(jsonPost("/api/presale/orders", { quantity: 2 }, { "idempotency-key": "stable-key" }));
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({ error: "International KYC verification is required (PENDING)" });
+  });
+
+  test("identity evidence upload is session-bound and forwarded to the private KYC case", async () => {
+    mocks.encoreRequest
+      .mockResolvedValueOnce({ member: { id: "profile-1" } })
+      .mockResolvedValueOnce({ id: "case-1" })
+      .mockResolvedValueOnce({ id: "document-1", status: "uploaded", duplicate: false });
+    const body = new FormData();
+    body.set("documentType", "identity_selfie");
+    body.set("file", new File([new Uint8Array([0xff, 0xd8, 0xff])], "selfie.jpg", { type: "image/jpeg" }));
+    const response = await uploadKycDocument(request("/api/presale/kyc-documents", { method: "POST", body }));
+
+    expect(response.status).toBe(201);
+    expect(mocks.encoreRequest).toHaveBeenNthCalledWith(1, "/profiles/me", {}, "admin-token");
+    expect(mocks.encoreRequest).toHaveBeenNthCalledWith(2, "/kyc/international/cases", {
+      method: "POST",
+      body: JSON.stringify({ profileId: "profile-1" }),
+    }, "admin-token");
+    expect(mocks.encoreRequest).toHaveBeenNthCalledWith(3, "/kyc/international/cases/case-1/documents", expect.objectContaining({
+      method: "POST",
+      headers: expect.objectContaining({ "Content-Type": "image/jpeg", "X-Document-Type": "identity_selfie" }),
+    }), "admin-token");
+  });
+
+  test("identity evidence upload rejects unauthenticated and invalid selfie files", async () => {
+    mocks.encoreSessionToken.mockResolvedValue(undefined);
+    const unauthenticated = await uploadKycDocument(request("/api/presale/kyc-documents", { method: "POST", body: new FormData() }));
+    expect(unauthenticated.status).toBe(401);
+
+    mocks.encoreSessionToken.mockResolvedValue("member-token");
+    const body = new FormData();
+    body.set("documentType", "identity_selfie");
+    body.set("file", new File(["%PDF-"], "selfie.pdf", { type: "application/pdf" }));
+    const invalid = await uploadKycDocument(request("/api/presale/kyc-documents", { method: "POST", body }));
+    expect(invalid.status).toBe(400);
+    expect(mocks.encoreRequest).not.toHaveBeenCalled();
   });
 
   test("order access credentials stay in headers and never enter URLs", async () => {

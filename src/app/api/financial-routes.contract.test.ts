@@ -62,7 +62,6 @@ describe("financial BFF contracts", () => {
   });
 
   test.each([
-    ["shares", buyShares, "/api/shares/buy", { memberId: "profile", phase: 1, quantity: 1 }],
     ["marketplace", placeOrder, "/api/marketplace/order", { memberId: "profile", productId: "product" }],
     ["RootsBank", buyRootsBank, "/api/rootsbank/purchase", { memberId: "profile", category: "ADULT" }],
   ])("%s mutation requires an idempotency key", async (_name, handler, path, body) => {
@@ -72,25 +71,13 @@ describe("financial BFF contracts", () => {
     expect(mocks.encoreRequest).not.toHaveBeenCalled();
   });
 
-  test("share purchase validates input and preserves the operation contract", async () => {
-    const invalid = await buyShares(request("/api/shares/buy", { memberId: "profile", phase: 1, quantity: 0 }, "1234567890abcdef"));
-    expect(invalid.status).toBe(400);
-
-    mocks.encoreRequest.mockResolvedValue({
-      purchaseId: "purchase", status: "completed", totalAmount: "25.50",
-      bonusQuantity: 1, certificateNumber: "CERT-1", operationId: "operation",
-    });
+  test("direct share purchases fail closed in favour of the presale workflow", async () => {
     const response = await buyShares(request("/api/shares/buy", { memberId: "profile", phase: 2, quantity: 2 }, "1234567890abcdef"));
-    expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({
-      operationId: "operation", effectiveQuantity: 3,
-      share: { id: "purchase", phase: 2, quantity: 3, totalAmount: 25.5, status: "COMPLETED" },
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      error: "Direct share purchases are disabled; use the private presale application",
     });
-    expect(mocks.encoreRequest).toHaveBeenCalledWith(
-      "/shares/purchase",
-      expect.objectContaining({ method: "POST", headers: { "Idempotency-Key": "1234567890abcdef" } }),
-      "session-token",
-    );
+    expect(mocks.encoreRequest).not.toHaveBeenCalled();
   });
 
   test("marketplace order validates input and forwards the stable key", async () => {

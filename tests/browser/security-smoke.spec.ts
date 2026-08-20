@@ -183,6 +183,40 @@ test("restores administrator authority from the server, not browser storage", as
   await expect(page.getByText("Exco Administrator").first()).toBeVisible();
 });
 
+test("administrator reviews private identity evidence before KYC verification", async ({ page }) => {
+  const pendingMember = { ...member, id: "pending-profile", firstName: "Pending", lastName: "Applicant", isAdmin: false,
+    citizenshipType: "INTERNATIONAL", kycStatus: "PENDING", shareCount: 0, transactionCount: 0, orderCount: 0 };
+  const documents = [
+    { id: "id-document", documentType: "identity_document", filename: "passport.png", contentType: "image/png", sizeBytes: 1024, status: "uploaded", uploadedAt: new Date().toISOString(), rejectionReason: null },
+    { id: "selfie-document", documentType: "identity_selfie", filename: "selfie.jpg", contentType: "image/jpeg", sizeBytes: 1024, status: "uploaded", uploadedAt: new Date().toISOString(), rejectionReason: null },
+  ];
+  await page.route("**/api/auth/session", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ authenticated: true, member: { ...member, id: "admin-profile", firstName: "Admin", isAdmin: true } }) }));
+  await page.route("**/api/admin/stats", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ totals: { members: 1, activeMembers: 0, pendingKyc: 1, totalShares: 0, shareRevenueUSD: 0, pioneerCount: 0, pioneerTarget: 200, totalRevenue: 0, subscriptionRevenue: 0, mallRevenue: 0, marketplaceRevenue: 0, poolPaidOut: 0, poolBalance: 0, poolIncoming: 0, mallTransactions: 0, marketplaceOrders: 0, taxEligibleMembers: 0, totalVouchers: 0, activeVouchers: 0, expiringVouchers: 0, totalVoucherValue: 0, totalReferrals: 0, registeredReferrals: 0, referralConversionRate: 0, totalReferralRewards: 0, totalNotifications: 0, sent5Days: 0, sent3Days: 0, sent1Day: 0, instapayVerifiedCount: 0, instapayPendingCount: 0 }, memberGrowth: [], cumulativeGrowth: [], revenueBySource: [], typeBreakdown: { INDIVIDUAL_ADULT: 1, INDIVIDUAL_KIDS: 0, COMPANY: 0 }, kycBreakdown: { VERIFIED: 0, PENDING: 1, REJECTED: 0 }, silos: [], phases: [], dividends: [], recentActivity: [] }) }));
+  await page.route("**/api/admin/members?**", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ members: [pendingMember], total: 1 }) }));
+  await page.route("**/api/admin/kyc/documents?memberId=*", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ caseId: "case-1", caseStatus: "pending", documents }) }));
+  await page.route("**/api/admin/kyc/documents/id-document", (route) => route.fulfill({ status: 200, contentType: "image/png", body: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]) }));
+  await page.route("**/api/admin/kyc/documents", async (route) => {
+    if (route.request().method() !== "PATCH") return route.fallback();
+    const body = route.request().postDataJSON() as { documentId: string; action: string };
+    const document = documents.find((item) => item.id === body.documentId)!;
+    document.status = "approved";
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ documentId: document.id, status: "approved" }) });
+  });
+
+  await page.goto("/");
+  await page.getByRole("button", { name: /Members & KYC/ }).first().click();
+  await page.getByRole("button", { name: "Review evidence" }).click();
+  await expect(page.getByText("ID document or passport", { exact: true })).toBeVisible();
+  await expect(page.getByText("Identity selfie", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Verify member" })).toBeDisabled();
+  await page.getByRole("button", { name: "View" }).first().click();
+  await expect(page.getByRole("dialog").getByRole("heading", { name: "ID document or passport" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Approve" }).first().click();
+  await page.getByRole("button", { name: "Approve" }).first().click();
+  await expect(page.getByRole("button", { name: "Verify member" })).toBeEnabled();
+});
+
 test("design studio remains hidden while its persistence path is stabilised", async ({ page }) => {
   await page.route("**/api/auth/session", (route) => route.fulfill({
     status: 200, contentType: "application/json",
@@ -268,6 +302,11 @@ test("invited buyer can reserve shares without exposing the order access token i
       } }),
     });
   });
+  await page.route("**/api/presale/kyc-documents", (route) => route.fulfill({
+    status: 201,
+    contentType: "application/json",
+    body: JSON.stringify({ document: { id: crypto.randomUUID(), status: "uploaded", duplicate: false } }),
+  }));
   await page.route(`**/api/presale/orders/${orderReference}/payment-proof`, (route) => route.fulfill({
     status: 200,
     contentType: "application/json",
@@ -321,14 +360,24 @@ test("invited buyer can reserve shares without exposing the order access token i
   await page.getByLabel("Phase 1 shares at $25 each *").fill("2");
   await page.getByRole("button", { name: "Continue" }).click();
 
-  await page.getByLabel("Country of tax residence").fill("South Africa");
-  await page.getByLabel("Beneficial owner", { exact: true }).fill("Private Buyer");
   await page.getByLabel("Primary source").selectOption("salary");
   await page.getByLabel("Whose funds?").selectOption("own");
   await page.getByLabel("Source-of-funds details").fill("Employment income");
   await page.getByLabel("Account holder").fill("Private Buyer");
   await page.getByLabel("Bank").fill("Test Bank");
   await page.getByLabel("Account number").fill("1234567890");
+  await page.getByRole("button", { name: "Continue" }).click();
+
+  await page.getByLabel("ID document or passport *").setInputFiles({
+    name: "identity.png",
+    mimeType: "image/png",
+    buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+  });
+  await page.getByLabel("Selfie holding your ID *").setInputFiles({
+    name: "selfie.jpg",
+    mimeType: "image/jpeg",
+    buffer: Buffer.from([0xff, 0xd8, 0xff]),
+  });
   await page.getByLabel(/I confirm that the investment funds/).check();
   await page.getByLabel(/I understand that the investment is long-term/).check();
   await page.getByLabel(/I confirm that the investor information supplied/).check();

@@ -5,7 +5,7 @@ import { motion } from "framer-motion";
 import {
   Users, Search, ShieldCheck, ShieldAlert, Loader2, Check, X,
   Building2, User, UserCheck, Mail, Phone, MapPin, Coins,
-  CreditCard, Calendar, Filter, ChevronRight,
+  CreditCard, Calendar, Filter, ChevronRight, Eye, FileCheck2,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -33,6 +33,11 @@ interface AdminMember {
   createdAt: string; shareCount: number; transactionCount: number; orderCount: number;
 }
 
+interface KycDocument {
+  id: string; documentType: string; filename: string; contentType: string;
+  sizeBytes: number; status: string; uploadedAt: string; rejectionReason: string | null;
+}
+
 export function AdminMembers() {
   const [members, setMembers] = useState<AdminMember[]>([]);
   const [total, setTotal] = useState(0);
@@ -42,6 +47,9 @@ export function AdminMembers() {
   const [subFilter, setSubFilter] = useState("ALL");
   const [typeFilter, setTypeFilter] = useState("ALL");
   const [selected, setSelected] = useState<AdminMember | null>(null);
+  const [kycDocuments, setKycDocuments] = useState<KycDocument[]>([]);
+  const [documentsLoading, setDocumentsLoading] = useState(false);
+  const [preview, setPreview] = useState<{ url: string; type: string; title: string } | null>(null);
 
   async function load() {
     setLoading(true);
@@ -66,6 +74,51 @@ export function AdminMembers() {
     const t = setTimeout(load, 300);
     return () => clearTimeout(t);
   }, [search, kycFilter, subFilter, typeFilter]);
+
+  useEffect(() => {
+    if (!selected) { setKycDocuments([]); return; }
+    let cancelled = false;
+    setDocumentsLoading(true);
+    void fetch(`/api/admin/kyc/documents?memberId=${encodeURIComponent(selected.id)}`, { cache: "no-store" })
+      .then(async (res) => {
+        const payload = await res.json();
+        if (!res.ok) throw new Error(payload.error ?? "Unable to load KYC evidence");
+        if (!cancelled) setKycDocuments(payload.documents ?? []);
+      })
+      .catch((reason) => { if (!cancelled) toast.error(reason instanceof Error ? reason.message : "Unable to load KYC evidence"); })
+      .finally(() => { if (!cancelled) setDocumentsLoading(false); });
+    return () => { cancelled = true; };
+  }, [selected?.id]);
+
+  useEffect(() => () => { if (preview) URL.revokeObjectURL(preview.url); }, [preview]);
+
+  async function viewDocument(document: KycDocument) {
+    try {
+      const res = await fetch(`/api/admin/kyc/documents/${encodeURIComponent(document.id)}`, { cache: "no-store" });
+      if (!res.ok) throw new Error("Unable to open KYC evidence");
+      const url = URL.createObjectURL(await res.blob());
+      setPreview((current) => {
+        if (current) URL.revokeObjectURL(current.url);
+        return { url, type: document.contentType, title: document.documentType === "identity_selfie" ? "Identity selfie" : "ID document or passport" };
+      });
+    } catch (reason) {
+      toast.error(reason instanceof Error ? reason.message : "Unable to open KYC evidence");
+    }
+  }
+
+  async function reviewDocument(document: KycDocument, action: "APPROVE" | "REJECT") {
+    const reason = action === "REJECT" ? window.prompt("Reason for rejecting this document")?.trim() : undefined;
+    if (action === "REJECT" && !reason) return;
+    const res = await fetch("/api/admin/kyc/documents", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ documentId: document.id, action, reason }),
+    });
+    const payload = await res.json();
+    if (!res.ok) { toast.error(payload.error ?? "Unable to review KYC evidence"); return; }
+    setKycDocuments((current) => current.map((item) => item.id === document.id ? { ...item, status: payload.status, rejectionReason: reason ?? null } : item));
+    toast.success(action === "APPROVE" ? "Document approved" : "Document rejected");
+  }
 
   async function handleKyc(member: AdminMember, action: "APPROVE" | "REJECT") {
     try {
@@ -230,10 +283,7 @@ export function AdminMembers() {
                       <td className="px-4 py-3 hidden xl:table-cell text-xs text-muted-foreground">{new Date(m.createdAt).toLocaleDateString("en-ZA")}</td>
                       <td className="px-4 py-3 text-right">
                         {m.kycStatus === "PENDING" ? (
-                          <div className="flex gap-1 justify-end" onClick={(e) => e.stopPropagation()}>
-                            <Button size="sm" variant="outline" className="h-7 px-2 text-[10px] bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100" onClick={() => handleKyc(m, "APPROVE")}><Check className="h-3 w-3 mr-0.5" />Approve</Button>
-                            <Button size="sm" variant="outline" className="h-7 px-2 text-[10px] bg-rose-50 border-rose-200 text-rose-700 hover:bg-rose-100" onClick={() => handleKyc(m, "REJECT")}><X className="h-3 w-3" /></Button>
-                          </div>
+                          <Button size="sm" variant="outline" className="h-7 px-2 text-[10px] bg-amber-50 border-amber-200 text-amber-800 hover:bg-amber-100" onClick={(e) => { e.stopPropagation(); setSelected(m); }}><Eye className="h-3 w-3 mr-1" />Review evidence</Button>
                         ) : (
                           <Button size="sm" variant="ghost" className="h-7 text-[10px]" onClick={(e) => { e.stopPropagation(); setSelected(m); }}>View <ChevronRight className="h-3 w-3" /></Button>
                         )}
@@ -282,13 +332,25 @@ export function AdminMembers() {
 
                 {/* KYC action buttons */}
                 {selected.kycStatus === "PENDING" && (
-                  <div className="flex gap-2 p-4 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900">
-                    <div className="flex-1">
-                      <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">KYC verification required</p>
-                      <p className="text-xs text-amber-700 dark:text-amber-400">Review the member's documents and approve or reject their KYC.</p>
+                  <div className="space-y-3 p-4 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900">
+                    <div>
+                      <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">KYC evidence review</p>
+                      <p className="text-xs text-amber-700 dark:text-amber-400">Open and approve both pieces of identity evidence before verifying this member.</p>
                     </div>
-                    <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={() => handleKyc(selected, "APPROVE")}><Check className="h-4 w-4 mr-1" />Approve</Button>
-                    <Button size="sm" variant="outline" className="border-rose-300 text-rose-700 hover:bg-rose-100" onClick={() => handleKyc(selected, "REJECT")}><X className="h-4 w-4 mr-1" />Reject</Button>
+                    {documentsLoading ? <div className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Loading private evidence…</div> : kycDocuments.length === 0 ? <p className="text-xs font-medium text-rose-700">No identity evidence has been uploaded.</p> : (
+                      <div className="space-y-2">{kycDocuments.map((document) => <div key={document.id} className="flex flex-wrap items-center gap-2 rounded-lg border bg-background p-3">
+                        <FileCheck2 className="h-4 w-4 text-muted-foreground" />
+                        <div className="min-w-0 flex-1"><p className="truncate text-xs font-semibold">{document.documentType === "identity_selfie" ? "Identity selfie" : "ID document or passport"}</p><p className="truncate text-[10px] text-muted-foreground">{document.filename} · {(document.sizeBytes / 1024 / 1024).toFixed(2)} MB</p></div>
+                        <Badge variant="outline" className={document.status === "approved" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : document.status === "rejected" ? "border-rose-200 bg-rose-50 text-rose-700" : "border-amber-200 bg-amber-50 text-amber-700"}>{document.status}</Badge>
+                        <Button size="sm" variant="outline" onClick={() => viewDocument(document)}><Eye className="mr-1 h-3.5 w-3.5" />View</Button>
+                        {document.status !== "approved" && <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={() => reviewDocument(document, "APPROVE")}><Check className="mr-1 h-3.5 w-3.5" />Approve</Button>}
+                        {document.status !== "rejected" && <Button size="sm" variant="outline" className="border-rose-300 text-rose-700" onClick={() => reviewDocument(document, "REJECT")}><X className="h-3.5 w-3.5" /></Button>}
+                      </div>)}</div>
+                    )}
+                    <div className="flex justify-end gap-2 border-t border-amber-200 pt-3 dark:border-amber-900">
+                      <Button size="sm" variant="outline" className="border-rose-300 text-rose-700 hover:bg-rose-100" onClick={() => handleKyc(selected, "REJECT")}><X className="h-4 w-4 mr-1" />Reject member</Button>
+                      <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" disabled={!hasApprovedIdentityEvidence(kycDocuments)} onClick={() => handleKyc(selected, "APPROVE")}><Check className="h-4 w-4 mr-1" />Verify member</Button>
+                    </div>
                   </div>
                 )}
 
@@ -321,8 +383,20 @@ export function AdminMembers() {
           )}
         </DialogContent>
       </Dialog>
+
+      <Dialog open={!!preview} onOpenChange={(open) => { if (!open) setPreview(null); }}>
+        <DialogContent className="max-w-4xl">
+          <DialogHeader><DialogTitle>{preview?.title}</DialogTitle></DialogHeader>
+          {preview?.type === "application/pdf" ? <iframe title={preview.title} src={preview.url} className="h-[70vh] w-full rounded-lg border" /> : preview ? <img src={preview.url} alt={preview.title} className="max-h-[70vh] w-full rounded-lg bg-black/5 object-contain" /> : null}
+          <p className="text-xs text-muted-foreground">Private evidence is loaded for this review session only and is not cached by the browser route.</p>
+        </DialogContent>
+      </Dialog>
     </div>
   );
+}
+
+function hasApprovedIdentityEvidence(documents: KycDocument[]) {
+  return ["identity_document", "identity_selfie"].every((type) => documents.some((document) => document.documentType === type && document.status === "approved"));
 }
 
 function Detail({ icon: Icon, label, value, mono }: { icon: typeof Mail; label: string; value: string; mono?: boolean }) {

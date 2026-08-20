@@ -196,6 +196,51 @@ export interface ListInternationalKycEvidenceResponse {
   documents: InternationalKycEvidenceItem[];
 }
 
+export interface AdminInternationalKycEvidenceResponse extends ListInternationalKycEvidenceResponse {
+  caseId: string | null;
+  caseStatus: string;
+}
+
+export const adminListInternationalKycEvidence = api<
+  { profileId: string },
+  AdminInternationalKycEvidenceResponse
+>(
+  { method: "GET", path: "/admin/kyc/international/profiles/:profileId/documents", expose: true },
+  async (req) => {
+    await requireAdminAccess();
+    const kycCase = await kycDb.rawQueryRow<{ id: string; status: string }>(
+      `SELECT id, status FROM kyc_cases
+        WHERE profile_id = $1 AND provider = $2
+        ORDER BY submitted_at DESC NULLS LAST LIMIT 1`,
+      req.profileId,
+      INTERNATIONAL_KYC_PROVIDER,
+    );
+    if (!kycCase) return { caseId: null, caseStatus: "none", documents: [] };
+    const rows = await kycDb.rawQueryAll<{
+      id: string; document_type: string; original_filename: string | null; content_type: string | null;
+      size_bytes: number | null; status: string; uploaded_at: string; rejection_reason: string | null;
+    }>(
+      `SELECT id, document_type, original_filename, content_type, size_bytes, status, uploaded_at, rejection_reason
+         FROM kyc_documents WHERE kyc_case_id = $1 ORDER BY uploaded_at DESC`,
+      kycCase.id,
+    );
+    return {
+      caseId: kycCase.id,
+      caseStatus: kycCase.status,
+      documents: rows.map((row) => ({
+        id: row.id,
+        documentType: row.document_type,
+        filename: row.original_filename ?? "document",
+        contentType: row.content_type ?? "application/octet-stream",
+        sizeBytes: Number(row.size_bytes ?? 0),
+        status: row.status,
+        uploadedAt: row.uploaded_at,
+        rejectionReason: row.rejection_reason,
+      })),
+    };
+  },
+);
+
 export const listInternationalKycEvidence = api<
   ListInternationalKycEvidenceRequest,
   ListInternationalKycEvidenceResponse
