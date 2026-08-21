@@ -5,7 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import {
-  Coins, TrendingUp, Award, FileText, Loader2, Sparkles, DollarSign,
+  Coins, TrendingUp, Award, FileText, Loader2, Sparkles, DollarSign, Download,
   Check, Lock, Calendar, Printer, Gem,
   ArrowRight, ShieldCheck,
 } from "lucide-react";
@@ -594,14 +594,21 @@ export function SharesView() {
                               <span className="text-[10px] text-muted-foreground flex items-center gap-1">
                                 <Calendar className="h-3 w-3" /> Issued {new Date(s.createdAt).toLocaleDateString("en-ZA")}
                               </span>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => printKasiCertificate(s, memberName)}
-                                className="h-7 gap-1 text-[11px] border-amber-300 text-amber-700 hover:bg-amber-50 dark:border-amber-900 dark:text-amber-400 dark:hover:bg-amber-950/40"
-                              >
-                                <Printer className="h-3 w-3" /> Print
-                              </Button>
+                              <div className="flex items-center gap-1.5">
+                                <Button asChild size="sm" variant="outline" className="h-7 gap-1 text-[11px] border-amber-300 text-amber-700 hover:bg-amber-50 dark:border-amber-900 dark:text-amber-400 dark:hover:bg-amber-950/40">
+                                  <a href={`/api/shares/certificates/${encodeURIComponent(s.certificateNo)}`} download>
+                                    <Download className="h-3 w-3" /> PDF
+                                  </a>
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => printKasiCertificate(s, memberName)}
+                                  className="h-7 gap-1 text-[11px] border-amber-300 text-amber-700 hover:bg-amber-50 dark:border-amber-900 dark:text-amber-400 dark:hover:bg-amber-950/40"
+                                >
+                                  <Printer className="h-3 w-3" /> Print
+                                </Button>
+                              </div>
                             </div>
                           </div>
                         </motion.div>
