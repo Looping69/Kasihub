@@ -25,7 +25,7 @@ export const remitanoDiagnostic = api.raw(
       await readRemitanoCustodyEvidence({
         provider: "remitano",
         network: "bsc",
-        transactionHash: "0".repeat(64),
+        transactionHash: "a".repeat(64),
         receiverAddress: "0xa102ff05Ef75522702804E529496074E3D28fb20",
         currency: "USDT",
         expectedAmount: "0.1",
