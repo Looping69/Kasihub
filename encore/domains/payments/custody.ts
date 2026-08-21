@@ -83,11 +83,22 @@ async function remitanoGet(requestTarget: string): Promise<unknown> {
   } catch {
     throw new CustodyProviderUnavailable("remitano", "custody_provider_network_unavailable");
   }
+  const responseText = await response.text();
   if (response.status === 401 || response.status === 403) {
     throw new CustodyProviderUnavailable("remitano", "custody_provider_credentials_rejected");
   }
-  if (!response.ok) throw new CustodyProviderUnavailable("remitano", `custody_provider_http_${response.status}`);
-  return response.json();
+  if (!response.ok) {
+    let providerReason = "unknown";
+    try {
+      const details = JSON.parse(responseText) as Record<string, unknown>;
+      const candidate = details.error ?? details.message ?? details.code;
+      if (typeof candidate === "string") providerReason = candidate.toLowerCase().replace(/[^a-z0-9_-]+/g, "_").slice(0, 80);
+    } catch { /* non-JSON provider error */ }
+    throw new CustodyProviderUnavailable("remitano", `custody_provider_http_${response.status}_${providerReason}`);
+  }
+  try { return JSON.parse(responseText); } catch {
+    throw new CustodyProviderUnavailable("remitano", "custody_provider_response_invalid_json");
+  }
 }
 
 export async function diagnoseRemitanoCredentials(): Promise<void> {
