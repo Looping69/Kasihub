@@ -90,6 +90,10 @@ async function remitanoGet(requestTarget: string): Promise<unknown> {
   return response.json();
 }
 
+export async function diagnoseRemitanoCredentials(): Promise<void> {
+  await remitanoGet("/api/v1/coin_accounts/me");
+}
+
 export async function readRemitanoCustodyEvidence(expectation: CustodyExpectation): Promise<CustodyEvidence> {
   const query = new URLSearchParams({
     coin_currency: expectation.currency.toLowerCase(),

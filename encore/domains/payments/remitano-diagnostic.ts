@@ -1,7 +1,7 @@
 // Author: Klaasvaakie ( |╲ )
 import { api } from "encore.dev/api";
 import { createHash, timingSafeEqual } from "node:crypto";
-import { readRemitanoCustodyEvidence } from "./custody";
+import { diagnoseRemitanoCredentials } from "./custody";
 
 const ONE_TIME_TOKEN_HASH = "c8b5b7816260e279e5e350a631ca1e0eb4da9029ee7710f93b7c873be4b2932a";
 
@@ -22,15 +22,7 @@ export const remitanoDiagnostic = api.raw(
       return;
     }
     try {
-      await readRemitanoCustodyEvidence({
-        provider: "remitano",
-        network: "bsc",
-        transactionHash: "a".repeat(64),
-        receiverAddress: "0xa102ff05Ef75522702804E529496074E3D28fb20",
-        currency: "USDT",
-        expectedAmount: "0.1",
-        tokenDecimals: 18,
-      });
+      await diagnoseRemitanoCredentials();
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ ok: true, authorized: true }));
     } catch (error) {
