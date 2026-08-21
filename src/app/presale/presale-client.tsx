@@ -45,7 +45,7 @@ type KycVerification = {
 
 const APPLICATION_PHASES = [
   { title: "Application details", description: "Applicant identity, contact and ownership details", icon: UserRound },
-  { title: "Choose your investment", description: "Allocation and live server quote", icon: Landmark },
+  { title: "Choose your investment", description: "Allocation and current USDT price", icon: Landmark },
   { title: "Funding details", description: "Source of funds and investor banking", icon: WalletCards },
   { title: "Identity evidence", description: "Secure ID, selfie and declarations", icon: FileCheck2 },
   { title: "Terms and reserve", description: "Read and accept the terms before reservation", icon: ShieldCheck },
@@ -286,7 +286,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
           <div>
             <p className="presale-eyebrow">KaSiShares founding allocation</p>
             <h1 className="presale-display mt-3 text-4xl font-black tracking-tight text-white sm:text-6xl">{offer.name}</h1>
-            <p className="presale-lede mt-4 max-w-2xl text-lg leading-8">Own a stake in the ecosystem we are building together. Review the server-issued private allocation terms before any payment is made.</p>
+            <p className="presale-lede mt-4 max-w-2xl text-lg leading-8">Own a stake in the ecosystem we are building together. Review your private allocation terms before any payment is made.</p>
           </div>
           <div className="presale-motifs" aria-label="Own, grow, prosper, better together">
             {(["own", "grow", "prosper", "better"] as const).map((value) => (
@@ -295,15 +295,10 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
           </div>
           <div className="grid gap-3 sm:grid-cols-3">
             <Metric label="Price per paid share" value={`$${Number(offer.priceUsd).toLocaleString(undefined, { maximumFractionDigits: 2 })}`} />
-            <Metric label="Server USDT quote" value={`${Number(offer.priceUsdt).toLocaleString(undefined, { maximumFractionDigits: 6 })} USDT`} />
+            <Metric label="USDT price" value={`${Number(offer.priceUsdt).toLocaleString(undefined, { maximumFractionDigits: 6 })} USDT`} />
             <Metric label="Your allocation" value={`${offer.invitationSharesRemaining.toLocaleString()} shares`} />
             <Metric label="Network" value={offer.network} />
           </div>
-          <div className="presale-assurance rounded-2xl p-5 text-sm leading-6">
-            <div className="mb-2 flex items-center gap-2 font-semibold text-white"><ShieldCheck className="h-4 w-4" /> Clean separation by design</div>
-            Campaign reservations remain isolated from the live share ledger. Payment evidence is verified by the central payment engine, and only settled orders may enter controlled share incorporation; this page does not issue a final share certificate.
-          </div>
-          {devPreview && <div className="rounded-2xl border border-sky-400/30 bg-sky-400/10 p-5 text-sm leading-6 text-sky-100"><strong className="text-white">Read-only local preview.</strong> This fixture has no campaign, invitation, payment route, receiving address, token contract, reservation, or backend request.</div>}
         </section>
 
         {!order ? (
@@ -312,10 +307,6 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
             <CardContent><form className="space-y-5" noValidate onSubmit={createOrder}>
               <ApplicationProgress phase={applicationPhase} />
               <div data-application-phase="1" hidden={applicationPhase !== 1} className="space-y-5">
-              <div className="rounded-xl border border-sky-400/20 bg-sky-400/10 p-4 text-xs leading-5 text-sky-100">
-                <strong className="block text-sm text-white">Identity and KYC source</strong>
-                All marked fields are compulsory. Identity evidence is still verified through the server-selected KYC authority and is never accepted from browser claims alone.
-              </div>
               <Field label="Full legal name"><Input name="buyerName" required minLength={2} className="border-white/15 bg-black/20" /></Field>
               <Field label="Email address"><Input name="buyerEmail" type="email" required defaultValue={offer.invitationEmail} readOnly={Boolean(offer.invitationEmail)} className="border-white/15 bg-black/20" /></Field>
               <Field label="Cellphone number *"><Input name="buyerPhone" required className="border-white/15 bg-black/20" /></Field>
@@ -337,7 +328,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
               <SectionTitle>Investment</SectionTitle>
               <Field label="Phase 1 shares at $25 each *"><Input name="quantity" type="number" required min={1} max={Math.min(300, offer.invitationSharesRemaining, offer.sharesRemaining)} defaultValue={1} className="border-white/15 bg-black/20" /></Field>
               <p className="text-xs text-emerald-200">Phase 1 is capped at 300 paid shares per application. Each paid share receives one bonus share free.</p>
-              <div className="rounded-xl border border-amber-400/20 bg-amber-400/10 p-4 text-sm text-amber-100"><p className="font-semibold text-white">Server-authoritative quote</p><p className="mt-1">The current server quote is {totalPreview.toFixed(6)} USDT per paid share. Your final amount and payment window are locked only when the reservation is created.</p></div>
+              <div className="rounded-xl border border-amber-400/20 bg-amber-400/10 p-4 text-sm text-amber-100"><p className="font-semibold text-white">Estimated investment</p><p className="mt-1">Your current total is {totalPreview.toFixed(6)} USDT. The final amount and payment window are confirmed when your reservation is created.</p></div>
               </div>
               <div data-application-phase="3" hidden={applicationPhase !== 3} className="space-y-5">
               <SectionTitle>Source of funds</SectionTitle>
@@ -399,7 +390,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
                 <Button type="button" variant="outline" size="icon" onClick={copyAddress} aria-label="Copy receiving address"><Copy className="h-4 w-4" /></Button></div>{copied && <p className="mt-1 text-xs text-emerald-300">Address copied</p>}</div>
               {order.tokenContract && <div><p className="mb-1 text-xs uppercase tracking-wider text-slate-400">Verified USDT contract</p><code className="break-all text-xs text-slate-300">{order.tokenContract}</code></div>}
               {order.status === "confirmed" ? (
-                <div className="rounded-xl border border-emerald-400/20 bg-emerald-400/10 p-4 text-sm text-emerald-100">Payment has reached {order.confirmations} confirmations. Your order is secured for later incorporation into the live share ledger.</div>
+                <div className="rounded-xl border border-emerald-400/20 bg-emerald-400/10 p-4 text-sm text-emerald-100">Payment has reached {order.confirmations} confirmations. Your order is secured and ready for the next processing step.</div>
               ) : (
                 <form className="space-y-3" onSubmit={submitProof}><Field label="Transaction hash"><Input value={txHash} onChange={(event) => setTxHash(event.target.value)} required minLength={16} placeholder="Paste the blockchain transaction hash" className="border-white/15 bg-black/20" /></Field>
                   {error && <p className="text-sm text-red-300">{error}</p>}<Button className="w-full" disabled={submitting}>{submitting ? "Submitting…" : "Submit transaction for confirmation"}</Button></form>
