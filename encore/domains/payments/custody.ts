@@ -101,10 +101,6 @@ async function remitanoGet(requestTarget: string): Promise<unknown> {
   }
 }
 
-export async function diagnoseRemitanoCredentials(): Promise<void> {
-  await remitanoGet("/api/v1/coin_accounts/me?coin_currency=usdt");
-}
-
 export async function readRemitanoCustodyEvidence(expectation: CustodyExpectation): Promise<CustodyEvidence> {
   const query = new URLSearchParams({
     coin_currency: expectation.currency.toLowerCase(),
