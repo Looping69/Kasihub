@@ -19,6 +19,12 @@ export async function POST() {
     return NextResponse.json({ session });
   } catch (error) {
     const status = error instanceof EncoreRequestError ? error.status : 500;
-    return NextResponse.json({ error: "Identity verification could not be started" }, { status });
+    const details = error instanceof EncoreRequestError && typeof error.details === "object" && error.details
+      ? error.details as { message?: unknown }
+      : null;
+    const providerMessage = typeof details?.message === "string" && details.message.length <= 160
+      ? details.message
+      : null;
+    return NextResponse.json({ error: providerMessage ?? "Identity verification could not be started" }, { status });
   }
 }

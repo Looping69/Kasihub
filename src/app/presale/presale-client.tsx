@@ -364,6 +364,8 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
               <div data-application-phase="4" hidden={applicationPhase !== 4} className="space-y-5">
               <SectionTitle>Identity verification</SectionTitle>
               <div className="rounded-xl border border-sky-400/20 bg-sky-400/10 p-4 text-sm leading-6 text-sky-100"><div className="flex gap-3"><Upload className="mt-0.5 h-5 w-5 shrink-0 text-sky-300" /><p>{devPreview ? "Preview mode does not create an external verification session." : "Didit securely performs the government-ID check, liveness test and face match. KaSiHub receives only the signed verification outcome needed for the compliance decision."}</p></div></div>
+              {applicationPhase === 4 && error && <div role="alert" aria-live="assertive" className="rounded-xl border border-red-400/40 bg-red-950/50 p-4 text-sm leading-6 text-red-100"><strong className="block text-white">Verification could not be started</strong><span>{error}</span><span className="mt-2 block text-red-200">The message will remain here. Correct the issue, then select Verify ID to retry.</span></div>}
+              {diditUrl && <a href={diditUrl} target="_blank" rel="noreferrer" className="inline-flex rounded-md bg-sky-300 px-4 py-2 text-sm font-bold text-slate-950 hover:bg-sky-200">Open secure identity verification</a>}
               {diditUrl && <iframe title="Didit identity verification" src={diditUrl} allow="camera; microphone; fullscreen; autoplay; encrypted-media" className="h-[680px] w-full rounded-xl border border-white/15 bg-white" />}
 
               <SectionTitle>Declarations</SectionTitle>
@@ -382,7 +384,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
                 <span>I accept the presale reservation acknowledgement (version {offer.termsVersion}) and understand that blockchain confirmation is payment evidence, not a Share Subscription Agreement or final share certificate.</span></label>
               {!termsRead && <p className="text-xs text-amber-200">Read and scroll through the complete terms to enable acceptance.</p>}
               </div>
-              {error && <p className="text-sm text-red-300">{error}</p>}
+              {error && applicationPhase !== 4 && <p role="alert" className="text-sm text-red-300">{error}</p>}
               <div className="flex gap-3">
                 {applicationPhase > 1 && (
                   <Button type="button" variant="outline" className="flex-1 border-white/20 bg-transparent text-white hover:bg-white/10" onClick={() => setApplicationPhase((phase) => Math.max(1, phase - 1))}>

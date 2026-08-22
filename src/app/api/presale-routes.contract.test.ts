@@ -1,6 +1,7 @@
 // Author: Klaasvaakie ( |╲ )
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { NextRequest } from "next/server";
+import { EncoreRequestError } from "@/lib/encore-client";
 
 const mocks = vi.hoisted(() => ({
   encoreRequest: vi.fn(),
@@ -175,6 +176,24 @@ describe("presale BFF contracts", () => {
       method: "POST", body: JSON.stringify({ profileId: "profile-1" }),
     }, "admin-token");
     expect(mocks.encoreRequest).toHaveBeenNthCalledWith(3, "/kyc/international/cases/case%2F1/didit-session", { method: "POST" }, "admin-token");
+  });
+
+  test("Didit session failures preserve a bounded safe provider reason", async () => {
+    mocks.encoreSessionToken.mockResolvedValue("admin-token");
+    mocks.encoreRequest
+      .mockResolvedValueOnce({ member: { id: "profile-1" } })
+      .mockResolvedValueOnce({ id: "case-1" })
+      .mockRejectedValueOnce(new EncoreRequestError("Encore request failed with 503", 503, {
+        message: "Identity verification provider credentials were rejected",
+      }));
+
+    const { POST } = await import("./presale/kyc-session/route");
+    const response = await POST();
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({
+      error: "Identity verification provider credentials were rejected",
+    });
   });
 
   test("identity evidence upload rejects unauthenticated and invalid selfie files", async () => {
