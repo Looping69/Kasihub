@@ -21,6 +21,7 @@ import {
   PRESALE_TERMS_VERSION,
   verifyPaymentEvent,
 } from "./model";
+import { exceedsInvitationShareLimit } from "./invitation-policy";
 import { issuedSharesForPresale, quotedUsdtAmount } from "./settlement";
 import { INVESTOR_APPLICATION_SCHEMA_VERSION, phaseOneApplicantSchema, type PhaseOneApplicant } from "./application";
 
@@ -741,12 +742,9 @@ export const createPresaleOrder = api<CreatePresaleOrderRequest, { order: Presal
       }
       const email = normalizeEmail(session.user.email);
       if (invitation.email && normalizeEmail(invitation.email) !== email) throw APIError.permissionDenied("This invitation belongs to a different email address");
-      if (invitation.used_shares + payload.quantity > invitation.max_shares) throw APIError.failedPrecondition("The invitation share limit would be exceeded");
+      if (exceedsInvitationShareLimit(invitation.used_shares, payload.quantity, invitation.max_shares)) throw APIError.failedPrecondition("The invitation share limit would be exceeded");
       const campaignBefore = await tx.rawQueryRow<Pick<CampaignRow, "bonus_buy_one_get_one" | "share_phase_number">>("SELECT bonus_buy_one_get_one, share_phase_number FROM presale_campaigns WHERE id = $1 FOR UPDATE", invitation.campaign_id);
       if (!campaignBefore) throw APIError.notFound("Presale campaign not found");
-      if (campaignBefore.share_phase_number === 1 && payload.quantity > 300) {
-        throw APIError.invalidArgument("Phase 1 applications are limited to 300 paid shares");
-      }
       const issuedQuantity = issuedSharesForPresale(payload.quantity, campaignBefore.bonus_buy_one_get_one);
       const campaign = await tx.rawQueryRow<CampaignRow>(
         `UPDATE presale_campaigns SET reserved_shares = reserved_shares + $2, updated_at = now()

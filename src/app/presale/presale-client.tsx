@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { PRESALE_DEV_PREVIEW_OFFER, type PresaleDevPreviewOffer } from "@/lib/presale-dev-preview";
+import { availablePaidShares, formatUsdt } from "@/lib/presale-display";
 
 type Offer = PresaleDevPreviewOffer & {
   invitationEmail?: string;
@@ -51,6 +52,12 @@ const APPLICATION_PHASES = [
   { title: "Terms and reserve", description: "Read and accept the terms before reservation", icon: ShieldCheck },
 ] as const;
 
+const TERMS_PDF_PATH = "/legal/solidus-class-b-investor-terms-2026-08-16.pdf";
+const TERMS_PAGE_PATHS = Array.from(
+  { length: 10 },
+  (_, index) => `/legal/solidus-class-b-investor-terms-2026-08-16/page-${String(index + 1).padStart(2, "0")}.png`,
+);
+
 function statusLabel(status: string) {
   return ({
     awaiting_payment: "Awaiting USDT payment",
@@ -73,6 +80,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
   const [txHash, setTxHash] = useState("");
   const [copied, setCopied] = useState(false);
   const [applicationPhase, setApplicationPhase] = useState(1);
+  const [quantity, setQuantity] = useState("1");
   const [applicantType, setApplicantType] = useState<"individual" | "company" | "trust">("individual");
   const [termsRead, setTermsRead] = useState(false);
   const [verificationStarted, setVerificationStarted] = useState(false);
@@ -128,7 +136,8 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
     return () => window.clearInterval(timer);
   }, [devPreview, verificationStarted, kycVerification?.verified, refreshKycVerification]);
 
-  const totalPreview = offer ? Number(offer.priceUsdt) : 0;
+  const maximumPaidShares = offer ? availablePaidShares(offer.invitationSharesRemaining, offer.sharesRemaining) : 0;
+  const totalPreview = offer ? Number(offer.priceUsdt) * Number(quantity || 0) : 0;
 
   async function createOrder(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -249,6 +258,10 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
       return;
     }
     if (applicationPhase === 4) {
+      if (devPreview) {
+        setApplicationPhase(5);
+        return;
+      }
       setSubmitting(true);
       setError("");
       try {
@@ -295,7 +308,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
           </div>
           <div className="grid gap-3 sm:grid-cols-3">
             <Metric label="Price per paid share" value={`$${Number(offer.priceUsd).toLocaleString(undefined, { maximumFractionDigits: 2 })}`} />
-            <Metric label="USDT price" value={`${Number(offer.priceUsdt).toLocaleString(undefined, { maximumFractionDigits: 6 })} USDT`} />
+            <Metric label="USDT price" value={`${formatUsdt(offer.priceUsdt)} USDT`} />
             <Metric label="Your allocation" value={`${offer.invitationSharesRemaining.toLocaleString()} shares`} />
             <Metric label="Network" value={offer.network} />
           </div>
@@ -326,9 +339,9 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
               </div>
               <div data-application-phase="2" hidden={applicationPhase !== 2} className="space-y-5">
               <SectionTitle>Investment</SectionTitle>
-              <Field label="Phase 1 shares at $25 each *"><Input name="quantity" type="number" required min={1} max={Math.min(300, offer.invitationSharesRemaining, offer.sharesRemaining)} defaultValue={1} className="border-white/15 bg-black/20" /></Field>
-              <p className="text-xs text-emerald-200">Phase 1 is capped at 300 paid shares per application. Each paid share receives one bonus share free.</p>
-              <div className="rounded-xl border border-amber-400/20 bg-amber-400/10 p-4 text-sm text-amber-100"><p className="font-semibold text-white">Estimated investment</p><p className="mt-1">Your current total is {totalPreview.toFixed(6)} USDT. The final amount and payment window are confirmed when your reservation is created.</p></div>
+              <Field label="Phase 1 shares at $25 each *"><Input name="quantity" type="number" required min={1} max={maximumPaidShares} value={quantity} onChange={(event) => setQuantity(event.target.value)} className="border-white/15 bg-black/20" /></Field>
+              <p className="text-xs text-emerald-200">This invitation allows up to {maximumPaidShares.toLocaleString()} paid shares. Each paid share receives one bonus share free.</p>
+              <div className="rounded-xl border border-amber-400/20 bg-amber-400/10 p-4 text-sm text-amber-100"><p className="font-semibold text-white">Estimated investment</p><p className="mt-1">Your current total is {formatUsdt(totalPreview)} USDT. The final amount and payment window are confirmed when your reservation is created.</p></div>
               </div>
               <div data-application-phase="3" hidden={applicationPhase !== 3} className="space-y-5">
               <SectionTitle>Source of funds</SectionTitle>
@@ -361,7 +374,10 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
               </div>
               <div data-application-phase="5" hidden={applicationPhase !== 5} className="space-y-5">
               <SectionTitle>Terms and reservation</SectionTitle>
-              <div tabIndex={0} onScroll={(event) => { const node = event.currentTarget; if (node.scrollTop + node.clientHeight >= node.scrollHeight - 8) setTermsRead(true); }} className="h-56 overflow-y-auto rounded-xl border border-white/15 bg-black/30 p-4 text-xs leading-6 text-slate-300" aria-label="Investor terms"><p className="font-semibold text-white">Class B Share Offering — Investor Terms</p><p className="mt-3">You are applying for a private Phase 1 allocation at USD 25 per paid share, subject to the server-issued invitation, eligibility, KYC and compliance approval, available allocation and the governing offering documents.</p><p className="mt-3">The buy-one-get-one bonus applies only to Phase 1 and does not alter the rights attached to the paid or bonus shares. A reservation is not final incorporation, a share certificate, guaranteed liquidity or guaranteed return.</p><p className="mt-3">USDT payment must be sent only to the exact server-issued Remitano receiving route on the stated network. KaSiHub settles only after matching canonical blockchain and custody evidence. Wrong-network or wrong-token transfers may be irrecoverable.</p><p className="mt-3">Your application information must be accurate and may be verified. KaSiHub may request further evidence, reject an application, or pause settlement where legal, compliance, fraud, custody or reconciliation controls require it.</p><p className="mt-3">Scroll to the end to enable acceptance. The authoritative wording remains the version identified below and must be approved before production activation.</p><p className="mt-3 font-semibold text-amber-200">End of terms — version {offer.termsVersion}</p></div>
+              <a href={TERMS_PDF_PATH} target="_blank" rel="noreferrer" className="inline-flex text-sm font-semibold text-amber-200 underline underline-offset-4 hover:text-amber-100">Open the authoritative terms PDF</a>
+              <div tabIndex={0} onScroll={(event) => { const node = event.currentTarget; if (node.scrollTop + node.clientHeight >= node.scrollHeight - 8) setTermsRead(true); }} className="h-[32rem] overflow-y-auto rounded-xl border border-white/15 bg-slate-100 p-2" aria-label="Investor terms document">
+                {applicationPhase === 5 && TERMS_PAGE_PATHS.map((path, index) => <Image key={path} src={path} alt={`SOLIDUS Class B investor terms page ${index + 1} of ${TERMS_PAGE_PATHS.length}`} width={992} height={1403} loading={index === 0 ? "eager" : "lazy"} className="mb-2 h-auto w-full bg-white last:mb-0" />)}
+              </div>
               <label className="flex items-start gap-3 text-xs leading-5 text-slate-300"><input name="termsAccepted" type="checkbox" required disabled={!termsRead} className="mt-1" />
                 <span>I accept the presale reservation acknowledgement (version {offer.termsVersion}) and understand that blockchain confirmation is payment evidence, not a Share Subscription Agreement or final share certificate.</span></label>
               {!termsRead && <p className="text-xs text-amber-200">Read and scroll through the complete terms to enable acceptance.</p>}
@@ -373,7 +389,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
                     <ChevronLeft className="mr-1 h-4 w-4" />Back
                   </Button>
                 )}
-                {applicationPhase < 5 ? <Button type="button" className="flex-1 bg-amber-400 font-bold text-slate-950 hover:bg-amber-300" disabled={submitting || (applicationPhase === 4 && verificationStarted && !kycVerification?.verified)} onClick={advanceApplication}>{submitting && applicationPhase === 4 ? "Starting verification…" : applicationPhase === 4 && verificationStarted && !kycVerification?.verified ? "Awaiting verification" : applicationPhase === 4 ? "Start identity verification" : "Continue"}<ChevronRight className="ml-1 h-4 w-4" /></Button> : devPreview ? <Button type="button" className="flex-1 bg-slate-500 font-bold text-white" disabled>Read-only preview — no reservation</Button> : <Button className="flex-1 bg-amber-400 font-bold text-slate-950 hover:bg-amber-300" disabled={submitting || !termsRead}>{submitting ? "Creating reservation…" : "Reserve and view payment"}</Button>}
+                {applicationPhase < 5 ? <Button type="button" className="flex-1 bg-amber-400 font-bold text-slate-950 hover:bg-amber-300" disabled={submitting || (applicationPhase === 4 && verificationStarted && !kycVerification?.verified)} onClick={advanceApplication}>{submitting && applicationPhase === 4 ? "Starting verification…" : applicationPhase === 4 && verificationStarted && !kycVerification?.verified ? "Awaiting verification" : applicationPhase === 4 ? "Verify ID" : "Continue"}<ChevronRight className="ml-1 h-4 w-4" /></Button> : devPreview ? <Button type="button" aria-label="Read-only preview — no reservation" className="flex-1 bg-slate-500 font-bold text-white" disabled>Preview only</Button> : <Button className="flex-1 bg-amber-400 font-bold text-slate-950 hover:bg-amber-300" disabled={submitting || !termsRead}>{submitting ? "Creating reservation…" : "Reserve and view payment"}</Button>}
               </div>
             </form></CardContent>
           </Card>

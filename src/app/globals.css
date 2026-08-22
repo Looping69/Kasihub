@@ -162,7 +162,7 @@
   [data-page-background="soft"] body { background-image: radial-gradient(circle at 80% 0%, color-mix(in srgb, var(--primary) 8%, transparent), transparent 36rem); }
 }
 
-/* Branded action button: angled colour face + white icon wing. */
+/* Branded action button: one clear colour face, matching the approved campaign control. */
 [data-kasi-action="true"] {
   --kasi-action-start: #ff9d13;
   --kasi-action-end: #ff5a00;
@@ -173,9 +173,7 @@
   overflow: hidden;
   border: 0 !important;
   border-radius: 6px !important;
-  background:
-    linear-gradient(#fff, #fff) 10px 50% / 2px calc(100% - 14px) no-repeat,
-    linear-gradient(110deg, var(--kasi-action-start), var(--kasi-action-end)) !important;
+  background: linear-gradient(110deg, var(--kasi-action-start), var(--kasi-action-end)) !important;
   box-shadow: 3px 4px 0 rgba(38, 52, 112, 0.35) !important;
   color: #000 !important;
   font-family: var(--font-inter-sans), Inter, Arial, sans-serif !important;
@@ -183,7 +181,7 @@
   font-weight: 600 !important;
   letter-spacing: 0;
   padding-left: 1.25rem !important;
-  padding-right: 4.35rem !important;
+  padding-right: 1.25rem !important;
   text-transform: uppercase;
 }
 
@@ -199,27 +197,11 @@
 }
 
 [data-kasi-action="true"]::before {
-  position: absolute;
-  inset: 0 0 0 auto;
-  z-index: 0;
-  width: 3.55rem;
-  background:
-    linear-gradient(var(--kasi-action-end), var(--kasi-action-end)) calc(100% - 10px) 50% / 2px calc(100% - 14px) no-repeat,
-    #fff;
-  clip-path: polygon(24% 0, 100% 0, 100% 100%, 24% 100%, 0 50%);
-  content: "";
+  display: none;
 }
 
 [data-kasi-action="true"]::after {
-  position: absolute;
-  right: 1.15rem;
-  z-index: 1;
-  width: 0.9rem;
-  height: 0.9rem;
-  border-top: 2.5px solid #07152f;
-  border-right: 2.5px solid #07152f;
-  content: "";
-  transform: rotate(45deg);
+  display: none;
 }
 
 [data-kasi-action="true"]:has(> svg)::after {
@@ -227,13 +209,11 @@
 }
 
 [data-kasi-action="true"] > svg {
-  position: absolute;
-  right: 0.9rem;
-  z-index: 1;
-  width: 1.65rem !important;
-  height: 1.65rem !important;
+  position: static;
+  width: 1rem !important;
+  height: 1rem !important;
   margin: 0 !important;
-  color: #07152f !important;
+  color: currentColor !important;
   stroke: currentColor;
   stroke-width: 2.25;
 }

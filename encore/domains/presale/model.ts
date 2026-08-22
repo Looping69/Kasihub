@@ -1,7 +1,7 @@
 // Author: Klaasvaakie ( |╲ )
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 
-export const PRESALE_TERMS_VERSION = "2026-07-31";
+export const PRESALE_TERMS_VERSION = "2026-08-16-v1";
 export const INVESTOR_APPLICATION_VERSION = "2026-08-15";
 
 export function normalizeEmail(value: string): string {

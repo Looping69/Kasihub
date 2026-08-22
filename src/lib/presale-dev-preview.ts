@@ -36,7 +36,7 @@ export const PRESALE_DEV_PREVIEW_OFFER: PresaleDevPreviewOffer = {
   usdtPerUsd: "1.000000",
   network: "No payment network",
   sharesRemaining: 100_000,
-  invitationSharesRemaining: 100,
+  invitationSharesRemaining: 750,
   minConfirmations: 0,
   paymentWindowMinutes: 0,
   termsVersion: "development-preview",

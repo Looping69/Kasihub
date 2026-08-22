@@ -1,6 +1,6 @@
 // Author: Klaasvaakie ( |╲ )
 import { describe, expect, test } from "vitest";
-import { fixedUsdt, hashSecret, normalizeEmail, paymentEventMessage, signPaymentEvent, verifyPaymentEvent } from "../../encore/domains/presale/model";
+import { fixedUsdt, hashSecret, normalizeEmail, paymentEventMessage, PRESALE_TERMS_VERSION, signPaymentEvent, verifyPaymentEvent } from "../../encore/domains/presale/model";
 
 const event = {
   eventId: "evt-001",
@@ -21,6 +21,10 @@ describe("presale payment contracts", () => {
     expect(normalizeEmail("  Buyer@Example.COM ")).toBe("buyer@example.com");
     expect(fixedUsdt(25)).toBe("25.000000");
     expect(hashSecret("secret")).toHaveLength(64);
+  });
+
+  test("records acceptance against the approved consolidated investor terms", () => {
+    expect(PRESALE_TERMS_VERSION).toBe("2026-08-16-v1");
   });
 
   test("creates one deterministic canonical event message", () => {
