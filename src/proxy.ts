@@ -12,6 +12,11 @@ function externalOrigin(request: NextRequest): string {
   return host ? `${protocol}://${host}` : request.nextUrl.origin;
 }
 
+function externalHostname(request: NextRequest): string {
+  const forwardedHost = request.headers.get("x-forwarded-host")?.split(",", 1)[0]?.trim();
+  return (forwardedHost || request.headers.get("host") || request.nextUrl.host).split(":", 1)[0].toLowerCase();
+}
+
 export async function proxy(request: NextRequest) {
   const isApi = request.nextUrl.pathname.startsWith("/api/");
   if (!isApi && siteLockEnabled() && request.nextUrl.pathname !== "/site-lock") {
@@ -21,6 +26,10 @@ export async function proxy(request: NextRequest) {
       lockUrl.searchParams.set("next", safeReturnPath(`${request.nextUrl.pathname}${request.nextUrl.search}`));
       return NextResponse.redirect(lockUrl);
     }
+  }
+
+  if (!isApi && externalHostname(request) === "shares.kasihub.net" && request.nextUrl.pathname === "/") {
+    return NextResponse.rewrite(new URL("/presale", request.url));
   }
 
   if (!isApi || SAFE_METHODS.has(request.method)) return NextResponse.next();

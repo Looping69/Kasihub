@@ -57,3 +57,16 @@ describe("temporary site lock", () => {
     delete process.env.SITE_LOCK_SECRET;
   });
 });
+
+describe("subdomain routing", () => {
+  test("serves the presale experience at the shares hostname root", async () => {
+    const response = await proxy(new NextRequest("https://shares.kasihub.net/"));
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-middleware-rewrite")).toBe("https://shares.kasihub.net/presale");
+  });
+
+  test("does not rewrite the primary hostname", async () => {
+    const response = await proxy(new NextRequest("https://kasihub.net/"));
+    expect(response.headers.get("x-middleware-rewrite")).toBeNull();
+  });
+});
