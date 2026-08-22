@@ -119,10 +119,6 @@ const orderInput = z.object({
         context.addIssue({ code: "custom", path: ["investorApplication", field], message: "This field is required" });
       }
     }
-
-    if (value.investorApplication.applicantType === "company" && !value.investorApplication.vatNumber?.trim()) {
-      context.addIssue({ code: "custom", path: ["investorApplication", "vatNumber"], message: "VAT number is required for company applications" });
-    }
   }
 });
 
