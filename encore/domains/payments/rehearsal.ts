@@ -13,11 +13,11 @@ const REHEARSAL_RECEIVER = "0x000000000000000000000000000000000000dead";
 const BSC_USDT_CONTRACT = "0x55d398326f99059fF775485246999027B3197955";
 
 export function paymentRehearsalAllowed(isMock: boolean): boolean {
-  return isPaymentRehearsalAllowed(isMock, appMeta().environment.type);
+  return isPaymentRehearsalAllowed(isMock, appMeta().environment.name);
 }
 
 export async function ensurePaymentRehearsalWallet(network: string, minimumConfirmations: number): Promise<void> {
-  if (appMeta().environment.type === "production") {
+  if (!paymentRehearsalAllowed(true)) {
     throw APIError.failedPrecondition("Payment rehearsals are disabled in production");
   }
   if (network !== "bsc") throw APIError.failedPrecondition("Payment rehearsals currently require the BSC staging rail");
@@ -45,7 +45,7 @@ export async function readPaymentRehearsalEvidence(
   network: "tron" | "bsc",
   transactionHash: string,
 ): Promise<ChainTransactionEvidence> {
-  if (appMeta().environment.type === "production") {
+  if (!paymentRehearsalAllowed(true)) {
     throw APIError.failedPrecondition("Payment rehearsals are disabled in production");
   }
   const row = await paymentsDb.rawQueryRow<{

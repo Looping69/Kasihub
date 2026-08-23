@@ -1,5 +1,4 @@
 // Author: Klaasvaakie ( |╲ )
-import { appMeta } from "encore.dev";
 import { api, APIError } from "encore.dev/api";
 import { secret } from "encore.dev/config";
 import { CronJob } from "encore.dev/cron";
@@ -1016,7 +1015,7 @@ export const upsertPresaleCampaign = api<UpsertPresaleCampaignRequest, { campaig
     await requireAdminAccess();
     const payload = campaignInput.parse(request);
     if (payload.endsAt && payload.startsAt && new Date(payload.endsAt) <= new Date(payload.startsAt)) throw APIError.invalidArgument("Campaign end must be after its start");
-    if (payload.status === "active" && payload.isMock && appMeta().environment.type === "production") {
+    if (payload.status === "active" && payload.isMock && !paymentRehearsalAllowed(true)) {
       throw APIError.invalidArgument("A mock campaign cannot be activated in production");
     }
     const activeRoute = payload.status === "active"
