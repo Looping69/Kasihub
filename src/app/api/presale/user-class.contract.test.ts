@@ -44,4 +44,10 @@ describe("presale user-class boundary", () => {
     const presaleApi = source("encore/domains/presale/api.ts");
     expect(presaleApi).toContain("isMock: campaign.is_mock");
   });
+
+  test("keeps undeclared tax residence and beneficial owner fields optional at the transport boundary", () => {
+    const presaleApi = source("encore/domains/presale/api.ts");
+    expect(presaleApi).toContain("taxResidenceCountry?: string;");
+    expect(presaleApi).toContain("beneficialOwnerName?: string;");
+  });
 });

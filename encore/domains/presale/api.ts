@@ -293,14 +293,14 @@ interface CreatePresaleOrderRequest {
     alternativePhone?: string;
     postalAddress?: string;
     taxNumber?: string;
-    taxResidenceCountry: string;
+    taxResidenceCountry?: string;
     tin?: string;
     additionalTaxJurisdictions?: string;
     entityRegistrationNumber?: string;
     vatNumber?: string;
     authorisedRepresentativeName?: string;
     authorisedRepresentativePosition?: string;
-    beneficialOwnerName: string;
+    beneficialOwnerName?: string;
     beneficialOwnerRelationship?: string;
     sourceOfFunds: "salary" | "business" | "investment" | "property_sale" | "inheritance" | "pension" | "savings" | "company" | "trust" | "other";
     sourceOfFundsDetails: string;
