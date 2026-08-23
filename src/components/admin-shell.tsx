@@ -207,7 +207,7 @@ function AdminSidebarContent({ mobile = false }: { mobile?: boolean }) {
           onClick={() => setAdminMode(false)}
           className="w-full bg-transparent border-sidebar-border text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground justify-start"
         >
-          <UserRound className="h-4 w-4 mr-2" /> Switch to member view
+          <UserRound className="h-4 w-4 mr-2" /> Member view
         </Button>
         <div className="rounded-xl bg-sidebar-accent p-3">
           <div className="flex items-center gap-2 mb-2">
