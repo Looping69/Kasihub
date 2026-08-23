@@ -4,7 +4,7 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { CheckCircle2, ChevronLeft, ChevronRight, ClipboardCheck, Clock3, Copy, FileCheck2, Landmark, LockKeyhole, ShieldCheck, Upload, UserRound, WalletCards } from "lucide-react";
+import { CheckCircle2, ChevronLeft, ChevronRight, ClipboardCheck, Clock3, Copy, FileCheck2, Landmark, LockKeyhole, ShieldCheck, UserRound, WalletCards } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -268,8 +268,8 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
         await startIdentityVerification();
         const verification = await refreshKycVerification();
         if (!verification?.verified) return;
-      } catch (reason) {
-        setError(reason instanceof Error ? reason.message : "Identity evidence could not be uploaded");
+      } catch {
+        setError("Identity verification is currently unavailable. Please try again shortly.");
         return;
       } finally {
         setSubmitting(false);
@@ -363,8 +363,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
 
               <div data-application-phase="4" hidden={applicationPhase !== 4} className="space-y-5">
               <SectionTitle>Identity verification</SectionTitle>
-              <div className="rounded-xl border border-sky-400/20 bg-sky-400/10 p-4 text-sm leading-6 text-sky-100"><div className="flex gap-3"><Upload className="mt-0.5 h-5 w-5 shrink-0 text-sky-300" /><p>{devPreview ? "Preview mode does not create an external verification session." : "Didit securely performs the government-ID check, liveness test and face match. KaSiHub receives only the signed verification outcome needed for the compliance decision."}</p></div></div>
-              {applicationPhase === 4 && error && <div role="alert" aria-live="assertive" className="rounded-xl border border-red-400/40 bg-red-950/50 p-4 text-sm leading-6 text-red-100"><strong className="block text-white">Verification could not be started</strong><span>{error}</span><span className="mt-2 block text-red-200">The message will remain here. Correct the issue, then select Verify ID to retry.</span></div>}
+              {applicationPhase === 4 && error && <div role="alert" aria-live="assertive" className="rounded-xl border border-red-400/40 bg-red-950/50 p-4 text-sm leading-6 text-red-100"><strong className="block text-white">Verification unavailable</strong><span>{error}</span></div>}
               {diditUrl && <a href={diditUrl} target="_blank" rel="noreferrer" className="inline-flex rounded-md bg-sky-300 px-4 py-2 text-sm font-bold text-slate-950 hover:bg-sky-200">Open secure identity verification</a>}
               {diditUrl && <iframe title="Didit identity verification" src={diditUrl} allow="camera; microphone; fullscreen; autoplay; encrypted-media" className="h-[680px] w-full rounded-xl border border-white/15 bg-white" />}
 
