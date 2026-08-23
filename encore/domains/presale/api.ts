@@ -770,7 +770,7 @@ export const savePresaleApplicationPhase = api<SavePresaleApplicationPhaseReques
         applicantType: application.applicant_type, rowVersion: Number(updated?.row_version ?? payload.rowVersion + 1), phaseCompleted: 1,
         schemaVersion: INVESTOR_APPLICATION_SCHEMA_VERSION } };
     } catch (error) {
-      await tx.rollback();
+      try { await tx.rollback(); } catch { /* transaction may already be closed */ }
       throw error;
     }
   },
@@ -921,7 +921,7 @@ export const createPresaleOrder = api<CreatePresaleOrderRequest, { order: Presal
       const intent = await ensurePresalePaymentIntent(order, campaign);
       return { order: orderResponse(order, campaign, null, 0, intent), accessToken };
     } catch (error) {
-      await tx.rollback();
+      try { await tx.rollback(); } catch { /* transaction may already be closed */ }
       throw error;
     }
   },

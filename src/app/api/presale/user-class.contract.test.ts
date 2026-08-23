@@ -57,4 +57,9 @@ describe("presale user-class boundary", () => {
     expect(presaleApi).toContain("physicalAddress: string;");
     expect(presaleApi).toContain("confirmMobileNumber: string;");
   });
+
+  test("does not mask post-commit payment setup failures with a closed rollback", () => {
+    const presaleApi = source("encore/domains/presale/api.ts");
+    expect(presaleApi).toContain("try { await tx.rollback(); } catch { /* transaction may already be closed */ }");
+  });
 });
