@@ -4,9 +4,10 @@ import { secret } from "encore.dev/config";
 import { CronJob } from "encore.dev/cron";
 import { createCipheriv, createHash as createNodeHash, randomBytes } from "node:crypto";
 import { z } from "zod";
-import { presaleDb, sharesDb } from "../../resources";
-import { requestHeader, requireSession } from "../auth/access";
+import { identityDb, presaleDb, sharesDb } from "../../resources";
+import { hashSessionToken, requestHeader, requireSession } from "../auth/access";
 import { requireAdminAccess } from "../auth/access";
+import { hashPassword, verifyPassword } from "../auth/password";
 import { requireInternationalKycVerified } from "../kyc/policy";
 import { submitPaymentAttempt } from "../payments/attempts";
 import { createPaymentIntent, type PaymentIntentResponse } from "../payments/intents";
@@ -125,6 +126,18 @@ const orderInput = z.object({
 const createApplicationInput = z.object({
   inviteToken: z.string().min(32).max(256),
   applicantType: z.enum(["individual", "company", "trust"]),
+});
+
+const registerPresaleMemberInput = z.object({
+  inviteToken: z.string().min(32).max(256),
+  email: z.string().email().max(254),
+  password: z.string().min(12).max(128),
+  legalName: z.string().trim().min(2).max(300),
+  phone: z.string().trim().min(5).max(40),
+  applicantType: z.enum(["individual", "company", "trust"]),
+  nationality: z.string().trim().min(2).max(100),
+  countryOfResidence: z.string().trim().min(2).max(100),
+  physicalAddress: z.string().trim().min(5).max(500),
 });
 
 const saveApplicationPhaseInput = z.object({
@@ -538,6 +551,108 @@ interface SavePresaleApplicationPhaseRequest {
   rowVersion: number;
   payload: PhaseOneApplicant;
 }
+
+interface RegisterPresaleMemberRequest {
+  inviteToken: string;
+  email: string;
+  password: string;
+  legalName: string;
+  phone: string;
+  applicantType: "individual" | "company" | "trust";
+  nationality: string;
+  countryOfResidence: string;
+  physicalAddress: string;
+}
+
+export const registerPresaleMember = api<
+  RegisterPresaleMemberRequest,
+  { token: string; profileId: string; profileNumber: string; created: boolean }
+>(
+  { method: "POST", path: "/presale/members", expose: true },
+  async (request) => {
+    const payload = registerPresaleMemberInput.parse(request);
+    const email = normalizeEmail(payload.email);
+    const invitation = await presaleDb.rawQueryRow<{ email: string | null }>(
+      `SELECT i.email
+       FROM presale_invitations i JOIN presale_campaigns c ON c.id = i.campaign_id
+       WHERE i.token_hash = $1 AND i.status = 'active' AND (i.expires_at IS NULL OR i.expires_at > now())
+         AND c.status = 'active' AND (c.starts_at IS NULL OR c.starts_at <= now()) AND (c.ends_at IS NULL OR c.ends_at > now())`,
+      hashSecret(payload.inviteToken),
+    );
+    if (!invitation) throw APIError.permissionDenied("A valid private invitation is required");
+    if (invitation.email && normalizeEmail(invitation.email) !== email) {
+      throw APIError.permissionDenied("This invitation belongs to a different email address");
+    }
+
+    const existing = await identityDb.rawQueryRow<{
+      user_id: string; password_hash: string | null; profile_id: string; profile_number: string;
+    }>(
+      `SELECT u.id AS user_id, u.password_hash, p.id AS profile_id, p.unique_profile_number AS profile_number
+       FROM users u JOIN profiles p ON p.user_id = u.id
+       WHERE u.email = $1 ORDER BY p.created_at DESC LIMIT 1`,
+      email,
+    );
+    let userId: string;
+    let profileId: string;
+    let profileNumber: string;
+    let created = false;
+
+    if (existing) {
+      if (!existing.password_hash || !verifyPassword(payload.password, existing.password_hash)) {
+        throw APIError.unauthenticated("The email or password is incorrect");
+      }
+      userId = existing.user_id;
+      profileId = existing.profile_id;
+      profileNumber = existing.profile_number;
+    } else {
+      userId = crypto.randomUUID();
+      profileId = crypto.randomUUID();
+      profileNumber = `KSI-${crypto.randomUUID().replaceAll("-", "").slice(0, 10).toUpperCase()}`;
+      const tx = await identityDb.begin();
+      try {
+        await tx.rawExec(
+          "INSERT INTO users (id, email, phone, password_hash) VALUES ($1, $2, $3, $4)",
+          userId, email, payload.phone, hashPassword(payload.password),
+        );
+        await tx.rawExec(
+          `INSERT INTO profiles
+             (id, user_id, profile_type, unique_profile_number, first_name, company_name, country, status,
+              membership_type, citizenship_type, address_line, onboarding_authority)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,'pending',$8,$9,$10,'kasihub')`,
+          profileId,
+          userId,
+          payload.applicantType === "individual" ? "individual" : "company",
+          profileNumber,
+          payload.applicantType === "individual" ? payload.legalName : null,
+          payload.applicantType === "individual" ? null : payload.legalName,
+          payload.countryOfResidence,
+          payload.applicantType === "individual" ? "INDIVIDUAL_ADULT" : payload.applicantType.toUpperCase(),
+          payload.applicantType === "trust" ? "PRESALE_TRUST" : "PRESALE_INVESTOR",
+          payload.physicalAddress,
+        );
+        await tx.rawExec(
+          `INSERT INTO user_roles (user_id, role_id)
+           SELECT $1, id FROM roles WHERE name = 'member'
+           ON CONFLICT (user_id, role_id) DO NOTHING`,
+          userId,
+        );
+        await tx.commit();
+        created = true;
+      } catch (error) {
+        await tx.rollback();
+        throw error;
+      }
+    }
+
+    const token = crypto.randomUUID();
+    await identityDb.rawExec(
+      `INSERT INTO sessions (user_id, token, created_at, expires_at)
+       VALUES ($1, $2, now(), now() + interval '7 days')`,
+      userId, hashSessionToken(token),
+    );
+    return { token, profileId, profileNumber, created };
+  },
+);
 
 export const createPresaleApplication = api<CreatePresaleApplicationRequest, { application: ApplicationDraftResponse }>(
   { method: "POST", path: "/presale/applications", expose: true },

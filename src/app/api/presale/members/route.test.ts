@@ -1,0 +1,58 @@
+// Author: Klaasvaakie ( |╲ )
+import { beforeEach, describe, expect, test, vi } from "vitest";
+import { NextRequest } from "next/server";
+
+const mocks = vi.hoisted(() => ({ encoreRequest: vi.fn() }));
+
+vi.mock("@/lib/encore-client", () => {
+  class EncoreRequestError extends Error {
+    constructor(message: string, public status: number, public details: unknown = null) { super(message); }
+  }
+  return {
+    ENCORE_SESSION_COOKIE: "kasihub_session",
+    EncoreRequestError,
+    encoreRequest: mocks.encoreRequest,
+  };
+});
+
+import { POST } from "./route";
+
+function request(body: unknown) {
+  return new NextRequest("https://shares.kasihub.net/api/presale/members", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+beforeEach(() => vi.clearAllMocks());
+
+describe("presale member registration bridge", () => {
+  test("sets an HTTP-only session without exposing the token", async () => {
+    mocks.encoreRequest.mockResolvedValue({
+      token: "secret-session-token",
+      profileId: "profile-1",
+      profileNumber: "KSI-ONE",
+      created: true,
+    });
+    const body = { inviteToken: "a".repeat(32), email: "buyer@example.test", password: "strong-password" };
+    const response = await POST(request(body));
+
+    expect(response.status).toBe(201);
+    expect(await response.json()).toEqual({ profileId: "profile-1", profileNumber: "KSI-ONE", created: true });
+    expect(response.headers.get("set-cookie")).toContain("kasihub_session=secret-session-token");
+    expect(response.headers.get("set-cookie")).toContain("HttpOnly");
+    expect(mocks.encoreRequest).toHaveBeenCalledWith("/presale/members", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  });
+
+  test("returns bounded public errors", async () => {
+    const { EncoreRequestError } = await import("@/lib/encore-client");
+    mocks.encoreRequest.mockRejectedValue(new EncoreRequestError("upstream secret", 403, null));
+    const response = await POST(request({}));
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: "This invitation cannot be used for that email address." });
+  });
+});

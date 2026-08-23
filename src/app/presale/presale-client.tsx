@@ -45,7 +45,7 @@ type KycVerification = {
 };
 
 const APPLICATION_PHASES = [
-  { title: "Application details", description: "Applicant identity, contact and ownership details", icon: UserRound },
+  { title: "Member registration", description: "Create your KaSiHub profile and application identity", icon: UserRound },
   { title: "Choose your investment", description: "Allocation and current USDT price", icon: Landmark },
   { title: "Funding details", description: "Source of funds and investor banking", icon: WalletCards },
   { title: "Identity evidence", description: "Secure ID, selfie and declarations", icon: FileCheck2 },
@@ -86,6 +86,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
   const [verificationStarted, setVerificationStarted] = useState(false);
   const [diditUrl, setDiditUrl] = useState("");
   const [kycVerification, setKycVerification] = useState<KycVerification | null>(null);
+  const [memberProfileNumber, setMemberProfileNumber] = useState("");
 
   useEffect(() => {
     // Development preview has static display data and cannot contact the BFF.
@@ -247,6 +248,32 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
     setVerificationStarted(true);
   }
 
+  async function registerMember(form: HTMLFormElement) {
+    if (devPreview || memberProfileNumber) return;
+    const data = new FormData(form);
+    const password = String(data.get("accountPassword") ?? "");
+    const confirmation = String(data.get("confirmAccountPassword") ?? "");
+    if (password !== confirmation) throw new Error("Passwords do not match.");
+    const response = await fetch("/api/presale/members", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        inviteToken,
+        email: data.get("buyerEmail"),
+        password,
+        legalName: data.get("buyerName"),
+        phone: data.get("buyerPhone"),
+        applicantType: data.get("applicantType"),
+        nationality: data.get("nationality"),
+        countryOfResidence: data.get("countryOfResidence"),
+        physicalAddress: data.get("physicalAddress"),
+      }),
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error ?? "Member registration is temporarily unavailable.");
+    setMemberProfileNumber(payload.profileNumber);
+  }
+
   async function advanceApplication(event: React.MouseEvent<HTMLButtonElement>) {
     const form = event.currentTarget.form;
     if (!form) return;
@@ -256,6 +283,18 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
       invalid.reportValidity();
       invalid.focus();
       return;
+    }
+    if (applicationPhase === 1 && !devPreview && !memberProfileNumber) {
+      setSubmitting(true);
+      setError("");
+      try {
+        await registerMember(form);
+      } catch (reason) {
+        setError(reason instanceof Error ? reason.message : "Member registration is temporarily unavailable.");
+        return;
+      } finally {
+        setSubmitting(false);
+      }
     }
     if (applicationPhase === 4) {
       if (devPreview) {
@@ -320,10 +359,17 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
             <CardContent><form className="space-y-5" noValidate onSubmit={createOrder}>
               <ApplicationProgress phase={applicationPhase} />
               <div data-application-phase="1" hidden={applicationPhase !== 1} className="space-y-5">
+              <SectionTitle>KaSiHub member profile</SectionTitle>
+              <p className="text-sm leading-6 text-slate-300">Your secure member profile links this application, identity verification, share purchase and certificate.</p>
               <Field label="Full legal name"><Input name="buyerName" required minLength={2} className="border-white/15 bg-black/20" /></Field>
               <Field label="Email address"><Input name="buyerEmail" type="email" required defaultValue={offer.invitationEmail} readOnly={Boolean(offer.invitationEmail)} className="border-white/15 bg-black/20" /></Field>
               <Field label="Cellphone number *"><Input name="buyerPhone" required className="border-white/15 bg-black/20" /></Field>
               <Field label="Confirm cellphone number *"><Input name="confirmMobileNumber" required className="border-white/15 bg-black/20" /></Field>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label="Account password *"><Input name="accountPassword" type="password" required minLength={12} autoComplete="new-password" className="border-white/15 bg-black/20" /></Field>
+                <Field label="Confirm account password *"><Input name="confirmAccountPassword" type="password" required minLength={12} autoComplete="new-password" className="border-white/15 bg-black/20" /></Field>
+              </div>
+              {memberProfileNumber ? <div className="rounded-xl border border-emerald-400/30 bg-emerald-400/10 p-4 text-sm text-emerald-100"><strong className="block text-white">Member profile ready</strong>Profile {memberProfileNumber} is securely linked to this application.</div> : null}
               <SectionTitle>Investor identity</SectionTitle>
               <Field label="Application type *"><select name="applicantType" required value={applicantType} onChange={(event) => setApplicantType(event.target.value as typeof applicantType)} className="h-10 w-full rounded-md border border-white/15 bg-slate-950 px-3 text-sm"><option value="individual">Individual application</option><option value="company">Company application</option><option value="trust">Trust application</option></select></Field>
               <div className="grid gap-4 sm:grid-cols-2">
@@ -390,7 +436,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
                     <ChevronLeft className="mr-1 h-4 w-4" />Back
                   </Button>
                 )}
-                {applicationPhase < 5 ? <Button type="button" className="flex-1 bg-amber-400 font-bold text-slate-950 hover:bg-amber-300" disabled={submitting || (applicationPhase === 4 && verificationStarted && !kycVerification?.verified)} onClick={advanceApplication}>{submitting && applicationPhase === 4 ? "Starting verification…" : applicationPhase === 4 && verificationStarted && !kycVerification?.verified ? "Awaiting verification" : applicationPhase === 4 ? "Verify ID" : "Continue"}<ChevronRight className="ml-1 h-4 w-4" /></Button> : devPreview ? <Button type="button" aria-label="Read-only preview — no reservation" className="flex-1 bg-slate-500 font-bold text-white" disabled>Preview only</Button> : <Button className="flex-1 bg-amber-400 font-bold text-slate-950 hover:bg-amber-300" disabled={submitting || !termsRead}>{submitting ? "Creating reservation…" : "Reserve and view payment"}</Button>}
+                {applicationPhase < 5 ? <Button type="button" className="flex-1 bg-amber-400 font-bold text-slate-950 hover:bg-amber-300" disabled={submitting || (applicationPhase === 4 && verificationStarted && !kycVerification?.verified)} onClick={advanceApplication}>{submitting && applicationPhase === 1 ? "Creating member profile…" : submitting && applicationPhase === 4 ? "Starting verification…" : applicationPhase === 4 && verificationStarted && !kycVerification?.verified ? "Awaiting verification" : applicationPhase === 4 ? "Verify ID" : "Continue"}<ChevronRight className="ml-1 h-4 w-4" /></Button> : devPreview ? <Button type="button" aria-label="Read-only preview — no reservation" className="flex-1 bg-slate-500 font-bold text-white" disabled>Preview only</Button> : <Button className="flex-1 bg-amber-400 font-bold text-slate-950 hover:bg-amber-300" disabled={submitting || !termsRead}>{submitting ? "Creating reservation…" : "Reserve and view payment"}</Button>}
               </div>
             </form></CardContent>
           </Card>
