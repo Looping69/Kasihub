@@ -45,7 +45,7 @@ describe("API CSRF boundary", () => {
 });
 
 describe("temporary site lock", () => {
-  test("redirects page visitors while allowing the lock page", async () => {
+  test("redirects primary-site visitors while allowing the lock page", async () => {
     process.env.SITE_LOCK_PIN = "1538";
     process.env.SITE_LOCK_SECRET = "test-only-secret";
     const blocked = await proxy(new NextRequest("https://kasihub.test/presale?invite=abc"));
@@ -53,6 +53,19 @@ describe("temporary site lock", () => {
     expect(blocked.headers.get("location")).toContain("/site-lock?next=%2Fpresale%3Finvite%3Dabc");
     const lockPage = await proxy(new NextRequest("https://kasihub.test/site-lock"));
     expect(lockPage.status).toBe(200);
+    delete process.env.SITE_LOCK_PIN;
+    delete process.env.SITE_LOCK_SECRET;
+  });
+
+  test("does not apply the main-site lock to the shares hostname", async () => {
+    process.env.SITE_LOCK_PIN = "1538";
+    process.env.SITE_LOCK_SECRET = "test-only-secret";
+    const response = await proxy(new NextRequest("https://shares.kasihub.net/?invite=abc"));
+    expect(response.status).toBe(200);
+    expect(response.headers.get("location")).toBeNull();
+    expect(response.headers.get("x-middleware-rewrite")).toBe(
+      "https://shares.kasihub.net/presale?invite=abc",
+    );
     delete process.env.SITE_LOCK_PIN;
     delete process.env.SITE_LOCK_SECRET;
   });

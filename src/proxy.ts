@@ -19,7 +19,8 @@ function externalHostname(request: NextRequest): string {
 
 export async function proxy(request: NextRequest) {
   const isApi = request.nextUrl.pathname.startsWith("/api/");
-  if (!isApi && siteLockEnabled() && request.nextUrl.pathname !== "/site-lock") {
+  const isSharesHost = externalHostname(request) === "shares.kasihub.net";
+  if (!isApi && !isSharesHost && siteLockEnabled() && request.nextUrl.pathname !== "/site-lock") {
     const expected = await siteLockToken();
     if (!expected || request.cookies.get(SITE_LOCK_COOKIE)?.value !== expected) {
       const lockUrl = new URL("/site-lock", request.url);
@@ -28,8 +29,10 @@ export async function proxy(request: NextRequest) {
     }
   }
 
-  if (!isApi && externalHostname(request) === "shares.kasihub.net" && request.nextUrl.pathname === "/") {
-    return NextResponse.rewrite(new URL("/presale", request.url));
+  if (!isApi && isSharesHost && request.nextUrl.pathname === "/") {
+    const presaleUrl = request.nextUrl.clone();
+    presaleUrl.pathname = "/presale";
+    return NextResponse.rewrite(presaleUrl);
   }
 
   if (!isApi || SAFE_METHODS.has(request.method)) return NextResponse.next();

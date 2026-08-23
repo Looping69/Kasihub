@@ -31,6 +31,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
+import { privatePresaleInviteUrl } from "@/lib/presale-links";
 import { campaignSavePayload } from "@/lib/presale-campaign";
 
 type Campaign = {
@@ -218,8 +219,7 @@ export function AdminPresaleCampaigns() {
         throw new Error(data.error || "Invitation could not be created");
       setInviteCampaign(null);
       setInvite({ email: "", maxShares: "", expiresAt: "" });
-      // Keep generated invitations on the canonical private-presale route. Author: Klaasvaakie ( |╲ )
-      setInviteLink(`${window.location.origin}/presale?invite=${encodeURIComponent(data.inviteToken)}`);
+      setInviteLink(privatePresaleInviteUrl(data.inviteToken));
     } catch (error) {
       toast.error(
         error instanceof Error
