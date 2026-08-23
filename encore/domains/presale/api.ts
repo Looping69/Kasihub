@@ -290,6 +290,9 @@ interface CreatePresaleOrderRequest {
     nationality: string;
     occupation?: string;
     employer?: string;
+    countryOfResidence: string;
+    physicalAddress: string;
+    confirmMobileNumber: string;
     alternativePhone?: string;
     postalAddress?: string;
     taxNumber?: string;

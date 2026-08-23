@@ -50,4 +50,11 @@ describe("presale user-class boundary", () => {
     expect(presaleApi).toContain("taxResidenceCountry?: string;");
     expect(presaleApi).toContain("beneficialOwnerName?: string;");
   });
+
+  test("retains required registration identity fields through Encore request decoding", () => {
+    const presaleApi = source("encore/domains/presale/api.ts");
+    expect(presaleApi).toContain("countryOfResidence: string;");
+    expect(presaleApi).toContain("physicalAddress: string;");
+    expect(presaleApi).toContain("confirmMobileNumber: string;");
+  });
 });
