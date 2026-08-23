@@ -227,7 +227,16 @@ describe("presale BFF contracts", () => {
     expect(mocks.encoreRequest).toHaveBeenCalledWith(
       "/presale/orders/KSP%2FORDER%201/payment-proof",
       { method: "POST", body: JSON.stringify({ orderReference: "KSP/ORDER 1", transactionHash: "tx" }) },
+      "admin-token",
     );
+  });
+
+  test("payment proof fails closed without a signed-in member session", async () => {
+    mocks.encoreSessionToken.mockResolvedValue(undefined);
+    const response = await submitProof(jsonPost("/api/presale/orders/KSP/payment-proof", { txHash: "abc123" }), orderContext);
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({ error: "Authentication is required" });
+    expect(mocks.encoreRequest).not.toHaveBeenCalled();
   });
 
   test("all presale routes preserve safe Encore failure statuses", async () => {

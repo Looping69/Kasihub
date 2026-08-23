@@ -12,6 +12,7 @@ export type PresaleDevPreviewOffer = {
   minConfirmations: number;
   paymentWindowMinutes: number;
   termsVersion: string;
+  isMock?: boolean;
 };
 
 /**

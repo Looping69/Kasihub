@@ -248,6 +248,29 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
     setVerificationStarted(true);
   }
 
+  async function runPaymentRehearsal() {
+    if (!order || !offer?.isMock) return;
+    const bytes = crypto.getRandomValues(new Uint8Array(32));
+    const rehearsalHash = Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
+    setTxHash(rehearsalHash);
+    setSubmitting(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/presale/orders/${encodeURIComponent(order.orderReference)}/payment-proof`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accessToken, txHash: rehearsalHash }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error ?? "Payment rehearsal failed");
+      await refreshOrder();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Payment rehearsal failed");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   async function registerMember(form: HTMLFormElement) {
     if (devPreview || memberProfileNumber) return;
     const data = new FormData(form);
@@ -297,7 +320,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
       }
     }
     if (applicationPhase === 4) {
-      if (devPreview) {
+      if (devPreview || offer?.isMock) {
         setApplicationPhase(5);
         return;
       }
@@ -333,7 +356,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
       <div className="grid min-w-0 w-full max-w-6xl gap-8 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,.95fr)]">
         <section className="min-w-0 space-y-6">
           <div className="presale-badge inline-flex max-w-full items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[.18em]">
-            <LockKeyhole className="h-3.5 w-3.5" /> {devPreview ? "Development preview — no payment" : "Private presale"}
+            <LockKeyhole className="h-3.5 w-3.5" /> {devPreview ? "Development preview — no payment" : offer.isMock ? "Staging payment rehearsal — no funds" : "Private presale"}
           </div>
           <div>
             <p className="presale-eyebrow">KaSiShares founding allocation</p>
@@ -446,20 +469,23 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
               {order.status === "confirmed" ? <CheckCircle2 className="h-8 w-8 text-emerald-400" /> : <Clock3 className="h-8 w-8 text-amber-400" />}</div></CardHeader>
             <CardContent className="space-y-5">
               <div className="rounded-xl border border-amber-400/20 bg-amber-400/10 p-4">
-                <p className="text-xs uppercase tracking-wider text-amber-200">Send exactly</p><p className="mt-1 text-3xl font-black text-white">{order.totalUsdt} USDT</p>
+                <p className="text-xs uppercase tracking-wider text-amber-200">{offer.isMock ? "Simulated amount — do not send funds" : "Send exactly"}</p><p className="mt-1 text-3xl font-black text-white">{order.totalUsdt} USDT</p>
                 <p className="mt-1 text-sm text-amber-100/80">using {order.network} only</p>
               </div>
-              <div><p className="mb-2 text-xs uppercase tracking-wider text-slate-400">Receiving address</p><div className="flex gap-2"><code className="min-w-0 flex-1 break-all rounded-lg bg-black/30 p-3 text-xs text-slate-200">{order.receivingAddress}</code>
-                <Button type="button" variant="outline" size="icon" onClick={copyAddress} aria-label="Copy receiving address"><Copy className="h-4 w-4" /></Button></div>{copied && <p className="mt-1 text-xs text-emerald-300">Address copied</p>}</div>
-              {order.tokenContract && <div><p className="mb-1 text-xs uppercase tracking-wider text-slate-400">Verified USDT contract</p><code className="break-all text-xs text-slate-300">{order.tokenContract}</code></div>}
+              {!offer.isMock && <>
+                <div><p className="mb-2 text-xs uppercase tracking-wider text-slate-400">Receiving address</p><div className="flex gap-2"><code className="min-w-0 flex-1 break-all rounded-lg bg-black/30 p-3 text-xs text-slate-200">{order.receivingAddress}</code>
+                  <Button type="button" variant="outline" size="icon" onClick={copyAddress} aria-label="Copy receiving address"><Copy className="h-4 w-4" /></Button></div>{copied && <p className="mt-1 text-xs text-emerald-300">Address copied</p>}</div>
+                {order.tokenContract && <div><p className="mb-1 text-xs uppercase tracking-wider text-slate-400">Verified USDT contract</p><code className="break-all text-xs text-slate-300">{order.tokenContract}</code></div>}
+              </>}
               {order.status === "confirmed" ? (
                 <div className="rounded-xl border border-emerald-400/20 bg-emerald-400/10 p-4 text-sm text-emerald-100">Payment has reached {order.confirmations} confirmations. Your order is secured and ready for the next processing step.</div>
               ) : (
+                offer.isMock ? <div className="space-y-3"><p className="rounded-lg border border-sky-400/30 bg-sky-400/10 p-3 text-sm text-sky-100">This staging rehearsal moves no USDT. It exercises the reservation, payment intent, evidence validation, confirmation and settlement records using deterministic test evidence.</p>{error && <p className="text-sm text-red-300">{error}</p>}<Button type="button" className="w-full" disabled={submitting} onClick={() => void runPaymentRehearsal()}>{submitting ? "Running rehearsal…" : "Run no-money payment rehearsal"}</Button></div> :
                 <form className="space-y-3" onSubmit={submitProof}><Field label="Transaction hash"><Input value={txHash} onChange={(event) => setTxHash(event.target.value)} required minLength={16} placeholder="Paste the blockchain transaction hash" className="border-white/15 bg-black/20" /></Field>
                   {error && <p className="text-sm text-red-300">{error}</p>}<Button className="w-full" disabled={submitting}>{submitting ? "Submitting…" : "Submit transaction for confirmation"}</Button></form>
               )}
               {order.transactionHash && <div className="text-xs text-slate-400">Confirmations: {order.confirmations}/{order.minConfirmations}<br /><span className="break-all">{order.transactionHash}</span></div>}
-              <p className="text-xs leading-5 text-slate-500">Never send assets on another network. A transaction hash is not accepted as settled until the configured blockchain verifier confirms the receiver, token contract, amount, and confirmation depth.</p>
+              <p className="text-xs leading-5 text-slate-500">{offer.isMock ? "No wallet transaction is created or requested by this staging-only rehearsal." : "Never send assets on another network. A transaction hash is not accepted as settled until the configured blockchain verifier confirms the receiver, token contract, amount, and confirmation depth."}</p>
             </CardContent>
           </Card>
         )}
