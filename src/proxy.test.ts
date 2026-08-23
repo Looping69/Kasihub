@@ -69,6 +69,20 @@ describe("temporary site lock", () => {
     delete process.env.SITE_LOCK_PIN;
     delete process.env.SITE_LOCK_SECRET;
   });
+
+  test("moves legacy production invitation links to the shares hostname before the lock", async () => {
+    process.env.SITE_LOCK_PIN = "1538";
+    process.env.SITE_LOCK_SECRET = "test-only-secret";
+    const response = await proxy(new NextRequest(
+      "https://www.kasihub.net/presale?invite=invite%20credential&utm_source=legacy",
+    ));
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(
+      "https://shares.kasihub.net/?invite=invite+credential",
+    );
+    delete process.env.SITE_LOCK_PIN;
+    delete process.env.SITE_LOCK_SECRET;
+  });
 });
 
 describe("subdomain routing", () => {
@@ -81,5 +95,16 @@ describe("subdomain routing", () => {
   test("does not rewrite the primary hostname", async () => {
     const response = await proxy(new NextRequest("https://kasihub.net/"));
     expect(response.headers.get("x-middleware-rewrite")).toBeNull();
+  });
+
+  test("redirects a production primary-host invitation to its canonical shares URL", async () => {
+    const response = await proxy(new NextRequest("https://kasihub.net/presale?invite=abc123"));
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe("https://shares.kasihub.net/?invite=abc123");
+  });
+
+  test("does not redirect a primary-host presale page without an invitation", async () => {
+    const response = await proxy(new NextRequest("https://www.kasihub.net/presale"));
+    expect(response.headers.get("location")).toBeNull();
   });
 });

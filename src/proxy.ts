@@ -19,7 +19,21 @@ function externalHostname(request: NextRequest): string {
 
 export async function proxy(request: NextRequest) {
   const isApi = request.nextUrl.pathname.startsWith("/api/");
-  const isSharesHost = externalHostname(request) === "shares.kasihub.net";
+  const hostname = externalHostname(request);
+  const isSharesHost = hostname === "shares.kasihub.net";
+  const inviteToken = request.nextUrl.searchParams.get("invite")?.trim();
+
+  if (
+    !isApi
+    && (hostname === "kasihub.net" || hostname === "www.kasihub.net")
+    && request.nextUrl.pathname === "/presale"
+    && inviteToken
+  ) {
+    const sharesUrl = new URL("/", "https://shares.kasihub.net");
+    sharesUrl.searchParams.set("invite", inviteToken);
+    return NextResponse.redirect(sharesUrl);
+  }
+
   if (!isApi && !isSharesHost && siteLockEnabled() && request.nextUrl.pathname !== "/site-lock") {
     const expected = await siteLockToken();
     if (!expected || request.cookies.get(SITE_LOCK_COOKIE)?.value !== expected) {
