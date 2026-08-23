@@ -626,13 +626,13 @@ export const registerPresaleMember = api<
           payload.applicantType === "individual" ? payload.legalName : null,
           payload.applicantType === "individual" ? null : payload.legalName,
           payload.countryOfResidence,
-          payload.applicantType === "individual" ? "INDIVIDUAL_ADULT" : payload.applicantType.toUpperCase(),
+          `PRESALE_${payload.applicantType.toUpperCase()}`,
           payload.applicantType === "trust" ? "PRESALE_TRUST" : "PRESALE_INVESTOR",
           payload.physicalAddress,
         );
         await tx.rawExec(
           `INSERT INTO user_roles (user_id, role_id)
-           SELECT $1, id FROM roles WHERE name = 'member'
+           SELECT $1, id FROM roles WHERE name = 'presale_investor'
            ON CONFLICT (user_id, role_id) DO NOTHING`,
           userId,
         );

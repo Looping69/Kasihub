@@ -1,7 +1,7 @@
 // Author: Klaasvaakie ( |╲ )
 import { api, APIError } from "encore.dev/api";
 import { commerceDb, identityDb, membershipDb } from "../../resources";
-import { requireAdminAccess, requireProfileAccess } from "../auth/access";
+import { requireAdminAccess, requireEcosystemProfileAccess } from "../auth/access";
 import {
   beginOperation,
   captureWalletHold,
@@ -65,7 +65,7 @@ export const marketplace = api<
   async (req) => {
     let isFreeMember = false;
     if (req.profileId) {
-      await requireProfileAccess(req.profileId);
+      await requireEcosystemProfileAccess(req.profileId);
       const subscription = await membershipDb.rawQueryRow<{ status: string }>(
         "SELECT status FROM subscriptions WHERE profile_id = $1 ORDER BY starts_at DESC LIMIT 1",
         req.profileId,
@@ -119,7 +119,7 @@ export const placeMarketplaceOrder = api<
 >(
   { method: "POST", path: "/marketplace/orders", expose: true },
   async (req) => {
-    const session = await requireProfileAccess(req.profileId);
+    const session = await requireEcosystemProfileAccess(req.profileId);
     const idempotencyKey = requireIdempotencyKey();
     const product = await commerceDb.rawQueryRow<MarketplaceProductRow>(
       `SELECT id, name, description, category, provider, price::text AS price,
@@ -282,7 +282,7 @@ export const rootsBank = api<
 >(
   { method: "GET", path: "/rootsbank/:profileId", expose: true },
   async (req) => {
-    await requireProfileAccess(req.profileId);
+    await requireEcosystemProfileAccess(req.profileId);
     const count = await commerceDb.rawQueryRow<{ count: string }>("SELECT COUNT(*)::text AS count FROM roots_bank_shares");
     const share = await commerceDb.rawQueryRow<{
       id: string; profile_id: string; category: string; share_price: string; membership_fee: string;
@@ -303,7 +303,7 @@ export const purchaseRootsBankShare = api<
 >(
   { method: "POST", path: "/rootsbank/purchase", expose: true },
   async (req) => {
-    const session = await requireProfileAccess(req.profileId);
+    const session = await requireEcosystemProfileAccess(req.profileId);
     const idempotencyKey = requireIdempotencyKey();
     const membershipFee = req.category === "ADULT" ? 200 : 50;
     const sharePrice = 500;
@@ -388,7 +388,7 @@ type SiloResponse = { id: string; name: string; percentage: number; description:
 export const mall = api<{ profileId: string }, { transactions: MallTransactionResponse[]; silos: SiloResponse[]; memberCount: number }>(
   { method: "GET", path: "/mall/:profileId", expose: true },
   async (req) => {
-    await requireProfileAccess(req.profileId);
+    await requireEcosystemProfileAccess(req.profileId);
     const transactions = await mallTransactions(req.profileId, 20);
     const silos = await commerceDb.rawQueryAll<{ id: string; name: string; percentage: string; description: string | null; color: string; sort_order: number; updated_at: string }>(
       "SELECT id, name, percentage::text AS percentage, description, color, sort_order, updated_at FROM silo_config ORDER BY sort_order",

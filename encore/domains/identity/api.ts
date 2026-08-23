@@ -256,6 +256,13 @@ export const login = api<{ email: string; password: string }, LoginResponse>(
     if (!user?.password_hash || !verifyPassword(payload.password, user.password_hash)) {
       throw APIError.unauthenticated("Invalid email or password");
     }
+    const ecosystemRole = await identityDb.rawQueryRow<{ name: string }>(
+      `SELECT r.name FROM user_roles ur
+       JOIN roles r ON r.id = ur.role_id
+       WHERE ur.user_id = $1 AND r.name IN ('member', 'admin') LIMIT 1`,
+      user.id,
+    );
+    if (!ecosystemRole) throw APIError.permissionDenied("Ecosystem membership is required");
     const profile = await identityDb.rawQueryRow<{ id: string; unique_profile_number: string }>("SELECT id, unique_profile_number FROM profiles WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1",
       user.id,
     );

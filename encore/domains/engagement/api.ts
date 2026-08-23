@@ -3,7 +3,7 @@ import { api, APIError } from "encore.dev/api";
 import { CronJob } from "encore.dev/cron";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { engagementDb, membershipDb } from "../../resources";
-import { requireAdminAccess, requireProfileAccess } from "../auth/access";
+import { requireAdminAccess, requireEcosystemProfileAccess } from "../auth/access";
 
 type ReferralResponse = {
   id: string; referrerId: string; referredId: string | null; referralCode: string; referredName: string;
@@ -13,7 +13,7 @@ type ReferralResponse = {
 export const referrals = api<{ profileId: string }, { referrals: ReferralResponse[] }>(
   { method: "GET", path: "/referrals/:profileId", expose: true },
   async (req) => {
-    await requireProfileAccess(req.profileId);
+    await requireEcosystemProfileAccess(req.profileId);
     const rows = await engagementDb.rawQueryAll<{
       id: string; referrer_profile_id: string; referred_profile_id: string | null; referral_code: string;
       referred_name: string; referred_email: string; referred_mobile: string; status: string;
@@ -34,7 +34,7 @@ export const createReferral = api<
 >(
   { method: "POST", path: "/referrals", expose: true },
   async (req) => {
-    await requireProfileAccess(req.profileId);
+    await requireEcosystemProfileAccess(req.profileId);
     const id = crypto.randomUUID();
     const code = `REF-${crypto.randomUUID().toUpperCase()}`;
     const row = await engagementDb.rawQueryRow<{
@@ -93,7 +93,7 @@ type VoucherResponse = {
 export const vouchers = api<{ profileId: string }, { vouchers: VoucherResponse[] }>(
   { method: "GET", path: "/vouchers/:profileId", expose: true },
   async (req) => {
-    await requireProfileAccess(req.profileId);
+    await requireEcosystemProfileAccess(req.profileId);
     return { vouchers: await voucherRows(req.profileId) };
   },
 );
@@ -117,7 +117,7 @@ type WhatsAppStatusResponse = {
 export const whatsappStatus = api<{ profileId: string }, WhatsAppStatusResponse>(
   { method: "GET", path: "/whatsapp/:profileId/status", expose: true },
   async (req) => {
-    await requireProfileAccess(req.profileId);
+    await requireEcosystemProfileAccess(req.profileId);
     const contact = await engagementDb.rawQueryRow<{ phone_e164: string; verified_at: string }>(
       "SELECT phone_e164, verified_at FROM whatsapp_contacts WHERE profile_id = $1",
       req.profileId,
@@ -143,7 +143,7 @@ export const requestWhatsAppVerification = api<
 >(
   { method: "POST", path: "/whatsapp/:profileId/verification/request", expose: true },
   async (req) => {
-    await requireProfileAccess(req.profileId);
+    await requireEcosystemProfileAccess(req.profileId);
     const phone = normalizeWhatsAppNumber(req.phone);
     const recent = await engagementDb.rawQueryRow<{ expires_at: string }>(
       `SELECT expires_at FROM whatsapp_verification_codes
@@ -182,7 +182,7 @@ export const confirmWhatsAppVerification = api<
 >(
   { method: "POST", path: "/whatsapp/:profileId/verification/confirm", expose: true },
   async (req) => {
-    await requireProfileAccess(req.profileId);
+    await requireEcosystemProfileAccess(req.profileId);
     if (!/^\d{6}$/.test(req.code)) throw APIError.invalidArgument("Enter the six-digit verification code.");
     const verification = await engagementDb.rawQueryRow<{
       id: string; phone_e164: string; code_salt: string; code_hash: string; attempts: number;
@@ -238,7 +238,7 @@ export const queueVoucherDelivery = api<
 >(
   { method: "POST", path: "/vouchers/:profileId/delivery", expose: true },
   async (req) => {
-    await requireProfileAccess(req.profileId);
+    await requireEcosystemProfileAccess(req.profileId);
     const contact = await engagementDb.rawQueryRow<{ phone_e164: string }>(
       "SELECT phone_e164 FROM whatsapp_contacts WHERE profile_id = $1",
       req.profileId,
@@ -347,7 +347,7 @@ type SubscriptionNotificationResponse = {
 export const subscriptionNotifications = api<{ profileId: string }, { notifications: SubscriptionNotificationResponse[] }>(
   { method: "GET", path: "/subscriptions/:profileId/notifications", expose: true },
   async (req) => {
-    await requireProfileAccess(req.profileId);
+    await requireEcosystemProfileAccess(req.profileId);
     return { notifications: await notificationRows(req.profileId) };
   },
 );
@@ -358,7 +358,7 @@ export const queueSubscriptionNotification = api<
 >(
   { method: "POST", path: "/subscriptions/:profileId/notifications", expose: true },
   async (req) => {
-    await requireProfileAccess(req.profileId);
+    await requireEcosystemProfileAccess(req.profileId);
     return queueRenewalNotification(req.profileId, req.daysBefore);
   },
 );

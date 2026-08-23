@@ -1,6 +1,6 @@
 // Author: Klaasvaakie ( |╲ )
 import { api } from "encore.dev/api";
-import { requireProfileAccess } from "../auth/access";
+import { requireEcosystemProfileAccess } from "../auth/access";
 import { myProfile } from "../identity/api";
 import { walletMe } from "../wallets/api";
 import { memberDownline } from "../network/api";
@@ -27,7 +27,7 @@ interface DashboardBundle {
 export const dashboardBundle = api<{ profileId: string }, DashboardBundle>(
   { method: "GET", path: "/dashboard/:profileId", expose: true },
   async ({ profileId }) => {
-    await requireProfileAccess(profileId);
+    await requireEcosystemProfileAccess(profileId);
     const [profile, wallet, matrix, shares, phases] = await Promise.all([
       myProfile(),
       walletMe({ profileId }),

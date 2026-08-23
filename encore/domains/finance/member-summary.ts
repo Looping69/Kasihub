@@ -1,7 +1,7 @@
 // Author: Klaasvaakie ( |╲ )
 import { api } from "encore.dev/api";
 import { financeDb } from "../../resources";
-import { requireProfileAccess } from "../auth/access";
+import { requireEcosystemProfileAccess } from "../auth/access";
 
 type MemberDistribution = {
   id: string;
@@ -27,7 +27,7 @@ export const memberFinanceSummary = api<
 >(
   { method: "GET", path: "/finance/me/:profileId/summary", expose: true },
   async ({ profileId }) => {
-    await requireProfileAccess(profileId);
+    await requireEcosystemProfileAccess(profileId);
 
     const rows = await financeDb.rawQueryAll<{
       id: string;

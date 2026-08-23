@@ -1,7 +1,7 @@
 // Author: Klaasvaakie ( |╲ )
 import { api } from "encore.dev/api";
 import { identityDb, networkDb } from "../../resources";
-import { requireAdminAccess, requireProfileAccess } from "../auth/access";
+import { requireAdminAccess, requireEcosystemProfileAccess } from "../auth/access";
 import { placeMatrixNode } from "./placement";
 
 interface MatrixNodeResponse {
@@ -29,7 +29,7 @@ export const myMatrix = api<
 >(
   { method: "GET", path: "/matrix/me/:profileId", expose: true },
   async (req) => {
-    await requireProfileAccess(req.profileId);
+    await requireEcosystemProfileAccess(req.profileId);
     const row = await networkDb.rawQueryRow<{
       id: string;
       profile_id: string;
@@ -61,7 +61,7 @@ export const memberDownline = api<
 >(
   { method: "GET", path: "/matrix/me/:profileId/downline", expose: true },
   async (req) => {
-    await requireProfileAccess(req.profileId);
+    await requireEcosystemProfileAccess(req.profileId);
     const root = await networkDb.rawQueryRow<{ path: string }>(
       "SELECT path FROM matrix_nodes WHERE profile_id = $1",
       req.profileId,

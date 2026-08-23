@@ -2,7 +2,7 @@
 import { api } from "encore.dev/api";
 import { z } from "zod";
 import { financeDb, networkDb } from "../../resources";
-import { requireAdminAccess, requireProfileAccess } from "../auth/access";
+import { requireAdminAccess, requireEcosystemProfileAccess } from "../auth/access";
 import { ensureAuthoritativeWallet } from "../workflows/core";
 
 const ledgerEntry = z.object({
@@ -31,7 +31,7 @@ export const walletMe = api<
 >(
   { method: "GET", path: "/wallets/me/:profileId", expose: true },
   async (req) => {
-    await requireProfileAccess(req.profileId);
+    await requireEcosystemProfileAccess(req.profileId);
     const legacyWallet = await networkDb.rawQueryRow<{ currency: string }>(
       "SELECT currency FROM wallets WHERE profile_id = $1 ORDER BY created_at DESC LIMIT 1", req.profileId);
     await ensureAuthoritativeWallet(req.profileId, legacyWallet?.currency ?? "ZAR");

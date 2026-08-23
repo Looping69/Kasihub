@@ -2,7 +2,7 @@
 import { api, APIError } from "encore.dev/api";
 import { z } from "zod";
 import { auditDb, financeDb, identityDb, membershipDb, networkDb } from "../../resources";
-import { requireAdminAccess, requireProfileAccess } from "../auth/access";
+import { requireAdminAccess, requireEcosystemProfileAccess } from "../auth/access";
 import { ensureLedgerAccount as ensureDomainLedgerAccount } from "../wallets/ledger";
 import {
   beginOperation,
@@ -105,7 +105,7 @@ export const subscribeMembership = api<SubscribeRequest, SubscribeResponse>(
   { method: "POST", path: "/membership/subscribe", expose: true },
   async (req) => {
     const payload = subscribeRequest.parse(req);
-    const session = await requireProfileAccess(payload.profileId);
+    const session = await requireEcosystemProfileAccess(payload.profileId);
     const idempotencyKey = requireIdempotencyKey();
     const started = await beginOperation<SubscribeResponse>({
       operationType: "membership_subscription", actorUserId: session.user.id,
@@ -149,7 +149,7 @@ export const membershipSubscription = api<
 >(
   { method: "GET", path: "/membership/subscriptions/:profileId", expose: true },
   async (req) => {
-    await requireProfileAccess(req.profileId);
+    await requireEcosystemProfileAccess(req.profileId);
     const row = await membershipDb.rawQueryRow<{
       id: string; amount: string; currency: string; provider: string | null; status: string; starts_at: string;
     }>(

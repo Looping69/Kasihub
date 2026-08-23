@@ -3,6 +3,7 @@ import { appMeta, currentRequest } from "encore.dev";
 import { APIError } from "encore.dev/api";
 import { createHash } from "node:crypto";
 import { identityDb } from "../../resources";
+import { hasEcosystemRole } from "./role-policy";
 import { hasTesterAdminAccess } from "./tester-access";
 
 export interface AuthenticatedSession {
@@ -83,5 +84,20 @@ export async function requireProfileAccess(profileId: string): Promise<Authentic
     session.user.id,
   );
   if (!role) throw APIError.permissionDenied("Profile access is not permitted");
+  return session;
+}
+
+export async function requireEcosystemProfileAccess(profileId: string): Promise<AuthenticatedSession> {
+  const session = await requireProfileAccess(profileId);
+  if (hasTesterAdminAccess(session.user.email, appMeta().environment.type)) return session;
+  const roles = await identityDb.rawQueryAll<{ name: string }>(
+    `SELECT r.name FROM user_roles ur
+     JOIN roles r ON r.id = ur.role_id
+     WHERE ur.user_id = $1 AND r.name IN ('member', 'admin')`,
+    session.user.id,
+  );
+  if (!hasEcosystemRole(roles.map((role) => role.name))) {
+    throw APIError.permissionDenied("Ecosystem membership is required");
+  }
   return session;
 }
