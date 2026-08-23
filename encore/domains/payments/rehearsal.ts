@@ -13,7 +13,10 @@ const REHEARSAL_RECEIVER = "0x000000000000000000000000000000000000dead";
 const BSC_USDT_CONTRACT = "0x55d398326f99059fF775485246999027B3197955";
 
 export function paymentRehearsalAllowed(isMock: boolean): boolean {
-  return isPaymentRehearsalAllowed(isMock, appMeta().environment.name);
+  const environment = appMeta().environment;
+  const allowed = isPaymentRehearsalAllowed(isMock, environment.name);
+  if (isMock) console.info("payment_rehearsal_policy", { environmentName: environment.name, environmentType: environment.type, allowed });
+  return allowed;
 }
 
 export async function ensurePaymentRehearsalWallet(network: string, minimumConfirmations: number): Promise<void> {

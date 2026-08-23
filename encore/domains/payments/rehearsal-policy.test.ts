@@ -5,6 +5,8 @@ import { isPaymentRehearsalAllowed } from "./rehearsal-policy";
 describe("payment rehearsal environment boundary", () => {
   it("allows only mock campaigns outside production", () => {
     expect(isPaymentRehearsalAllowed(true, "staging")).toBe(true);
+    expect(isPaymentRehearsalAllowed(true, "staging-dev")).toBe(true);
+    expect(isPaymentRehearsalAllowed(true, "kasihub-staging")).toBe(true);
     expect(isPaymentRehearsalAllowed(true, "local")).toBe(true);
     expect(isPaymentRehearsalAllowed(true, "test")).toBe(true);
     expect(isPaymentRehearsalAllowed(false, "staging")).toBe(false);
@@ -14,5 +16,6 @@ describe("payment rehearsal environment boundary", () => {
     expect(isPaymentRehearsalAllowed(true, "production")).toBe(false);
     expect(isPaymentRehearsalAllowed(false, "production")).toBe(false);
     expect(isPaymentRehearsalAllowed(true, "preview-pr-123")).toBe(false);
+    expect(isPaymentRehearsalAllowed(true, "production-staging-copy")).toBe(false);
   });
 });
