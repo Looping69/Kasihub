@@ -39,4 +39,9 @@ describe("presale user-class boundary", () => {
     expect(source("encore/domains/kyc/international.ts")).toContain("requireProfileAccess");
     expect(source("encore/domains/shares/api.ts")).toContain("requireProfileAccess(req.profileId)");
   });
+
+  test("carries the mock campaign boundary into the invitation offer", () => {
+    const presaleApi = source("encore/domains/presale/api.ts");
+    expect(presaleApi).toContain("isMock: campaign.is_mock");
+  });
 });

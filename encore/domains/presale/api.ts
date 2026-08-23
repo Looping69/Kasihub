@@ -245,6 +245,7 @@ interface PresaleOfferResponse {
   minConfirmations: number;
   paymentWindowMinutes: number;
   termsVersion: string;
+  isMock: boolean;
   startsAt?: string;
   endsAt?: string;
 }
@@ -807,6 +808,7 @@ function offerResponse(campaign: CampaignRow, invitationSharesRemaining: number,
     minConfirmations: campaign.min_confirmations,
     paymentWindowMinutes: campaign.payment_window_minutes,
     termsVersion: PRESALE_TERMS_VERSION,
+    isMock: campaign.is_mock,
     startsAt: campaign.starts_at ?? undefined,
     endsAt: campaign.ends_at ?? undefined,
   };
