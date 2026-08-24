@@ -32,6 +32,7 @@ import { exceedsInvitationShareLimit } from "./invitation-policy";
 import { issuedSharesForPresale, quotedUsdtAmount } from "./settlement";
 import { INVESTOR_APPLICATION_SCHEMA_VERSION, phaseOneApplicantSchema, type PhaseOneApplicant } from "./application";
 import { deriveApplicantContinuation, type ApplicantContinuationReason } from "./applicant-continuation";
+import { databaseBinaryToBuffer, type DatabaseBinary } from "./database-binary";
 
 const PresaleWebhookSecret = secret("PresaleWebhookSecret");
 const InvestorApplicationEncryptionKey = secret("InvestorApplicationEncryptionKey");
@@ -709,11 +710,14 @@ interface SavePresaleApplicationPhaseRequest {
   payload: PhaseOneApplicant;
 }
 
-function decryptPresaleSecret(ciphertext: Buffer, nonce: Buffer, authTag: Buffer): string {
+function decryptPresaleSecret(ciphertext: DatabaseBinary, nonce: DatabaseBinary, authTag: DatabaseBinary): string {
   const key = createNodeHash("sha256").update(InvestorApplicationEncryptionKey()).digest();
-  const decipher = createDecipheriv("aes-256-gcm", key, nonce);
-  decipher.setAuthTag(authTag);
-  const decoded = JSON.parse(Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString("utf8")) as unknown;
+  const decipher = createDecipheriv("aes-256-gcm", key, databaseBinaryToBuffer(nonce));
+  decipher.setAuthTag(databaseBinaryToBuffer(authTag));
+  const decoded = JSON.parse(Buffer.concat([
+    decipher.update(databaseBinaryToBuffer(ciphertext)),
+    decipher.final(),
+  ]).toString("utf8")) as unknown;
   if (typeof decoded !== "string") throw new Error("invalid_presale_resume_secret");
   return decoded;
 }
@@ -929,8 +933,8 @@ export const presaleApplicantPortal = api<void, PresalePortalResponse>(
     const application = await presaleDb.rawQueryRow<{
       id: string; application_number: string; campaign_name: string; status: string;
       applicant_type: "individual" | "company" | "trust";
-      phase_completed: number; completion_percent: number; resume_token_ciphertext: Buffer | null;
-      resume_token_nonce: Buffer | null; resume_token_auth_tag: Buffer | null; resume_access_available: boolean;
+      phase_completed: number; completion_percent: number; resume_token_ciphertext: DatabaseBinary | null;
+      resume_token_nonce: DatabaseBinary | null; resume_token_auth_tag: DatabaseBinary | null; resume_access_available: boolean;
     }>(
       `SELECT a.id, a.application_number, c.name AS campaign_name, a.status, a.applicant_type, a.phase_completed, a.completion_percent,
               a.resume_token_ciphertext, a.resume_token_nonce, a.resume_token_auth_tag,
