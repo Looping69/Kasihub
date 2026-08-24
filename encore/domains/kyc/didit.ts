@@ -94,7 +94,7 @@ export const createDiditVerificationSession = api<
          result_payload = result_payload || $4::jsonb
        WHERE id = $1`,
       kycCase.id, session.session_id, DIDIT_WORKFLOW_ID,
-      JSON.stringify({ externalProvider: "didit", providerStatus: session.status }),
+      { externalProvider: "didit", providerStatus: session.status },
     );
     return { sessionId: session.session_id, url: session.url, status: session.status };
   },
@@ -158,7 +158,7 @@ export async function reconcilePendingDiditDecision(profileId: string): Promise<
           SET result_payload = $2::jsonb
         WHERE id = $1 AND status = 'pending' AND didit_session_id = $3
         RETURNING id`,
-      kycCase.id, JSON.stringify(safeResult), kycCase.didit_session_id,
+      kycCase.id, safeResult, kycCase.didit_session_id,
     );
     if (updated) {
       // The database approval guard intentionally reads already-persisted policy
@@ -241,7 +241,7 @@ export const diditWebhook = api.raw(
             `UPDATE kyc_cases
                 SET didit_last_synced_at = now(), result_payload = $2::jsonb
               WHERE id = $1`,
-            kycCase.id, JSON.stringify(safeResult),
+            kycCase.id, safeResult,
           );
           await tx.rawExec(
             `UPDATE kyc_cases
