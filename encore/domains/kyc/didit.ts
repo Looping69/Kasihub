@@ -4,6 +4,7 @@ import { secret } from "encore.dev/config";
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { auditDb, kycDb } from "../../resources";
 import { requireProfileAccess } from "../auth/access";
+import { evaluateDiditDecision, type DiditDecisionPayload } from "./didit-decision";
 import { INTERNATIONAL_KYC_PROVIDER } from "./policy";
 
 const DiditApiKey = secret("DiditApiKey");
@@ -18,7 +19,6 @@ type DiditSessionResponse = {
   workflow_id: string;
 };
 
-type DiditDecisionItem = { status?: unknown };
 type DiditWebhook = {
   event_id?: unknown;
   webhook_type?: unknown;
@@ -27,19 +27,11 @@ type DiditWebhook = {
   workflow_id?: unknown;
   vendor_data?: unknown;
   status?: unknown;
-  decision?: {
-    id_verifications?: DiditDecisionItem[];
-    liveness_checks?: DiditDecisionItem[];
-    face_matches?: DiditDecisionItem[];
-  };
+  decision?: DiditDecisionPayload;
 };
 
 function uuid(value: unknown): value is string {
   return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
-}
-
-function allApproved(items: DiditDecisionItem[] | undefined): boolean {
-  return Array.isArray(items) && items.length > 0 && items.every((item) => item.status === "Approved");
 }
 
 function sortKeys(value: unknown): unknown {
@@ -108,6 +100,75 @@ export const createDiditVerificationSession = api<
   },
 );
 
+/**
+ * Webhooks remain primary. This bounded provider read repairs a pending case
+ * when Didit's final status webhook is delayed or lost. The database claim
+ * throttles browser polling and prevents concurrent reconciliation storms.
+ */
+export async function reconcilePendingDiditDecision(profileId: string): Promise<void> {
+  const kycCase = await kycDb.rawQueryRow<{
+    id: string; didit_session_id: string; didit_workflow_id: string;
+  }>(
+    `UPDATE kyc_cases
+        SET didit_last_synced_at = now()
+      WHERE id = (
+        SELECT id FROM kyc_cases
+         WHERE profile_id = $1 AND provider = $2 AND status = 'pending'
+           AND didit_session_id IS NOT NULL
+           AND (didit_last_synced_at IS NULL OR didit_last_synced_at < now() - interval '30 seconds')
+         ORDER BY submitted_at DESC NULLS LAST
+         LIMIT 1
+      )
+      RETURNING id, didit_session_id::text, didit_workflow_id::text`,
+    profileId, INTERNATIONAL_KYC_PROVIDER,
+  );
+  if (!kycCase) return;
+
+  const response = await fetch(
+    `https://verification.didit.me/v3/session/${encodeURIComponent(kycCase.didit_session_id)}/decision/`,
+    { headers: { "x-api-key": DiditApiKey() } },
+  );
+  if (!response.ok) {
+    console.warn("didit_decision_reconciliation_failed", { caseId: kycCase.id, status: response.status });
+    return;
+  }
+
+  const payload = await response.json() as DiditDecisionPayload;
+  if (payload.session_id !== kycCase.didit_session_id
+    || payload.workflow_id !== kycCase.didit_workflow_id
+    || payload.vendor_data !== kycCase.id) {
+    console.warn("didit_decision_reconciliation_mismatch", { caseId: kycCase.id });
+    return;
+  }
+
+  const evaluation = evaluateDiditDecision(payload);
+  const safeResult = {
+    externalProvider: "didit",
+    providerStatus: evaluation.providerStatus,
+    policySatisfied: evaluation.policySatisfied,
+    policyVersion: evaluation.policySatisfied ? "didit-free-kyc-v1" : undefined,
+    checks: evaluation.checks,
+    evidenceSource: "provider-decision-backfill",
+  };
+  const updated = await kycDb.rawQueryRow<{ id: string }>(
+    `UPDATE kyc_cases
+        SET status = $2,
+            reviewed_at = CASE WHEN $2 IN ('approved','rejected') THEN now() ELSE reviewed_at END,
+            result_payload = $3::jsonb
+      WHERE id = $1 AND status = 'pending' AND didit_session_id = $4
+      RETURNING id`,
+    kycCase.id, evaluation.nextStatus, JSON.stringify(safeResult), kycCase.didit_session_id,
+  );
+  if (!updated) return;
+
+  await auditDb.rawExec(
+    `INSERT INTO audit_logs (action, entity_type, entity_id, after)
+     VALUES ('kyc.didit.reconcile', 'kyc_case', $1, $2::jsonb)`,
+    kycCase.id,
+    JSON.stringify({ providerStatus: evaluation.providerStatus, status: evaluation.nextStatus }),
+  );
+}
+
 export const diditWebhook = api.raw(
   { expose: true, path: "/kyc/providers/didit/webhook", method: "POST", bodyLimit: 1048576 },
   async (req, res) => {
@@ -139,21 +200,15 @@ export const diditWebhook = api.raw(
       );
       if (!kycCase || kycCase.didit_session_id !== payload.session_id) throw APIError.notFound("KYC session not found");
 
-      const evidenceSatisfied = providerStatus === "Approved"
-        && allApproved(payload.decision?.id_verifications)
-        && allApproved(payload.decision?.liveness_checks)
-        && allApproved(payload.decision?.face_matches);
-      const nextStatus = evidenceSatisfied ? "approved" : providerStatus === "Declined" ? "rejected" : "pending";
+      const evaluation = evaluateDiditDecision({ ...payload.decision, status: providerStatus });
+      const nextStatus = evaluation.nextStatus;
       const safeResult = {
         externalProvider: "didit",
         providerStatus,
-        policySatisfied: evidenceSatisfied,
-        policyVersion: evidenceSatisfied ? "didit-free-kyc-v1" : undefined,
-        checks: {
-          identity: allApproved(payload.decision?.id_verifications),
-          liveness: allApproved(payload.decision?.liveness_checks),
-          faceMatch: allApproved(payload.decision?.face_matches),
-        },
+        policySatisfied: evaluation.policySatisfied,
+        policyVersion: evaluation.policySatisfied ? "didit-free-kyc-v1" : undefined,
+        checks: evaluation.checks,
+        evidenceSource: "signed-webhook",
       };
       const tx = await kycDb.begin();
       try {
@@ -167,7 +222,7 @@ export const diditWebhook = api.raw(
         if (inserted) {
           await tx.rawExec(
             `UPDATE kyc_cases SET status = $2, reviewed_at = CASE WHEN $2 IN ('approved','rejected') THEN now() ELSE reviewed_at END,
-               result_payload = $3::jsonb WHERE id = $1`,
+               didit_last_synced_at = now(), result_payload = $3::jsonb WHERE id = $1`,
             kycCase.id, nextStatus, JSON.stringify(safeResult),
           );
         }

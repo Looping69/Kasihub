@@ -2,6 +2,7 @@
 import { api, APIError } from "encore.dev/api";
 import { auditDb, identityDb, kycDb } from "../../resources";
 import { requireProfileAccess } from "../auth/access";
+import { reconcilePendingDiditDecision } from "./didit";
 import { INTERNATIONAL_KYC_PROVIDER, getInternationalKycVerification } from "./policy";
 
 type InternationalKycCaseResponse = {
@@ -71,6 +72,16 @@ export const internationalKycStatus = api<
   { method: "GET", path: "/kyc/international/status/:profileId", expose: true },
   async (req) => {
     await requireProfileAccess(req.profileId);
+    try {
+      await reconcilePendingDiditDecision(req.profileId);
+    } catch (error) {
+      // Provider backfill is recovery, not availability authority. Preserve the
+      // stored KYC state when Didit is temporarily unavailable.
+      console.warn("didit_decision_reconciliation_unavailable", {
+        profileId: req.profileId,
+        reason: error instanceof Error ? error.message : "unknown",
+      });
+    }
     return getInternationalKycVerification(req.profileId);
   },
 );
