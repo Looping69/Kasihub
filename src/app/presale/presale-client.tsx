@@ -527,6 +527,11 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
                 <p className="mt-1 text-sm text-amber-100/80">using {order.network} only</p>
               </div>
               {!offer.isMock && <>
+                <div className="rounded-xl border border-rose-400/30 bg-rose-400/10 p-4 text-sm leading-6 text-rose-50">
+                  <p className="font-semibold">The receiving address must get exactly {order.totalUsdt} USDT.</p>
+                  <p className="mt-1 text-rose-100/85">Exchange withdrawal fees and network fees are additional. If your wallet deducts fees from the amount, increase the amount sent so the recipient still receives exactly {order.totalUsdt} USDT.</p>
+                  <p className="mt-1 text-rose-100/85">Send USDT on {order.network} only. Do not send BNB or another token, even if it uses the same network.</p>
+                </div>
                 <div><p className="mb-2 text-xs uppercase tracking-wider text-slate-400">Receiving address</p><div className="flex gap-2"><code className="min-w-0 flex-1 break-all rounded-lg bg-black/30 p-3 text-xs text-slate-200">{order.receivingAddress}</code>
                   <Button type="button" variant="outline" size="icon" onClick={copyAddress} aria-label="Copy receiving address"><Copy className="h-4 w-4" /></Button></div>{copied && <p className="mt-1 text-xs text-emerald-300">Address copied</p>}</div>
                 {order.tokenContract && <div><p className="mb-1 text-xs uppercase tracking-wider text-slate-400">Verified USDT contract</p><code className="break-all text-xs text-slate-300">{order.tokenContract}</code></div>}

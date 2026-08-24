@@ -40,6 +40,16 @@ describe("isolated KaSiShares applicant portal", () => {
     expect(api).toContain('return { order: orderResponse(order, campaign, null, 0, intent), accessToken, emailStatus };');
   });
 
+  test("makes exchange fees explicit without weakening exact USDT settlement", () => {
+    const presale = source("src/app/presale/presale-client.tsx");
+    const verifier = source("encore/domains/payments/chains/evaluate.ts");
+    expect(presale).toContain("Exchange withdrawal fees and network fees are additional");
+    expect(presale).toContain("Do not send BNB or another token");
+    expect(verifier).toContain('decision: "underpaid"');
+    expect(verifier).toContain('decision: "manual_review"');
+    expect(verifier).toContain('decision: "confirmed"');
+  });
+
   test("requires the presale role and rejects ecosystem-only account reuse", () => {
     const api = source("encore/domains/presale/api.ts");
     const access = source("encore/domains/auth/access.ts");
