@@ -9,7 +9,7 @@ vi.mock("@/lib/encore-client", () => {
     constructor(message: string, public status: number, public details: unknown = null) { super(message); }
   }
   return {
-    ENCORE_SESSION_COOKIE: "kasihub_session",
+    PRESALE_SESSION_COOKIE: "kasishares_session",
     EncoreRequestError,
     encoreRequest: mocks.encoreRequest,
   };
@@ -33,14 +33,16 @@ describe("presale member registration bridge", () => {
       token: "secret-session-token",
       profileId: "profile-1",
       profileNumber: "KSI-ONE",
+      applicationId: "application-1",
       created: true,
+      emailStatus: "sent",
     });
     const body = { inviteToken: "a".repeat(32), email: "buyer@example.test", password: "strong-password" };
     const response = await POST(request(body));
 
     expect(response.status).toBe(201);
-    expect(await response.json()).toEqual({ profileId: "profile-1", profileNumber: "KSI-ONE", created: true });
-    expect(response.headers.get("set-cookie")).toContain("kasihub_session=secret-session-token");
+    expect(await response.json()).toEqual({ profileId: "profile-1", profileNumber: "KSI-ONE", applicationId: "application-1", created: true, emailStatus: "sent" });
+    expect(response.headers.get("set-cookie")).toContain("kasishares_session=secret-session-token");
     expect(response.headers.get("set-cookie")).toContain("HttpOnly");
     expect(mocks.encoreRequest).toHaveBeenCalledWith("/presale/members", {
       method: "POST",

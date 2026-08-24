@@ -1,6 +1,6 @@
 // Author: Klaasvaakie ( |╲ )
 import { NextRequest, NextResponse } from "next/server";
-import { encoreSessionToken, EncoreRequestError, encoreRequest } from "@/lib/encore-client";
+import { presaleSessionToken, EncoreRequestError, encoreRequest } from "@/lib/encore-client";
 
 function presaleFailureMessage(error: EncoreRequestError): string {
   // Surface only the backend's deliberately public validation message. Author: Klaasvaakie ( |╲ )
@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
   const idempotencyKey = req.headers.get("idempotency-key");
   if (!idempotencyKey) return NextResponse.json({ error: "Idempotency-Key is required" }, { status: 400 });
   // Reservations remain bound to the authenticated, KYC-verified profile. Author: Klaasvaakie ( |╲ )
-  const token = await encoreSessionToken();
+  const token = await presaleSessionToken();
   if (!token) return NextResponse.json({ error: "Sign in to create a presale reservation" }, { status: 401 });
   try {
     const body = await req.json();

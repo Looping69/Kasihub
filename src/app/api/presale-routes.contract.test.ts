@@ -18,6 +18,7 @@ vi.mock("@/lib/encore-client", () => {
     EncoreRequestError,
     encoreRequest: mocks.encoreRequest,
     encoreSessionToken: mocks.encoreSessionToken,
+    presaleSessionToken: mocks.encoreSessionToken,
   };
 });
 

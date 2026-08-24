@@ -44,6 +44,11 @@ type KycVerification = {
   caseId: string | null;
 };
 
+type ResumePortal = {
+  applicant: { profileNumber: string; email: string; legalName: string; phone: string; country: string; physicalAddress: string };
+  application: null | { applicantType: "individual" | "company" | "trust"; nextStep: number };
+};
+
 const APPLICATION_PHASES = [
   { title: "Member registration", description: "Create your KaSiHub profile and application identity", icon: UserRound },
   { title: "Choose your investment", description: "Allocation and current USDT price", icon: Landmark },
@@ -87,6 +92,8 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
   const [diditUrl, setDiditUrl] = useState("");
   const [kycVerification, setKycVerification] = useState<KycVerification | null>(null);
   const [memberProfileNumber, setMemberProfileNumber] = useState("");
+  const [accountEmailStatus, setAccountEmailStatus] = useState<"sent" | "failed" | "existing" | "">("");
+  const [resumeApplicant, setResumeApplicant] = useState<ResumePortal["applicant"] | null>(null);
 
   useEffect(() => {
     // Development preview has static display data and cannot contact the BFF.
@@ -102,6 +109,22 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
       .catch((reason) => setError(reason instanceof Error ? reason.message : "Invitation unavailable"))
       .finally(() => setLoading(false));
   }, [devPreview, inviteToken]);
+
+  useEffect(() => {
+    if (devPreview) return;
+    const timer = window.setTimeout(() => {
+      void fetch("/api/presale/portal", { cache: "no-store" }).then(async (response) => {
+        if (!response.ok) return;
+        const portal = await response.json() as ResumePortal;
+        if (!portal.application) return;
+        setResumeApplicant(portal.applicant);
+        setMemberProfileNumber(portal.applicant.profileNumber);
+        setApplicantType(portal.application.applicantType);
+        setApplicationPhase(Math.max(1, Math.min(5, portal.application.nextStep)));
+      }).catch(() => undefined);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [devPreview]);
 
   const refreshOrder = useCallback(async () => {
     if (!order || !accessToken) return;
@@ -295,6 +318,17 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error ?? "Member registration is temporarily unavailable.");
     setMemberProfileNumber(payload.profileNumber);
+    setAccountEmailStatus(payload.emailStatus);
+  }
+
+  async function saveProgress(phaseCompleted: number) {
+    if (devPreview) return;
+    const response = await fetch("/api/presale/progress", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phaseCompleted }),
+    });
+    if (!response.ok) throw new Error("Application progress could not be saved.");
   }
 
   async function advanceApplication(event: React.MouseEvent<HTMLButtonElement>) {
@@ -330,11 +364,20 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
         await startIdentityVerification();
         const verification = await refreshKycVerification();
         if (!verification?.verified) return;
+        await saveProgress(4);
       } catch {
         setError("Identity verification is currently unavailable. Please try again shortly.");
         return;
       } finally {
         setSubmitting(false);
+      }
+    }
+    if (applicationPhase === 2 || applicationPhase === 3) {
+      try {
+        await saveProgress(applicationPhase);
+      } catch (reason) {
+        setError(reason instanceof Error ? reason.message : "Application progress could not be saved.");
+        return;
       }
     }
     setApplicationPhase((phase) => Math.min(5, phase + 1));
@@ -379,31 +422,31 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
         {!order ? (
           <Card className="presale-form-card min-w-0 text-white shadow-2xl shadow-black/20">
             <CardHeader><p className="text-xs font-bold uppercase tracking-[.18em] text-amber-300">Investor application</p><h2 className="mt-2 font-semibold leading-none">{APPLICATION_PHASES[applicationPhase - 1].title}</h2><CardDescription className="text-slate-400">Step {applicationPhase} of 5 · {APPLICATION_PHASES[applicationPhase - 1].description}</CardDescription></CardHeader>
-            <CardContent><form className="space-y-5" noValidate onSubmit={createOrder}>
+            <CardContent><form key={resumeApplicant?.profileNumber ?? "new-applicant"} className="space-y-5" noValidate onSubmit={createOrder}>
               <ApplicationProgress phase={applicationPhase} />
               <div data-application-phase="1" hidden={applicationPhase !== 1} className="space-y-5">
               <SectionTitle>KaSiHub member profile</SectionTitle>
               <p className="text-sm leading-6 text-slate-300">Your secure member profile links this application, identity verification, share purchase and certificate.</p>
-              <Field label="Full legal name"><Input name="buyerName" required minLength={2} className="border-white/15 bg-black/20" /></Field>
-              <Field label="Email address"><Input name="buyerEmail" type="email" required defaultValue={offer.invitationEmail} readOnly={Boolean(offer.invitationEmail)} className="border-white/15 bg-black/20" /></Field>
-              <Field label="Cellphone number *"><Input name="buyerPhone" required className="border-white/15 bg-black/20" /></Field>
-              <Field label="Confirm cellphone number *"><Input name="confirmMobileNumber" required className="border-white/15 bg-black/20" /></Field>
+              <Field label="Full legal name"><Input name="buyerName" required minLength={2} defaultValue={resumeApplicant?.legalName} className="border-white/15 bg-black/20" /></Field>
+              <Field label="Email address"><Input name="buyerEmail" type="email" required defaultValue={resumeApplicant?.email ?? offer.invitationEmail} readOnly={Boolean(resumeApplicant?.email || offer.invitationEmail)} className="border-white/15 bg-black/20" /></Field>
+              <Field label="Cellphone number *"><Input name="buyerPhone" required defaultValue={resumeApplicant?.phone} className="border-white/15 bg-black/20" /></Field>
+              <Field label="Confirm cellphone number *"><Input name="confirmMobileNumber" required defaultValue={resumeApplicant?.phone} className="border-white/15 bg-black/20" /></Field>
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field label="Account password *"><Input name="accountPassword" type="password" required minLength={12} autoComplete="new-password" className="border-white/15 bg-black/20" /></Field>
                 <Field label="Confirm account password *"><Input name="confirmAccountPassword" type="password" required minLength={12} autoComplete="new-password" className="border-white/15 bg-black/20" /></Field>
               </div>
-              {memberProfileNumber ? <div className="rounded-xl border border-emerald-400/30 bg-emerald-400/10 p-4 text-sm text-emerald-100"><strong className="block text-white">Member profile ready</strong>Profile {memberProfileNumber} is securely linked to this application.</div> : null}
+              {memberProfileNumber ? <div className="rounded-xl border border-emerald-400/30 bg-emerald-400/10 p-4 text-sm text-emerald-100"><strong className="block text-white">Applicant profile ready</strong>Profile {memberProfileNumber} is securely linked to this application. {accountEmailStatus === "sent" ? "Your account email has been sent." : accountEmailStatus === "failed" ? "Your account exists, but the email provider did not accept the welcome email. Use Applicant login above and contact support if needed." : "Use Applicant login above to return later."}</div> : null}
               <SectionTitle>Investor identity</SectionTitle>
               <Field label="Application type *"><select name="applicantType" required value={applicantType} onChange={(event) => setApplicantType(event.target.value as typeof applicantType)} className="h-10 w-full rounded-md border border-white/15 bg-slate-950 px-3 text-sm"><option value="individual">Individual application</option><option value="company">Company application</option><option value="trust">Trust application</option></select></Field>
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field label="Date of birth (individual)"><Input name="dateOfBirth" type="date" className="border-white/15 bg-black/20" /></Field>
                 <Field label="Nationality *"><Input name="nationality" required className="border-white/15 bg-black/20" /></Field>
-                <Field label="Country of residence *"><Input name="countryOfResidence" required className="border-white/15 bg-black/20" /></Field>
+                <Field label="Country of residence *"><Input name="countryOfResidence" required defaultValue={resumeApplicant?.country} className="border-white/15 bg-black/20" /></Field>
                 <Field label="Occupation *"><Input name="occupation" required className="border-white/15 bg-black/20" /></Field>
                 <Field label="Employer *"><Input name="employer" required className="border-white/15 bg-black/20" /></Field>
                 <Field label="Tax number *"><Input name="taxNumber" required className="border-white/15 bg-black/20" /></Field>
               </div>
-              <Field label="Physical address *"><textarea name="physicalAddress" required rows={2} className="w-full rounded-md border border-white/15 bg-black/20 px-3 py-2 text-sm" /></Field>
+              <Field label="Physical address *"><textarea name="physicalAddress" required rows={2} defaultValue={resumeApplicant?.physicalAddress} className="w-full rounded-md border border-white/15 bg-black/20 px-3 py-2 text-sm" /></Field>
               {applicantType !== "individual" && <div className="grid gap-4 sm:grid-cols-2"><Field label={`${applicantType === "company" ? "Company" : "Trust"} registration number *`}><Input name="entityRegistrationNumber" required className="border-white/15 bg-black/20" /></Field>{applicantType === "company" && <Field label="VAT number (optional)"><Input name="vatNumber" className="border-white/15 bg-black/20" /></Field>}<Field label="Authorised representative *"><Input name="authorisedRepresentativeName" required className="border-white/15 bg-black/20" /></Field><Field label="Representative position *"><Input name="authorisedRepresentativePosition" required className="border-white/15 bg-black/20" /></Field></div>}
               </div>
               <div data-application-phase="2" hidden={applicationPhase !== 2} className="space-y-5">
@@ -495,7 +538,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
 }
 
 function Shell({ children }: { children: React.ReactNode }) {
-  return <main className="presale-shell min-h-screen px-5 py-6 sm:px-6 sm:py-8 lg:px-8"><div className="presale-header mx-auto mb-10 flex w-full max-w-6xl items-center justify-between sm:mb-12"><Link href="/" className="relative block h-[76px] w-[134px] sm:h-[92px] sm:w-[162px]" aria-label="KaSiShares home"><Image src="/kasishares-logo.png" alt="KaSiShares — Own. Grow. Prosper. Together." fill sizes="(max-width: 640px) 134px, 162px" className="object-contain object-left" priority /></Link><div className="hidden items-center gap-2 text-xs text-slate-300 sm:flex"><WalletCards className="h-4 w-4" /> USDT settlement</div></div><div className="mx-auto flex w-full max-w-6xl justify-center">{children}</div></main>;
+  return <main className="presale-shell min-h-screen px-5 py-6 sm:px-6 sm:py-8 lg:px-8"><div className="presale-header mx-auto mb-10 flex w-full max-w-6xl items-center justify-between gap-4 sm:mb-12"><Link href="/" className="relative block h-[76px] w-[134px] sm:h-[92px] sm:w-[162px]" aria-label="KaSiShares home"><Image src="/kasishares-logo.png" alt="KaSiShares — Own. Grow. Prosper. Together." fill sizes="(max-width: 640px) 134px, 162px" className="object-contain object-left" priority /></Link><div className="flex items-center gap-3"><Link href="/shares/account" aria-label="Log in to your KaSiShares profile and continue your application" className="rounded-md border border-amber-300/40 px-3 py-2 text-xs font-bold text-amber-100 hover:bg-amber-300/10">Share profile login</Link><div className="hidden items-center gap-2 text-xs text-slate-300 sm:flex"><WalletCards className="h-4 w-4" /> USDT settlement</div></div></div><div className="mx-auto flex w-full max-w-6xl justify-center">{children}</div></main>;
 }
 
 function Metric({ label, value }: { label: string; value: string }) {

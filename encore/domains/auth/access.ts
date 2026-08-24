@@ -8,6 +8,7 @@ import { hasTesterAdminAccess } from "./tester-access";
 
 export interface AuthenticatedSession {
   token: string;
+  scope: "ecosystem" | "presale";
   user: { id: string; email: string };
   profile: { id: string; unique_profile_number: string };
 }
@@ -40,7 +41,8 @@ export async function sessionFromBearer(): Promise<AuthenticatedSession | null> 
     email: string;
     profile_id: string;
     unique_profile_number: string;
-  }>(`SELECT s.token, u.id AS user_id, u.email, p.id AS profile_id, p.unique_profile_number
+    session_scope: "ecosystem" | "presale";
+  }>(`SELECT s.token, s.session_scope, u.id AS user_id, u.email, p.id AS profile_id, p.unique_profile_number
      FROM sessions s
      JOIN users u ON u.id = s.user_id
      JOIN profiles p ON p.user_id = u.id
@@ -49,6 +51,7 @@ export async function sessionFromBearer(): Promise<AuthenticatedSession | null> 
   if (!row) return null;
   return {
     token: row.token,
+    scope: row.session_scope,
     user: { id: row.user_id, email: row.email },
     profile: { id: row.profile_id, unique_profile_number: row.unique_profile_number },
   };
@@ -84,6 +87,19 @@ export async function requireProfileAccess(profileId: string): Promise<Authentic
     session.user.id,
   );
   if (!role) throw APIError.permissionDenied("Profile access is not permitted");
+  return session;
+}
+
+export async function requirePresaleSession(): Promise<AuthenticatedSession> {
+  const session = await requireSession();
+  if (session.scope !== "presale") throw APIError.permissionDenied("KaSiShares applicant access is required");
+  const role = await identityDb.rawQueryRow<{ name: string }>(
+    `SELECT r.name FROM user_roles ur
+     JOIN roles r ON r.id = ur.role_id
+     WHERE ur.user_id = $1 AND r.name = 'presale_investor' LIMIT 1`,
+    session.user.id,
+  );
+  if (!role) throw APIError.permissionDenied("KaSiShares applicant access is required");
   return session;
 }
 

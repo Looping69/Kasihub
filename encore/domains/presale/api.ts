@@ -2,10 +2,10 @@
 import { api, APIError } from "encore.dev/api";
 import { secret } from "encore.dev/config";
 import { CronJob } from "encore.dev/cron";
-import { createCipheriv, createHash as createNodeHash, randomBytes } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHash as createNodeHash, randomBytes } from "node:crypto";
 import { z } from "zod";
-import { identityDb, presaleDb, sharesDb } from "../../resources";
-import { hashSessionToken, requestHeader, requireSession } from "../auth/access";
+import { identityDb, kycDb, presaleDb, sharesDb } from "../../resources";
+import { hashSessionToken, requestHeader, requirePresaleSession } from "../auth/access";
 import { requireAdminAccess } from "../auth/access";
 import { hashPassword, verifyPassword } from "../auth/password";
 import { requireInternationalKycVerified } from "../kyc/policy";
@@ -34,6 +34,68 @@ import { INVESTOR_APPLICATION_SCHEMA_VERSION, phaseOneApplicantSchema, type Phas
 
 const PresaleWebhookSecret = secret("PresaleWebhookSecret");
 const InvestorApplicationEncryptionKey = secret("InvestorApplicationEncryptionKey");
+const ResendApiKey = secret("RESEND_API_KEY");
+const ResendFromEmail = secret("RESEND_FROM_EMAIL");
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>'"]/g, (character) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;",
+  })[character] ?? character);
+}
+
+async function attemptPresaleAccountCreatedEmail(input: {
+  deliveryId: string; applicationId: string; profileId: string; recipient: string; legalName: string;
+}): Promise<"sent" | "failed"> {
+  const portalUrl = "https://shares.kasihub.net/shares/account";
+  const name = escapeHtml(input.legalName);
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${ResendApiKey()}`,
+      "Content-Type": "application/json",
+      "Idempotency-Key": `presale-account-created/${input.profileId}`,
+    },
+    body: JSON.stringify({
+      from: ResendFromEmail(),
+      to: [input.recipient],
+      subject: "Your KaSiShares applicant account is ready",
+      html: `<!doctype html><html lang="en"><body style="margin:0;background:#071a2f;font-family:Arial,sans-serif;color:#f8fafc"><div style="display:none;max-height:0;overflow:hidden">Continue your KaSiShares application and track identity verification.</div><div style="max-width:600px;margin:0 auto;padding:32px 20px"><div style="border:1px solid #334155;border-radius:18px;background:#0f2744;padding:32px"><h1 style="margin:0 0 18px;color:#fbbf24;font-size:26px">Your applicant account is ready</h1><p style="font-size:16px;line-height:1.6">Hello ${name},</p><p style="font-size:16px;line-height:1.6">You completed account creation for the private KaSiShares application. Your applicant space is separate from the normal KaSiHub member dashboard.</p><p style="font-size:16px;line-height:1.6">Use it to continue your application, view identity-verification progress, and return to the next incomplete step.</p><p style="margin:28px 0"><a href="${portalUrl}" style="display:inline-block;box-sizing:border-box;border-radius:10px;background:#fbbf24;color:#071a2f;padding:14px 22px;font-weight:700;text-decoration:none">Open my KaSiShares account</a></p><p style="font-size:13px;line-height:1.6;color:#cbd5e1">If you did not create this account, contact KaSiHub support. Never send payment based only on an email.</p></div></div></body></html>`,
+      text: `Hello ${input.legalName},\n\nYou completed account creation for the private KaSiShares application. Your applicant space is separate from the normal KaSiHub member dashboard.\n\nContinue your application and track identity verification at: ${portalUrl}\n\nIf you did not create this account, contact KaSiHub support. Never send payment based only on an email.`,
+      tags: [{ name: "email_type", value: "presale_account_created" }],
+    }),
+  });
+  const result = await response.json().catch(() => null) as { id?: string; name?: string } | null;
+  if (!response.ok || !result?.id) {
+    await presaleDb.rawExec(
+      `UPDATE presale_email_deliveries SET status = 'failed', attempt_count = attempt_count + 1,
+         last_error_code = $2, updated_at = now() WHERE id = $1`,
+      input.deliveryId, result?.name ?? `http_${response.status}`,
+    );
+    return "failed";
+  }
+  await presaleDb.rawExec(
+    `UPDATE presale_email_deliveries SET status = 'sent', provider_message_id = $2,
+       attempt_count = attempt_count + 1, last_error_code = NULL, sent_at = now(), updated_at = now()
+     WHERE id = $1`,
+    input.deliveryId, result.id,
+  );
+  return "sent";
+}
+
+async function sendPresaleAccountCreatedEmail(input: {
+  deliveryId: string; applicationId: string; profileId: string; recipient: string; legalName: string;
+}): Promise<"sent" | "failed"> {
+  try {
+    return await attemptPresaleAccountCreatedEmail(input);
+  } catch {
+    await presaleDb.rawExec(
+      `UPDATE presale_email_deliveries SET status = 'failed', attempt_count = attempt_count + 1,
+         last_error_code = 'provider_unavailable', updated_at = now() WHERE id = $1`,
+      input.deliveryId,
+    );
+    return "failed";
+  }
+}
 
 function encryptInvestorApplication(value: unknown): { ciphertext: Buffer; nonce: Buffer; authTag: Buffer } {
   const key = createNodeHash("sha256").update(InvestorApplicationEncryptionKey()).digest();
@@ -565,6 +627,15 @@ interface SavePresaleApplicationPhaseRequest {
   payload: PhaseOneApplicant;
 }
 
+function decryptPresaleSecret(ciphertext: Buffer, nonce: Buffer, authTag: Buffer): string {
+  const key = createNodeHash("sha256").update(InvestorApplicationEncryptionKey()).digest();
+  const decipher = createDecipheriv("aes-256-gcm", key, nonce);
+  decipher.setAuthTag(authTag);
+  const decoded = JSON.parse(Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString("utf8")) as unknown;
+  if (typeof decoded !== "string") throw new Error("invalid_presale_resume_secret");
+  return decoded;
+}
+
 interface RegisterPresaleMemberRequest {
   inviteToken: string;
   email: string;
@@ -577,16 +648,26 @@ interface RegisterPresaleMemberRequest {
   physicalAddress: string;
 }
 
+interface PresalePortalResponse {
+  applicant: { profileId: string; profileNumber: string; email: string; legalName: string; phone: string; country: string; physicalAddress: string };
+  application: null | {
+    applicationId: string; applicationNumber: string; campaignName: string; status: string;
+    applicantType: "individual" | "company" | "trust"; phaseCompleted: number; completionPercent: number; nextStep: number; resumeUrl: string | null;
+  };
+  kyc: { status: string; verified: boolean };
+  order: null | { orderReference: string; status: string; incorporationStatus: string };
+}
+
 export const registerPresaleMember = api<
   RegisterPresaleMemberRequest,
-  { token: string; profileId: string; profileNumber: string; created: boolean }
+  { token: string; profileId: string; profileNumber: string; applicationId: string; created: boolean; emailStatus: "sent" | "failed" | "existing" }
 >(
   { method: "POST", path: "/presale/members", expose: true },
   async (request) => {
     const payload = registerPresaleMemberInput.parse(request);
     const email = normalizeEmail(payload.email);
-    const invitation = await presaleDb.rawQueryRow<{ email: string | null }>(
-      `SELECT i.email
+    const invitation = await presaleDb.rawQueryRow<{ id: string; campaign_id: string; email: string | null; campaign_name: string }>(
+      `SELECT i.id, i.campaign_id, i.email, c.name AS campaign_name
        FROM presale_invitations i JOIN presale_campaigns c ON c.id = i.campaign_id
        WHERE i.token_hash = $1 AND i.status = 'active' AND (i.expires_at IS NULL OR i.expires_at > now())
          AND c.status = 'active' AND (c.starts_at IS NULL OR c.starts_at <= now()) AND (c.ends_at IS NULL OR c.ends_at > now())`,
@@ -598,9 +679,11 @@ export const registerPresaleMember = api<
     }
 
     const existing = await identityDb.rawQueryRow<{
-      user_id: string; password_hash: string | null; profile_id: string; profile_number: string;
+      user_id: string; password_hash: string | null; profile_id: string; profile_number: string; is_presale_investor: boolean;
     }>(
-      `SELECT u.id AS user_id, u.password_hash, p.id AS profile_id, p.unique_profile_number AS profile_number
+      `SELECT u.id AS user_id, u.password_hash, p.id AS profile_id, p.unique_profile_number AS profile_number,
+              EXISTS (SELECT 1 FROM user_roles ur JOIN roles r ON r.id = ur.role_id
+                      WHERE ur.user_id = u.id AND r.name = 'presale_investor') AS is_presale_investor
        FROM users u JOIN profiles p ON p.user_id = u.id
        WHERE u.email = $1 ORDER BY p.created_at DESC LIMIT 1`,
       email,
@@ -611,6 +694,9 @@ export const registerPresaleMember = api<
     let created = false;
 
     if (existing) {
+      if (!existing.is_presale_investor) {
+        throw APIError.failedPrecondition("Use a different email address for the separate KaSiShares applicant account");
+      }
       if (!existing.password_hash || !verifyPassword(payload.password, existing.password_hash)) {
         throw APIError.unauthenticated("The email or password is incorrect");
       }
@@ -659,19 +745,166 @@ export const registerPresaleMember = api<
 
     const token = crypto.randomUUID();
     await identityDb.rawExec(
-      `INSERT INTO sessions (user_id, token, created_at, expires_at)
-       VALUES ($1, $2, now(), now() + interval '7 days')`,
+      `INSERT INTO sessions (user_id, token, session_scope, created_at, expires_at)
+       VALUES ($1, $2, 'presale', now(), now() + interval '7 days')`,
       userId, hashSessionToken(token),
     );
-    return { token, profileId, profileNumber, created };
+    const applicationId = crypto.randomUUID();
+    const applicationNumber = `KSA-${crypto.randomUUID().slice(0, 8).toUpperCase()}-${Date.now().toString(36).toUpperCase()}`;
+    await presaleDb.rawExec(
+      `INSERT INTO presale_applications
+         (id, application_number, external_profile_id, campaign_id, invitation_id, applicant_type, phase_completed, completion_percent)
+       VALUES ($1,$2,$3,$4,$5,$6,1,20) ON CONFLICT DO NOTHING`,
+      applicationId, applicationNumber, profileId, invitation.campaign_id, invitation.id, payload.applicantType,
+    );
+    const application = await presaleDb.rawQueryRow<{ id: string }>(
+      `SELECT id FROM presale_applications WHERE external_profile_id = $1 AND campaign_id = $2
+       AND status NOT IN ('withdrawn','expired','superseded','compliance_rejected','exco_rejected')
+       ORDER BY created_at DESC LIMIT 1`,
+      profileId, invitation.campaign_id,
+    );
+    if (!application) throw APIError.internal("The KaSiShares application could not be created");
+    const resumeToken = encryptInvestorApplication(payload.inviteToken);
+    await presaleDb.rawExec(
+      `UPDATE presale_applications
+          SET resume_token_ciphertext = COALESCE(resume_token_ciphertext, $2),
+              resume_token_nonce = COALESCE(resume_token_nonce, $3),
+              resume_token_auth_tag = COALESCE(resume_token_auth_tag, $4),
+              resume_token_key_version = COALESCE(resume_token_key_version, 'v1'),
+              phase_completed = GREATEST(phase_completed, 1),
+              completion_percent = GREATEST(completion_percent, 20),
+              updated_at = now()
+        WHERE id = $1`,
+      application.id, resumeToken.ciphertext, resumeToken.nonce, resumeToken.authTag,
+    );
+
+    let emailStatus: "sent" | "failed" | "existing" = "existing";
+    const deliveryId = crypto.randomUUID();
+    const delivery = await presaleDb.rawQueryRow<{ id: string; status: string }>(
+      `INSERT INTO presale_email_deliveries
+         (id, external_profile_id, application_id, email_type, recipient_email, status)
+       VALUES ($1,$2,$3,'account_created',$4,'pending')
+       ON CONFLICT (external_profile_id, email_type) DO UPDATE
+         SET application_id = EXCLUDED.application_id
+       RETURNING id, status`,
+      deliveryId, profileId, application.id, email,
+    );
+    if (delivery?.status === "sent") emailStatus = "existing";
+    else if (delivery) emailStatus = await sendPresaleAccountCreatedEmail({
+      deliveryId: delivery.id, applicationId: application.id, profileId, recipient: email, legalName: payload.legalName,
+    });
+    return { token, profileId, profileNumber, applicationId: application.id, created, emailStatus };
   },
 );
+
+export const loginPresaleApplicant = api<
+  { email: string; password: string },
+  { token: string; profileId: string; profileNumber: string }
+>({ method: "POST", path: "/presale/auth/login", expose: true }, async (request) => {
+  const payload = z.object({ email: z.string().email().max(254), password: z.string().min(12).max(128) }).parse(request);
+  const user = await identityDb.rawQueryRow<{ id: string; password_hash: string | null; profile_id: string; profile_number: string }>(
+    `SELECT u.id, u.password_hash, p.id AS profile_id, p.unique_profile_number AS profile_number
+     FROM users u JOIN profiles p ON p.user_id = u.id
+     WHERE u.email = $1 AND EXISTS (
+       SELECT 1 FROM user_roles ur JOIN roles r ON r.id = ur.role_id
+       WHERE ur.user_id = u.id AND r.name = 'presale_investor'
+     ) ORDER BY p.created_at DESC LIMIT 1`,
+    normalizeEmail(payload.email),
+  );
+  if (!user?.password_hash || !verifyPassword(payload.password, user.password_hash)) {
+    throw APIError.unauthenticated("Invalid email or password");
+  }
+  const token = crypto.randomUUID();
+  await identityDb.rawExec(
+    `INSERT INTO sessions (user_id, token, session_scope, created_at, expires_at)
+     VALUES ($1,$2,'presale',now(),now() + interval '7 days')`,
+    user.id, hashSessionToken(token),
+  );
+  return { token, profileId: user.profile_id, profileNumber: user.profile_number };
+});
+
+export const logoutPresaleApplicant = api<void, { ok: true }>(
+  { method: "POST", path: "/presale/auth/logout", expose: true },
+  async () => {
+    const session = await requirePresaleSession();
+    await identityDb.rawExec("UPDATE sessions SET revoked_at = now() WHERE token = $1", session.token);
+    return { ok: true };
+  },
+);
+
+export const presaleApplicantPortal = api<void, PresalePortalResponse>(
+  { method: "GET", path: "/presale/applicant/portal", expose: true },
+  async () => {
+    const session = await requirePresaleSession();
+    const profile = await identityDb.rawQueryRow<{
+      first_name: string | null; company_name: string | null; phone: string | null; country: string | null; address_line: string | null;
+    }>(
+      `SELECT p.first_name, p.company_name, u.phone, p.country, p.address_line
+       FROM profiles p JOIN users u ON u.id = p.user_id WHERE p.id = $1`,
+      session.profile.id,
+    );
+    const application = await presaleDb.rawQueryRow<{
+      id: string; application_number: string; campaign_name: string; status: string;
+      applicant_type: "individual" | "company" | "trust";
+      phase_completed: number; completion_percent: number; resume_token_ciphertext: Buffer | null;
+      resume_token_nonce: Buffer | null; resume_token_auth_tag: Buffer | null;
+    }>(
+      `SELECT a.id, a.application_number, c.name AS campaign_name, a.status, a.applicant_type, a.phase_completed, a.completion_percent,
+              a.resume_token_ciphertext, a.resume_token_nonce, a.resume_token_auth_tag
+       FROM presale_applications a JOIN presale_campaigns c ON c.id = a.campaign_id
+       WHERE a.external_profile_id = $1 ORDER BY a.created_at DESC LIMIT 1`,
+      session.profile.id,
+    );
+    const kyc = await kycDb.rawQueryRow<{ status: string }>(
+      `SELECT status FROM kyc_cases WHERE profile_id = $1 AND provider = 'kasihub_international'
+       ORDER BY submitted_at DESC NULLS LAST LIMIT 1`, session.profile.id,
+    );
+    const order = await presaleDb.rawQueryRow<{ order_reference: string; status: string; incorporation_status: string }>(
+      `SELECT order_reference, status, incorporation_status FROM presale_orders
+       WHERE external_profile_id = $1 ORDER BY created_at DESC LIMIT 1`,
+      session.profile.id,
+    );
+    return {
+      applicant: { profileId: session.profile.id, profileNumber: session.profile.unique_profile_number, email: session.user.email,
+        legalName: profile?.first_name ?? profile?.company_name ?? "", phone: profile?.phone ?? "",
+        country: profile?.country ?? "", physicalAddress: profile?.address_line ?? "" },
+      application: application ? {
+        applicationId: application.id, applicationNumber: application.application_number,
+        campaignName: application.campaign_name, status: application.status, applicantType: application.applicant_type,
+        phaseCompleted: application.phase_completed, completionPercent: application.completion_percent,
+        nextStep: Math.min(5, application.phase_completed + 1),
+        resumeUrl: application.resume_token_ciphertext && application.resume_token_nonce && application.resume_token_auth_tag
+          ? `https://shares.kasihub.net/?invite=${encodeURIComponent(decryptPresaleSecret(application.resume_token_ciphertext, application.resume_token_nonce, application.resume_token_auth_tag))}`
+          : null,
+      } : null,
+      kyc: { status: kyc?.status ?? "pending", verified: kyc?.status === "approved" },
+      order: order ? { orderReference: order.order_reference, status: order.status, incorporationStatus: order.incorporation_status } : null,
+    };
+  },
+);
+
+export const updatePresaleApplicantProgress = api<
+  { phaseCompleted: number }, { phaseCompleted: number; completionPercent: number }
+>({ method: "POST", path: "/presale/applicant/progress", expose: true }, async (request) => {
+  const session = await requirePresaleSession();
+  const payload = z.object({ phaseCompleted: z.number().int().min(1).max(4) }).parse(request);
+  const updated = await presaleDb.rawQueryRow<{ phase_completed: number; completion_percent: number }>(
+    `UPDATE presale_applications SET phase_completed = GREATEST(phase_completed, $2),
+       completion_percent = GREATEST(completion_percent, $2 * 20), updated_at = now()
+     WHERE id = (SELECT id FROM presale_applications WHERE external_profile_id = $1
+                 ORDER BY created_at DESC LIMIT 1)
+     RETURNING phase_completed, completion_percent`,
+    session.profile.id, payload.phaseCompleted,
+  );
+  if (!updated) throw APIError.notFound("Investor application not found");
+  return { phaseCompleted: updated.phase_completed, completionPercent: updated.completion_percent };
+});
 
 export const createPresaleApplication = api<CreatePresaleApplicationRequest, { application: ApplicationDraftResponse }>(
   { method: "POST", path: "/presale/applications", expose: true },
   async (request) => {
     const payload = createApplicationInput.parse(request);
-    const session = await requireSession();
+    const session = await requirePresaleSession();
     const invitation = await presaleDb.rawQueryRow<{ id: string; campaign_id: string; email: string | null }>(
       `SELECT i.id, i.campaign_id, i.email
        FROM presale_invitations i JOIN presale_campaigns c ON c.id = i.campaign_id
@@ -718,7 +951,7 @@ export const savePresaleApplicationPhase = api<SavePresaleApplicationPhaseReques
   { method: "PATCH", path: "/presale/applications/:applicationId/phases/:phase", expose: true },
   async (request) => {
     const payload = saveApplicationPhaseInput.parse(request);
-    const session = await requireSession();
+    const session = await requirePresaleSession();
     const encrypted = encryptInvestorApplication(payload.payload);
     const payloadHash = createNodeHash("sha256").update(JSON.stringify(payload.payload)).digest("hex");
     const versionId = crypto.randomUUID();
@@ -820,7 +1053,7 @@ export const createPresaleOrder = api<CreatePresaleOrderRequest, { order: Presal
   { method: "POST", path: "/presale/orders", expose: true },
   async (request) => {
     const payload = orderInput.parse(request);
-    const session = await requireSession();
+    const session = await requirePresaleSession();
     const invitedCampaign = await presaleDb.rawQueryRow<{ is_mock: boolean }>(
       `SELECT c.is_mock FROM presale_invitations i
        JOIN presale_campaigns c ON c.id = i.campaign_id

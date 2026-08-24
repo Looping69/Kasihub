@@ -1,10 +1,10 @@
 // Author: Klaasvaakie ( |╲ )
 import { NextResponse } from "next/server";
-import { EncoreRequestError, encoreRequest, encoreSessionToken } from "@/lib/encore-client";
+import { EncoreRequestError, encoreRequest, presaleSessionToken } from "@/lib/encore-client";
 import type { Member } from "@/lib/types";
 
 export async function POST() {
-  const token = await encoreSessionToken();
+  const token = await presaleSessionToken();
   if (!token) return NextResponse.json({ error: "Sign in to start identity verification" }, { status: 401 });
   try {
     const profile = await encoreRequest<{ member: Member }>("/profiles/me", {}, token);

@@ -1,6 +1,6 @@
 // Author: Klaasvaakie ( |╲ )
 import { NextResponse } from "next/server";
-import { EncoreRequestError, encoreRequest, encoreSessionToken } from "@/lib/encore-client";
+import { EncoreRequestError, encoreRequest, presaleSessionToken } from "@/lib/encore-client";
 import type { Member } from "@/lib/types";
 
 type Verification = {
@@ -11,7 +11,7 @@ type Verification = {
 };
 
 export async function GET() {
-  const token = await encoreSessionToken();
+  const token = await presaleSessionToken();
   if (!token) return NextResponse.json({ error: "Sign in to check identity verification" }, { status: 401 });
 
   try {

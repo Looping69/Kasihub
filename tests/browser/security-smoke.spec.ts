@@ -276,6 +276,27 @@ test("invited buyer can reserve shares without exposing the order access token i
       termsVersion: "presale-reservation-v1",
     } }),
   }));
+  await page.route("**/api/presale/portal", (route) => route.fulfill({
+    status: 401,
+    contentType: "application/json",
+    body: JSON.stringify({ error: "KaSiShares login is required" }),
+  }));
+  await page.route("**/api/presale/members", (route) => route.fulfill({
+    status: 201,
+    contentType: "application/json",
+    body: JSON.stringify({
+      profileId: "profile-1",
+      profileNumber: "KSI-ONE",
+      applicationId: "application-1",
+      created: true,
+      emailStatus: "sent",
+    }),
+  }));
+  await page.route("**/api/presale/progress", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ phaseCompleted: 3, completionPercent: 60 }),
+  }));
   await page.route("**/api/presale/orders", async (route) => {
     if (route.request().method() !== "POST") return route.fallback();
     await route.fulfill({
@@ -353,6 +374,8 @@ test("invited buyer can reserve shares without exposing the order access token i
   await page.getByLabel("Full legal name").fill("Private Buyer");
   await page.getByLabel("Cellphone number *", { exact: true }).fill("+27820000000");
   await page.getByLabel("Confirm cellphone number *", { exact: true }).fill("+27820000000");
+  await page.getByLabel("Account password *", { exact: true }).fill("correct-horse-battery-staple");
+  await page.getByLabel("Confirm account password *", { exact: true }).fill("correct-horse-battery-staple");
   await page.getByLabel("Application type *").selectOption("individual");
   await page.getByLabel("Nationality *").fill("South African");
   await page.getByLabel("Country of residence *").fill("South Africa");
@@ -376,10 +399,11 @@ test("invited buyer can reserve shares without exposing the order access token i
   await page.getByLabel(/I confirm that the investment funds/).check();
   await page.getByLabel(/I understand that the investment is long-term/).check();
   await page.getByLabel(/I confirm that the investor information supplied/).check();
-  await page.getByRole("button", { name: "Start identity verification" }).click();
+  await page.getByRole("button", { name: "Verify ID" }).click();
 
   await page.getByLabel("Investor terms").evaluate((node) => { node.scrollTop = node.scrollHeight; node.dispatchEvent(new Event("scroll", { bubbles: true })); });
   await page.getByLabel(/I accept the presale reservation acknowledgement/).check();
+  expect(await page.locator("form :invalid").evaluateAll((fields) => fields.map((field) => field.getAttribute("name")))).toEqual([]);
   await page.getByRole("button", { name: "Reserve and view payment" }).click();
 
   await expect(page.getByText("50.000000 USDT")).toBeVisible();

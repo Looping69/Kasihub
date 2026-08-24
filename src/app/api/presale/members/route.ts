@@ -1,12 +1,14 @@
 // Author: Klaasvaakie ( |╲ )
 import { NextRequest, NextResponse } from "next/server";
-import { ENCORE_SESSION_COOKIE, EncoreRequestError, encoreRequest } from "@/lib/encore-client";
+import { PRESALE_SESSION_COOKIE, EncoreRequestError, encoreRequest } from "@/lib/encore-client";
 
 type RegistrationResponse = {
   token: string;
   profileId: string;
   profileNumber: string;
+  applicationId: string;
   created: boolean;
+  emailStatus: "sent" | "failed" | "existing";
 };
 
 export async function POST(request: NextRequest) {
@@ -19,9 +21,11 @@ export async function POST(request: NextRequest) {
     const response = NextResponse.json({
       profileId: registration.profileId,
       profileNumber: registration.profileNumber,
+      applicationId: registration.applicationId,
       created: registration.created,
+      emailStatus: registration.emailStatus,
     }, { status: registration.created ? 201 : 200 });
-    response.cookies.set(ENCORE_SESSION_COOKIE, registration.token, {
+    response.cookies.set(PRESALE_SESSION_COOKIE, registration.token, {
       httpOnly: true,
       sameSite: "lax",
       secure: process.env.NODE_ENV === "production",

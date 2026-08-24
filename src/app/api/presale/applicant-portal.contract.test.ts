@@ -1,0 +1,40 @@
+// Author: Klaasvaakie ( |╲ )
+import { readFileSync } from "node:fs";
+import { describe, expect, test } from "vitest";
+
+function source(path: string) {
+  return readFileSync(new URL(`../../../../${path}`, import.meta.url), "utf8");
+}
+
+describe("isolated KaSiShares applicant portal", () => {
+  test("uses a separate browser cookie and scoped backend sessions", () => {
+    const client = source("src/lib/encore-client.ts");
+    const registration = source("src/app/api/presale/members/route.ts");
+    const migration = source("encore/migrations/identity/10_scoped_sessions.up.sql");
+    expect(client).toContain('PRESALE_SESSION_COOKIE = "kasishares_session"');
+    expect(registration).toContain("PRESALE_SESSION_COOKIE");
+    expect(registration).not.toContain("ENCORE_SESSION_COOKIE");
+    expect(migration).toContain("session_scope");
+    expect(migration).toContain("'presale'");
+  });
+
+  test("keeps resume credentials encrypted and out of welcome email links", () => {
+    const api = source("encore/domains/presale/api.ts");
+    const migration = source("encore/migrations/presale/9_applicant_portal_email.up.sql");
+    expect(migration).toContain("resume_token_ciphertext");
+    expect(migration).toContain("presale_email_deliveries");
+    expect(api).toContain('const portalUrl = "https://shares.kasihub.net/shares/account"');
+    expect(api).toContain("decryptPresaleSecret");
+    expect(api).toContain("Idempotency-Key");
+    expect(api).not.toMatch(/portalUrl\s*=.*invite=/);
+  });
+
+  test("requires the presale role and rejects ecosystem-only account reuse", () => {
+    const api = source("encore/domains/presale/api.ts");
+    const access = source("encore/domains/auth/access.ts");
+    expect(api).toContain("Use a different email address for the separate KaSiShares applicant account");
+    expect(api).toContain("requirePresaleSession()");
+    expect(access).toContain("session.scope !== \"presale\"");
+    expect(access).toContain("r.name = 'presale_investor'");
+  });
+});
