@@ -64,6 +64,9 @@ encore.gen.cue
 /.encore
 /encore.gen
 
+# Local testing/report artifact
+/kasihub-usdt-share-sale-progress.pdf
+
 # Encore is the only backend. Local legacy database artifacts are never tracked.
 /db/
 /prisma/
