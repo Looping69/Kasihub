@@ -5,7 +5,7 @@ import { evaluateDiditDecision } from "./didit-decision";
 const approved = [{ status: "Approved" }];
 
 describe("Didit decision evaluation", () => {
-  it("approves only when the overall decision and every required check are approved", () => {
+  it("approves a terminal provider approval", () => {
     expect(evaluateDiditDecision({
       status: "Approved",
       id_verifications: approved,
@@ -14,13 +14,17 @@ describe("Didit decision evaluation", () => {
     })).toMatchObject({ nextStatus: "approved", policySatisfied: true });
   });
 
-  it("does not trust an overall approval that omits required evidence", () => {
+  it("does not re-adjudicate a reviewer-approved resubmission from stale feature nodes", () => {
     expect(evaluateDiditDecision({
       status: "Approved",
       id_verifications: approved,
       liveness_checks: approved,
       face_matches: [],
-    })).toMatchObject({ nextStatus: "pending", policySatisfied: false });
+    })).toMatchObject({
+      nextStatus: "approved",
+      policySatisfied: true,
+      checks: { identity: true, liveness: true, faceMatch: false },
+    });
   });
 
   it("maps provider decline and review states without inventing approval", () => {

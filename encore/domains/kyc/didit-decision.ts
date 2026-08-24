@@ -4,6 +4,7 @@ export type DiditDecisionItem = { status?: unknown };
 
 export type DiditDecisionPayload = {
   session_id?: unknown;
+  session_url?: unknown;
   workflow_id?: unknown;
   vendor_data?: unknown;
   status?: unknown;
@@ -23,10 +24,11 @@ export function evaluateDiditDecision(payload: DiditDecisionPayload) {
     liveness: allDiditChecksApproved(payload.liveness_checks),
     faceMatch: allDiditChecksApproved(payload.face_matches),
   };
-  const policySatisfied = providerStatus === "Approved"
-    && checks.identity
-    && checks.liveness
-    && checks.faceMatch;
+  // Didit's terminal Approved status is the provider's signed workflow
+  // decision. Per-feature arrays are retained as diagnostic evidence, but
+  // must not re-adjudicate a reviewer-approved resubmission using stale or
+  // omitted feature nodes.
+  const policySatisfied = providerStatus === "Approved";
 
   return {
     providerStatus,

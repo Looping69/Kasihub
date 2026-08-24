@@ -72,6 +72,29 @@ export const createDiditVerificationSession = api<
       throw APIError.failedPrecondition("This KYC case cannot start identity verification");
     }
 
+    if (kycCase.didit_session_id) {
+      const decisionResponse = await fetch(
+        `https://verification.didit.me/v3/session/${encodeURIComponent(kycCase.didit_session_id)}/decision/`,
+        { headers: { "x-api-key": DiditApiKey() } },
+      );
+      if (!decisionResponse.ok) {
+        throw APIError.unavailable("Existing identity verification could not be resumed");
+      }
+      const decision = await decisionResponse.json() as DiditDecisionPayload;
+      if (decision.session_id !== kycCase.didit_session_id
+        || decision.workflow_id !== DIDIT_WORKFLOW_ID
+        || decision.vendor_data !== kycCase.id
+        || typeof decision.session_url !== "string"
+        || !decision.session_url.startsWith("https://verify.didit.me/")) {
+        throw APIError.internal("Identity verification provider returned an invalid existing session");
+      }
+      return {
+        sessionId: kycCase.didit_session_id,
+        url: decision.session_url,
+        status: typeof decision.status === "string" ? decision.status : "In Progress",
+      };
+    }
+
     const response = await fetch(DIDIT_SESSION_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-api-key": DiditApiKey() },
