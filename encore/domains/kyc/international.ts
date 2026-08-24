@@ -74,13 +74,10 @@ export const internationalKycStatus = api<
     await requireProfileAccess(req.profileId);
     try {
       await reconcilePendingDiditDecision(req.profileId);
-    } catch (error) {
+    } catch {
       // Provider backfill is recovery, not availability authority. Preserve the
       // stored KYC state when Didit is temporarily unavailable.
-      console.warn("didit_decision_reconciliation_unavailable", {
-        profileId: req.profileId,
-        reason: error instanceof Error ? error.message : "unknown",
-      });
+      console.warn("didit_decision_reconciliation_unavailable");
     }
     return getInternationalKycVerification(req.profileId);
   },

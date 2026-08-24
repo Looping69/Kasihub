@@ -150,15 +150,32 @@ export async function reconcilePendingDiditDecision(profileId: string): Promise<
     checks: evaluation.checks,
     evidenceSource: "provider-decision-backfill",
   };
-  const updated = await kycDb.rawQueryRow<{ id: string }>(
-    `UPDATE kyc_cases
-        SET status = $2,
-            reviewed_at = CASE WHEN $2 IN ('approved','rejected') THEN now() ELSE reviewed_at END,
-            result_payload = $3::jsonb
-      WHERE id = $1 AND status = 'pending' AND didit_session_id = $4
-      RETURNING id`,
-    kycCase.id, evaluation.nextStatus, JSON.stringify(safeResult), kycCase.didit_session_id,
-  );
+  const tx = await kycDb.begin();
+  let updated: { id: string } | null = null;
+  try {
+    updated = await tx.rawQueryRow<{ id: string }>(
+      `UPDATE kyc_cases
+          SET result_payload = $2::jsonb
+        WHERE id = $1 AND status = 'pending' AND didit_session_id = $3
+        RETURNING id`,
+      kycCase.id, JSON.stringify(safeResult), kycCase.didit_session_id,
+    );
+    if (updated) {
+      // The database approval guard intentionally reads already-persisted policy
+      // evidence. Keep evidence and status changes ordered in one transaction.
+      await tx.rawExec(
+        `UPDATE kyc_cases
+            SET status = $2,
+                reviewed_at = CASE WHEN $2 IN ('approved','rejected') THEN now() ELSE reviewed_at END
+          WHERE id = $1 AND status = 'pending'`,
+        kycCase.id, evaluation.nextStatus,
+      );
+    }
+    await tx.commit();
+  } catch (error) {
+    await tx.rollback();
+    throw error;
+  }
   if (!updated) return;
 
   await auditDb.rawExec(
@@ -221,9 +238,17 @@ export const diditWebhook = api.raw(
         );
         if (inserted) {
           await tx.rawExec(
-            `UPDATE kyc_cases SET status = $2, reviewed_at = CASE WHEN $2 IN ('approved','rejected') THEN now() ELSE reviewed_at END,
-               didit_last_synced_at = now(), result_payload = $3::jsonb WHERE id = $1`,
-            kycCase.id, nextStatus, JSON.stringify(safeResult),
+            `UPDATE kyc_cases
+                SET didit_last_synced_at = now(), result_payload = $2::jsonb
+              WHERE id = $1`,
+            kycCase.id, JSON.stringify(safeResult),
+          );
+          await tx.rawExec(
+            `UPDATE kyc_cases
+                SET status = $2,
+                    reviewed_at = CASE WHEN $2 IN ('approved','rejected') THEN now() ELSE reviewed_at END
+              WHERE id = $1`,
+            kycCase.id, nextStatus,
           );
         }
         await tx.commit();
