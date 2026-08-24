@@ -98,6 +98,87 @@ async function sendPresaleAccountCreatedEmail(input: {
   }
 }
 
+async function sendPresaleReservationCreatedEmail(input: {
+  deliveryId: string;
+  orderId: string;
+  recipient: string;
+  buyerName: string;
+  orderReference: string;
+  campaignName: string;
+  quantity: number;
+  totalUsdt: string;
+  network: string;
+  paymentDeadline: string;
+}): Promise<"sent" | "failed"> {
+  const orderUrl = "https://shares.kasihub.net/shares/account";
+  try {
+    const response = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${ResendApiKey()}`,
+        "Content-Type": "application/json",
+        "Idempotency-Key": `presale-reservation-created/${input.orderId}`,
+      },
+      body: JSON.stringify({
+        from: ResendFromEmail(),
+        to: [input.recipient],
+        subject: `KaSiShares reservation ${input.orderReference} created`,
+        html: `<!doctype html><html lang="en"><body style="margin:0;background:#071a2f;font-family:Arial,sans-serif;color:#f8fafc"><div style="display:none;max-height:0;overflow:hidden">Your KaSiShares reservation has been created. Review the payment instructions in your secure account.</div><div style="max-width:600px;margin:0 auto;padding:32px 20px"><div style="border:1px solid #334155;border-radius:18px;background:#0f2744;padding:32px"><h1 style="margin:0 0 18px;color:#fbbf24;font-size:26px">Reservation created</h1><p style="font-size:16px;line-height:1.6">Hello ${escapeHtml(input.buyerName)},</p><p style="font-size:16px;line-height:1.6">Your reservation for ${input.quantity} ${input.quantity === 1 ? "share" : "shares"} in ${escapeHtml(input.campaignName)} has been created.</p><p style="font-size:15px;line-height:1.8"><strong>Reference:</strong> ${escapeHtml(input.orderReference)}<br><strong>Amount:</strong> ${escapeHtml(input.totalUsdt)} USDT<br><strong>Network:</strong> ${escapeHtml(input.network)}<br><strong>Payment deadline:</strong> ${escapeHtml(input.paymentDeadline)}</p><p style="margin:28px 0"><a href="${orderUrl}" style="display:inline-block;box-sizing:border-box;border-radius:10px;background:#fbbf24;color:#071a2f;padding:14px 22px;font-weight:700;text-decoration:none">Open my KaSiShares account</a></p><p style="font-size:13px;line-height:1.6;color:#cbd5e1">This email confirms a reservation, not payment or share ownership. Use only the payment instructions shown inside your secure KaSiShares session. Never send funds based only on an email.</p></div></div></body></html>`,
+        text: `Hello ${input.buyerName},\n\nYour reservation for ${input.quantity} ${input.quantity === 1 ? "share" : "shares"} in ${input.campaignName} has been created.\n\nReference: ${input.orderReference}\nAmount: ${input.totalUsdt} USDT\nNetwork: ${input.network}\nPayment deadline: ${input.paymentDeadline}\n\nOpen your secure KaSiShares account to review payment instructions: ${orderUrl}\n\nThis confirms a reservation, not payment or share ownership. Never send funds based only on an email.`,
+        tags: [{ name: "email_type", value: "presale_reservation_created" }],
+      }),
+    });
+    const result = await response.json().catch(() => null) as { id?: string; name?: string } | null;
+    if (!response.ok || !result?.id) {
+      await presaleDb.rawExec(
+        `UPDATE presale_email_deliveries SET status = 'failed', attempt_count = attempt_count + 1,
+           last_error_code = $2, updated_at = now() WHERE id = $1`,
+        input.deliveryId, result?.name ?? `http_${response.status}`,
+      );
+      return "failed";
+    }
+    await presaleDb.rawExec(
+      `UPDATE presale_email_deliveries SET status = 'sent', provider_message_id = $2,
+         attempt_count = attempt_count + 1, last_error_code = NULL, sent_at = now(), updated_at = now()
+       WHERE id = $1`,
+      input.deliveryId, result.id,
+    );
+    return "sent";
+  } catch {
+    await presaleDb.rawExec(
+      `UPDATE presale_email_deliveries SET status = 'failed', attempt_count = attempt_count + 1,
+         last_error_code = 'provider_unavailable', updated_at = now() WHERE id = $1`,
+      input.deliveryId,
+    );
+    return "failed";
+  }
+}
+
+async function ensurePresaleReservationCreatedEmail(order: OrderRow, campaign: CampaignRow, network: string): Promise<"sent" | "failed" | "existing"> {
+  const delivery = await presaleDb.rawQueryRow<{ id: string; status: string }>(
+    `INSERT INTO presale_email_deliveries
+       (id, external_profile_id, order_id, email_type, recipient_email, status)
+     VALUES ($1,$2,$3,'reservation_created',$4,'pending')
+     ON CONFLICT (order_id, email_type) WHERE order_id IS NOT NULL DO UPDATE
+       SET recipient_email = EXCLUDED.recipient_email
+     RETURNING id, status`,
+    crypto.randomUUID(), order.external_profile_id, order.id, order.buyer_email,
+  );
+  if (!delivery || delivery.status === "sent") return "existing";
+  return sendPresaleReservationCreatedEmail({
+    deliveryId: delivery.id,
+    orderId: order.id,
+    recipient: order.buyer_email,
+    buyerName: order.buyer_name,
+    orderReference: order.order_reference,
+    campaignName: campaign.name,
+    quantity: order.quantity,
+    totalUsdt: order.total_usdt,
+    network,
+    paymentDeadline: order.payment_deadline,
+  });
+}
+
 function encryptInvestorApplication(value: unknown): { ciphertext: Buffer; nonce: Buffer; authTag: Buffer } {
   const key = createNodeHash("sha256").update(InvestorApplicationEncryptionKey()).digest();
   const nonce = randomBytes(12);
@@ -1068,7 +1149,7 @@ function offerResponse(campaign: CampaignRow, invitationSharesRemaining: number,
   };
 }
 
-export const createPresaleOrder = api<CreatePresaleOrderRequest, { order: PresaleOrderResponse; accessToken: string }>(
+export const createPresaleOrder = api<CreatePresaleOrderRequest, { order: PresaleOrderResponse; accessToken: string; emailStatus: "sent" | "failed" | "existing" }>(
   { method: "POST", path: "/presale/orders", expose: true },
   async (request) => {
     const payload = orderInput.parse(request);
@@ -1120,7 +1201,8 @@ export const createPresaleOrder = api<CreatePresaleOrderRequest, { order: Presal
         if (!campaign) throw new Error("presale_campaign_not_found");
         await tx.commit();
         const intent = await ensurePresalePaymentIntent(replay, campaign);
-        return { order: orderResponse(replay, campaign, null, 0, intent), accessToken };
+        const emailStatus = await ensurePresaleReservationCreatedEmail(replay, campaign, intent.network);
+        return { order: orderResponse(replay, campaign, null, 0, intent), accessToken, emailStatus };
       }
       if (invitation.status !== "active" || (invitation.expires_at && new Date(invitation.expires_at) <= new Date())) {
         throw APIError.permissionDenied("This invitation is invalid or expired");
@@ -1170,7 +1252,8 @@ export const createPresaleOrder = api<CreatePresaleOrderRequest, { order: Presal
       if (!order) throw new Error("presale_order_not_created");
       await tx.commit();
       const intent = await ensurePresalePaymentIntent(order, campaign);
-      return { order: orderResponse(order, campaign, null, 0, intent), accessToken };
+      const emailStatus = await ensurePresaleReservationCreatedEmail(order, campaign, intent.network);
+      return { order: orderResponse(order, campaign, null, 0, intent), accessToken, emailStatus };
     } catch (error) {
       try { await tx.rollback(); } catch { /* transaction may already be closed */ }
       throw error;

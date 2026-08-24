@@ -227,6 +227,9 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
       if (!response.ok) throw new Error(payload.error ?? "Order could not be created");
       setOrder(payload.order);
       setAccessToken(payload.accessToken);
+      if (payload.emailStatus === "failed") {
+        setError("Your reservation was created, but the confirmation email could not be sent. Use the payment instructions shown here and keep your order reference.");
+      }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Order could not be created");
     } finally {

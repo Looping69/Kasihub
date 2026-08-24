@@ -29,6 +29,17 @@ describe("isolated KaSiShares applicant portal", () => {
     expect(api).not.toMatch(/portalUrl\s*=.*invite=/);
   });
 
+  test("sends one durable confirmation for each committed reservation", () => {
+    const api = source("encore/domains/presale/api.ts");
+    const migration = source("encore/migrations/presale/10_reservation_email.up.sql");
+    expect(migration).toContain("order_id UUID REFERENCES presale_orders(id)");
+    expect(migration).toContain("uq_presale_reservation_email_delivery");
+    expect(api).toContain("presale-reservation-created/${input.orderId}");
+    expect(api).toContain("await tx.commit();\n      const intent = await ensurePresalePaymentIntent(order, campaign);");
+    expect(api).toContain("const emailStatus = await ensurePresaleReservationCreatedEmail(order, campaign, intent.network);");
+    expect(api).toContain('return { order: orderResponse(order, campaign, null, 0, intent), accessToken, emailStatus };');
+  });
+
   test("requires the presale role and rejects ecosystem-only account reuse", () => {
     const api = source("encore/domains/presale/api.ts");
     const access = source("encore/domains/auth/access.ts");
