@@ -37,4 +37,19 @@ describe("isolated KaSiShares applicant portal", () => {
     expect(access).toContain("session.scope !== \"presale\"");
     expect(access).toContain("r.name = 'presale_investor'");
   });
+
+  test("derives continuation from backend state without accepting a browser-selected step", () => {
+    const api = source("encore/domains/presale/api.ts");
+    const continuation = source("encore/domains/presale/applicant-continuation.ts");
+    const account = source("src/app/shares/account/shares-account-client.tsx");
+    const presale = source("src/app/presale/presale-client.tsx");
+    expect(api).toContain("deriveApplicantContinuation");
+    expect(api).toContain("`/presale?invite=${encodeURIComponent(");
+    expect(continuation).toContain("Browser query parameters never participate in this decision");
+    expect(continuation).toContain('kycStatus?.toLowerCase() !== "approved"');
+    expect(account).toContain("Continue signup");
+    expect(account).toContain("continuation.resumeUrl");
+    expect(presale).toContain("portal.continuation?.nextStep ?? portal.application.nextStep");
+    expect(api).not.toMatch(/resumeUrl[^\n]+[?&]step=/);
+  });
 });

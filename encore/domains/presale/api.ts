@@ -31,6 +31,7 @@ import {
 import { exceedsInvitationShareLimit } from "./invitation-policy";
 import { issuedSharesForPresale, quotedUsdtAmount } from "./settlement";
 import { INVESTOR_APPLICATION_SCHEMA_VERSION, phaseOneApplicantSchema, type PhaseOneApplicant } from "./application";
+import { deriveApplicantContinuation, type ApplicantContinuationReason } from "./applicant-continuation";
 
 const PresaleWebhookSecret = secret("PresaleWebhookSecret");
 const InvestorApplicationEncryptionKey = secret("InvestorApplicationEncryptionKey");
@@ -656,6 +657,7 @@ interface PresalePortalResponse {
   };
   kyc: { status: string; verified: boolean };
   order: null | { orderReference: string; status: string; incorporationStatus: string };
+  continuation: { nextStep: number | null; reason: ApplicantContinuationReason; resumeUrl: string | null };
 }
 
 export const registerPresaleMember = api<
@@ -847,11 +849,15 @@ export const presaleApplicantPortal = api<void, PresalePortalResponse>(
       id: string; application_number: string; campaign_name: string; status: string;
       applicant_type: "individual" | "company" | "trust";
       phase_completed: number; completion_percent: number; resume_token_ciphertext: Buffer | null;
-      resume_token_nonce: Buffer | null; resume_token_auth_tag: Buffer | null;
+      resume_token_nonce: Buffer | null; resume_token_auth_tag: Buffer | null; resume_access_available: boolean;
     }>(
       `SELECT a.id, a.application_number, c.name AS campaign_name, a.status, a.applicant_type, a.phase_completed, a.completion_percent,
-              a.resume_token_ciphertext, a.resume_token_nonce, a.resume_token_auth_tag
+              a.resume_token_ciphertext, a.resume_token_nonce, a.resume_token_auth_tag,
+              COALESCE((i.status = 'active' AND (i.expires_at IS NULL OR i.expires_at > now())
+               AND c.status = 'active' AND (c.starts_at IS NULL OR c.starts_at <= now())
+               AND (c.ends_at IS NULL OR c.ends_at > now())), false) AS resume_access_available
        FROM presale_applications a JOIN presale_campaigns c ON c.id = a.campaign_id
+       LEFT JOIN presale_invitations i ON i.id = a.invitation_id
        WHERE a.external_profile_id = $1 ORDER BY a.created_at DESC LIMIT 1`,
       session.profile.id,
     );
@@ -864,6 +870,20 @@ export const presaleApplicantPortal = api<void, PresalePortalResponse>(
        WHERE external_profile_id = $1 ORDER BY created_at DESC LIMIT 1`,
       session.profile.id,
     );
+    const continuation = deriveApplicantContinuation({
+      application: application ? {
+        status: application.status,
+        phaseCompleted: application.phase_completed,
+        hasResumeCredential: Boolean(application.resume_token_ciphertext && application.resume_token_nonce && application.resume_token_auth_tag),
+        resumeAccessAvailable: application.resume_access_available,
+      } : null,
+      kycStatus: kyc?.status ?? null,
+      orderStatus: order?.status ?? null,
+    });
+    const resumeUrl = continuation.reason === "resume" && application?.resume_token_ciphertext
+      && application.resume_token_nonce && application.resume_token_auth_tag
+      ? `/presale?invite=${encodeURIComponent(decryptPresaleSecret(application.resume_token_ciphertext, application.resume_token_nonce, application.resume_token_auth_tag))}`
+      : null;
     return {
       applicant: { profileId: session.profile.id, profileNumber: session.profile.unique_profile_number, email: session.user.email,
         legalName: profile?.first_name ?? profile?.company_name ?? "", phone: profile?.phone ?? "",
@@ -872,13 +892,12 @@ export const presaleApplicantPortal = api<void, PresalePortalResponse>(
         applicationId: application.id, applicationNumber: application.application_number,
         campaignName: application.campaign_name, status: application.status, applicantType: application.applicant_type,
         phaseCompleted: application.phase_completed, completionPercent: application.completion_percent,
-        nextStep: Math.min(5, application.phase_completed + 1),
-        resumeUrl: application.resume_token_ciphertext && application.resume_token_nonce && application.resume_token_auth_tag
-          ? `https://shares.kasihub.net/?invite=${encodeURIComponent(decryptPresaleSecret(application.resume_token_ciphertext, application.resume_token_nonce, application.resume_token_auth_tag))}`
-          : null,
+        nextStep: continuation.nextStep ?? Math.min(5, application.phase_completed + 1),
+        resumeUrl,
       } : null,
       kyc: { status: kyc?.status ?? "pending", verified: kyc?.status === "approved" },
       order: order ? { orderReference: order.order_reference, status: order.status, incorporationStatus: order.incorporation_status } : null,
+      continuation: { ...continuation, resumeUrl },
     };
   },
 );

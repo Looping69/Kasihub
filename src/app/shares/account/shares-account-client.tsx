@@ -13,7 +13,20 @@ type Portal = {
   application: null | { applicationNumber: string; campaignName: string; status: string; phaseCompleted: number; completionPercent: number; nextStep: number; resumeUrl: string | null };
   kyc: { status: string; verified: boolean };
   order: null | { orderReference: string; status: string; incorporationStatus: string };
+  continuation?: {
+    nextStep: number | null;
+    reason: "resume" | "resume_credential_unavailable" | "no_application" | "invitation_unavailable" | "application_not_editable" | "reservation_in_progress" | "signup_complete";
+    resumeUrl: string | null;
+  };
 };
+
+const SIGNUP_STEPS = [
+  "Applicant profile",
+  "Investment selection",
+  "Funding details",
+  "Identity verification",
+  "Terms and reservation",
+] as const;
 
 export function SharesAccountClient() {
   const [portal, setPortal] = useState<Portal | null>(null);
@@ -86,12 +99,64 @@ function PortalView({ portal }: { portal: Portal }) {
       <StatusCard title="Identity verification" value={portal.kyc.verified ? "Verified" : portal.kyc.status} detail="ID, liveness and face match" complete={portal.kyc.verified} />
       <StatusCard title="Reservation" value={portal.order?.status ?? "Not created"} detail={portal.order?.orderReference ?? "Payment remains locked until eligible"} complete={portal.order?.status === "confirmed"} />
     </div>
-    {portal.application ? <section className="rounded-2xl border border-white/10 bg-[#0f2744] p-7">
-      <div className="flex flex-wrap items-start justify-between gap-5"><div><p className="text-sm text-slate-400">{portal.application.campaignName}</p><h2 className="mt-1 text-2xl font-bold">Continue your application</h2><p className="mt-2 text-sm text-slate-300">Your next incomplete step is Step {portal.application.nextStep}. Progress is retained against your isolated applicant profile.</p></div>{portal.application.resumeUrl ? <Button asChild className="bg-amber-400 font-bold text-slate-950 hover:bg-amber-300"><a href={portal.application.resumeUrl}>Continue application</a></Button> : null}</div>
-      <div className="mt-6 h-2 overflow-hidden rounded-full bg-slate-800"><div className="h-full bg-amber-400" style={{ width: `${portal.application.completionPercent}%` }} /></div>
-    </section> : null}
+    <ContinuationPanel portal={portal} />
     <p className="flex items-center gap-2 text-xs text-slate-400"><ShieldCheck className="h-4 w-4" />This account cannot enter the normal KaSiHub member dashboard.</p>
   </div>;
+}
+
+function ContinuationPanel({ portal }: { portal: Portal }) {
+  const continuation = portal.continuation ?? {
+    nextStep: null,
+    reason: "resume_credential_unavailable" as const,
+    resumeUrl: null,
+  };
+  const stepName = continuation.nextStep ? SIGNUP_STEPS[continuation.nextStep - 1] : null;
+  const content = ({
+    resume: {
+      title: "Continue signup",
+      detail: `Your first unfinished step is Step ${continuation.nextStep}: ${stepName}. Saved applicant-profile details will be restored.`,
+    },
+    resume_credential_unavailable: {
+      title: "Signup continuation unavailable",
+      detail: `Your next step is ${stepName ?? "not available"}, but the secure continuation credential is missing. Contact KaSiHub support; do not create another applicant account.`,
+    },
+    no_application: {
+      title: "No application to continue",
+      detail: "This applicant account has no active KaSiShares application. A private invitation is still required to begin.",
+    },
+    invitation_unavailable: {
+      title: "Private access is no longer available",
+      detail: "The invitation or campaign is no longer active, so signup cannot continue. Contact KaSiHub support if you believe access should still be open.",
+    },
+    application_not_editable: {
+      title: "Application cannot be resumed online",
+      detail: "This application has left the editable signup stage. Its current status is shown above; contact KaSiHub support if more information was requested.",
+    },
+    reservation_in_progress: {
+      title: "Signup steps complete",
+      detail: "A reservation already exists, so another signup path is not opened. Its current status is shown in the Reservation card above.",
+    },
+    signup_complete: {
+      title: "Signup complete",
+      detail: "There is no unfinished signup step. Your confirmed reservation status is shown above.",
+    },
+  } as const)[continuation.reason];
+
+  return <section className="rounded-2xl border border-white/10 bg-[#0f2744] p-7">
+    <div className="flex flex-wrap items-start justify-between gap-5">
+      <div className="max-w-2xl">
+        <p className="text-sm text-slate-400">{portal.application?.campaignName ?? "Private KaSiShares application"}</p>
+        <h2 className="mt-1 text-2xl font-bold">{content.title}</h2>
+        <p className="mt-2 text-sm leading-6 text-slate-300">{content.detail}</p>
+      </div>
+      {continuation.reason === "resume" && continuation.resumeUrl ? <Button asChild className="bg-amber-400 font-bold text-slate-950 hover:bg-amber-300">
+        <Link href={continuation.resumeUrl}>Continue signup</Link>
+      </Button> : null}
+    </div>
+    {portal.application ? <div className="mt-6 h-2 overflow-hidden rounded-full bg-slate-800" aria-label={`${portal.application.completionPercent}% of signup milestones saved`}>
+      <div className="h-full bg-amber-400" style={{ width: `${portal.application.completionPercent}%` }} />
+    </div> : null}
+  </section>;
 }
 
 function StatusCard({ title, value, detail, complete }: { title: string; value: string; detail: string; complete: boolean }) {

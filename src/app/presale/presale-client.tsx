@@ -47,6 +47,7 @@ type KycVerification = {
 type ResumePortal = {
   applicant: { profileNumber: string; email: string; legalName: string; phone: string; country: string; physicalAddress: string };
   application: null | { applicantType: "individual" | "company" | "trust"; nextStep: number };
+  continuation?: { nextStep: number | null; reason: string; resumeUrl: string | null };
 };
 
 const APPLICATION_PHASES = [
@@ -94,6 +95,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
   const [memberProfileNumber, setMemberProfileNumber] = useState("");
   const [accountEmailStatus, setAccountEmailStatus] = useState<"sent" | "failed" | "existing" | "">("");
   const [resumeApplicant, setResumeApplicant] = useState<ResumePortal["applicant"] | null>(null);
+  const [resumeLoading, setResumeLoading] = useState(!devPreview);
 
   useEffect(() => {
     // Development preview has static display data and cannot contact the BFF.
@@ -120,8 +122,9 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
         setResumeApplicant(portal.applicant);
         setMemberProfileNumber(portal.applicant.profileNumber);
         setApplicantType(portal.application.applicantType);
-        setApplicationPhase(Math.max(1, Math.min(5, portal.application.nextStep)));
-      }).catch(() => undefined);
+        const authoritativeNextStep = portal.continuation?.nextStep ?? portal.application.nextStep;
+        setApplicationPhase(Math.max(1, Math.min(5, authoritativeNextStep)));
+      }).catch(() => undefined).finally(() => setResumeLoading(false));
     }, 0);
     return () => window.clearTimeout(timer);
   }, [devPreview]);
@@ -383,7 +386,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
     setApplicationPhase((phase) => Math.min(5, phase + 1));
   }
 
-  if (loading) return <Shell><p className="text-sm text-slate-400">Validating private invitation…</p></Shell>;
+  if (loading || resumeLoading) return <Shell><p className="text-sm text-slate-400">Opening private application…</p></Shell>;
   if (!devPreview && (!inviteToken || (!offer && error))) return (
     <Shell>
       <Card className="w-full max-w-xl border-white/10 bg-white/5 text-white">

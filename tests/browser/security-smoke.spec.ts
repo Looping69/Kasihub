@@ -249,6 +249,93 @@ test("private USDT shares page fails closed without an invitation", async ({ pag
   await expect(page.locator('meta[name="referrer"]')).toHaveAttribute("content", "no-referrer");
 });
 
+test("applicant portal continues signup at the first server-authoritative unfinished step", async ({ page }) => {
+  const invite = "private-resume-token-000000000000000001";
+  const writes: string[] = [];
+  page.on("request", (request) => {
+    if (request.url().includes("/api/presale/") && request.method() !== "GET") writes.push(`${request.method()} ${request.url()}`);
+  });
+  await page.route("**/api/presale/portal", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({
+      applicant: {
+        profileNumber: "KSI-RESUME",
+        email: "resume@example.test",
+        legalName: "Resume Applicant",
+        phone: "+27820000000",
+        country: "South Africa",
+        physicalAddress: "1 Test Street",
+      },
+      application: {
+        applicationNumber: "KSA-RESUME",
+        campaignName: "KaSiShares Private Allocation",
+        status: "draft",
+        applicantType: "individual",
+        phaseCompleted: 4,
+        completionPercent: 80,
+        nextStep: 4,
+        resumeUrl: `/presale?invite=${encodeURIComponent(invite)}`,
+      },
+      kyc: { status: "pending", verified: false },
+      order: null,
+      continuation: { nextStep: 4, reason: "resume", resumeUrl: `/presale?invite=${encodeURIComponent(invite)}` },
+    }),
+  }));
+  await page.route("**/api/presale/offer?invite=*", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ offer: {
+      name: "KaSiShares Private Allocation",
+      issuerName: "Solidus Holdings (Pty) Ltd",
+      shareClass: "Class B",
+      priceUsdt: "25.000000",
+      network: "BSC",
+      sharesRemaining: 100,
+      invitationSharesRemaining: 5,
+      invitationEmail: "resume@example.test",
+      minConfirmations: 20,
+      paymentWindowMinutes: 30,
+      termsVersion: "presale-reservation-v1",
+    } }),
+  }));
+
+  await page.goto("/shares/account");
+  const continueSignup = page.getByRole("link", { name: "Continue signup" });
+  await expect(continueSignup).toBeVisible();
+  await expect(continueSignup).toHaveAttribute("href", `/presale?invite=${encodeURIComponent(invite)}`);
+  await continueSignup.click();
+
+  await expect(page).toHaveURL(new RegExp(`/presale\\?invite=${encodeURIComponent(invite)}$`));
+  await expect(page.getByText("Identity evidence, current step")).toBeAttached();
+  await expect(page.getByRole("heading", { name: "Identity verification" })).toBeVisible();
+  await expect(page.getByLabel("Full legal name")).toHaveValue("Resume Applicant");
+  expect(page.url()).not.toContain("step=");
+  expect(writes).toEqual([]);
+});
+
+test("applicant portal does not open a second signup path for an active reservation", async ({ page }) => {
+  await page.route("**/api/presale/portal", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({
+      applicant: { profileNumber: "KSI-RESERVED", email: "reserved@example.test" },
+      application: {
+        applicationNumber: "KSA-RESERVED", campaignName: "KaSiShares Private Allocation", status: "draft",
+        phaseCompleted: 5, completionPercent: 100, nextStep: 5, resumeUrl: null,
+      },
+      kyc: { status: "approved", verified: true },
+      order: { orderReference: "KSP-RESERVED", status: "awaiting_payment", incorporationStatus: "pending" },
+      continuation: { nextStep: null, reason: "reservation_in_progress", resumeUrl: null },
+    }),
+  }));
+
+  await page.goto("/shares/account");
+  await expect(page.getByRole("heading", { name: "Signup steps complete" })).toBeVisible();
+  await expect(page.getByText(/A reservation already exists/)).toBeVisible();
+  await expect(page.getByRole("link", { name: "Continue signup" })).toHaveCount(0);
+});
+
 test("invited buyer can reserve shares without exposing the order access token in URLs", async ({ page }) => {
   // Author: Klaasvaakie ( |╲ )
   const invite = "private-invitation-token-000000000001";
