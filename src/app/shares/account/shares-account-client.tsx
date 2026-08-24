@@ -106,9 +106,11 @@ function PortalView({ portal }: { portal: Portal }) {
 
 function ContinuationPanel({ portal }: { portal: Portal }) {
   const continuation = portal.continuation ?? {
-    nextStep: null,
-    reason: "resume_credential_unavailable" as const,
-    resumeUrl: null,
+    nextStep: portal.application?.nextStep ?? null,
+    reason: portal.application
+      ? portal.application.resumeUrl ? "resume" as const : "resume_credential_unavailable" as const
+      : "no_application" as const,
+    resumeUrl: portal.application?.resumeUrl ?? null,
   };
   const stepName = continuation.nextStep ? SIGNUP_STEPS[continuation.nextStep - 1] : null;
   const content = ({

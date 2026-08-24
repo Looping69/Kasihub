@@ -336,6 +336,24 @@ test("applicant portal does not open a second signup path for an active reservat
   await expect(page.getByRole("link", { name: "Continue signup" })).toHaveCount(0);
 });
 
+test("applicant portal reports no application against the legacy portal contract", async ({ page }) => {
+  await page.route("**/api/presale/portal", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({
+      applicant: { profileNumber: "KSI-NONE", email: "none@example.test" },
+      application: null,
+      kyc: { status: "pending", verified: false },
+      order: null,
+    }),
+  }));
+
+  await page.goto("/shares/account");
+  await expect(page.getByRole("heading", { name: "No application to continue" })).toBeVisible();
+  await expect(page.getByText(/private invitation is still required/)).toBeVisible();
+  await expect(page.getByRole("link", { name: "Continue signup" })).toHaveCount(0);
+});
+
 test("invited buyer can reserve shares without exposing the order access token in URLs", async ({ page }) => {
   // Author: Klaasvaakie ( |╲ )
   const invite = "private-invitation-token-000000000001";
