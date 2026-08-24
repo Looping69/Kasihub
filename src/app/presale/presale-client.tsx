@@ -525,6 +525,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
               <div className="rounded-xl border border-amber-400/20 bg-amber-400/10 p-4">
                 <p className="text-xs uppercase tracking-wider text-amber-200">{offer.isMock ? "Simulated amount — do not send funds" : "Send exactly"}</p><p className="mt-1 text-3xl font-black text-white">{order.totalUsdt} USDT</p>
                 <p className="mt-1 text-sm text-amber-100/80">using {order.network} only</p>
+                {!offer.isMock && <p className="mt-3 border-t border-amber-200/20 pt-3 text-sm text-amber-50">Pay before <time dateTime={order.paymentDeadline} className="font-semibold">{new Date(order.paymentDeadline).toLocaleString()}</time>. Do not send funds after this deadline.</p>}
               </div>
               {!offer.isMock && <>
                 <div className="rounded-xl border border-rose-400/30 bg-rose-400/10 p-4 text-sm leading-6 text-rose-50">

@@ -45,6 +45,8 @@ describe("isolated KaSiShares applicant portal", () => {
     const verifier = source("encore/domains/payments/chains/evaluate.ts");
     expect(presale).toContain("Exchange withdrawal fees and network fees are additional");
     expect(presale).toContain("Do not send BNB or another token");
+    expect(presale).toContain("Do not send funds after this deadline");
+    expect(presale).toContain("dateTime={order.paymentDeadline}");
     expect(verifier).toContain('decision: "underpaid"');
     expect(verifier).toContain('decision: "manual_review"');
     expect(verifier).toContain('decision: "confirmed"');
