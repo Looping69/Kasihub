@@ -31,6 +31,7 @@ function request(path: string, body: unknown) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  delete process.env.KASISHARES_TEST_INVITE_URL;
   mocks.presaleSessionToken.mockResolvedValue("presale-token");
 });
 
@@ -76,6 +77,18 @@ describe("KaSiShares applicant BFF routes", () => {
     const response = await portal();
     expect(response.status).toBe(403);
     expect(await response.json()).toEqual({ error: "KaSiShares login is required" });
+  });
+
+  test("portal adds the temporary test invitation only after session authorization", async () => {
+    process.env.KASISHARES_TEST_INVITE_URL = "https://shares.kasihub.net/?invite=" + "a".repeat(72);
+    mocks.encoreRequest.mockResolvedValue({ applicant: { profileNumber: "KSI-ONE" }, application: null });
+
+    const response = await portal();
+    expect(await response.json()).toEqual({
+      applicant: { profileNumber: "KSI-ONE" },
+      application: null,
+      testInviteUrl: "https://shares.kasihub.net/?invite=" + "a".repeat(72),
+    });
   });
 
   test("progress requires the isolated session and forwards the validated body", async () => {

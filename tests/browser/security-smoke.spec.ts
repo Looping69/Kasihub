@@ -345,12 +345,14 @@ test("applicant portal reports no application against the legacy portal contract
       application: null,
       kyc: { status: "pending", verified: false },
       order: null,
+      testInviteUrl: "/presale?invite=" + "a".repeat(72),
     }),
   }));
 
   await page.goto("/shares/account");
   await expect(page.getByRole("heading", { name: "No application to continue" })).toBeVisible();
   await expect(page.getByText(/private invitation is still required/)).toBeVisible();
+  await expect(page.getByRole("link", { name: "Open test invitation" })).toHaveAttribute("href", "/presale?invite=" + "a".repeat(72));
   await expect(page.getByRole("link", { name: "Continue signup" })).toHaveCount(0);
 });
 

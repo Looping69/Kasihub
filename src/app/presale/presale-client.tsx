@@ -118,9 +118,9 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
       void fetch("/api/presale/portal", { cache: "no-store" }).then(async (response) => {
         if (!response.ok) return;
         const portal = await response.json() as ResumePortal;
-        if (!portal.application) return;
         setResumeApplicant(portal.applicant);
         setMemberProfileNumber(portal.applicant.profileNumber);
+        if (!portal.application) return;
         setApplicantType(portal.application.applicantType);
         const authoritativeNextStep = portal.continuation?.nextStep ?? portal.application.nextStep;
         setApplicationPhase(Math.max(1, Math.min(5, authoritativeNextStep)));

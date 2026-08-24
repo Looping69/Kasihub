@@ -13,6 +13,7 @@ type Portal = {
   application: null | { applicationNumber: string; campaignName: string; status: string; phaseCompleted: number; completionPercent: number; nextStep: number; resumeUrl: string | null };
   kyc: { status: string; verified: boolean };
   order: null | { orderReference: string; status: string; incorporationStatus: string };
+  testInviteUrl?: string;
   continuation?: {
     nextStep: number | null;
     reason: "resume" | "resume_credential_unavailable" | "no_application" | "invitation_unavailable" | "application_not_editable" | "reservation_in_progress" | "signup_complete";
@@ -113,6 +114,9 @@ function ContinuationPanel({ portal }: { portal: Portal }) {
     resumeUrl: portal.application?.resumeUrl ?? null,
   };
   const stepName = continuation.nextStep ? SIGNUP_STEPS[continuation.nextStep - 1] : null;
+  const canUseTestInvitation = Boolean(portal.testInviteUrl && (
+    continuation.reason === "no_application" || continuation.reason === "resume_credential_unavailable"
+  ));
   const content = ({
     resume: {
       title: "Continue signup",
@@ -153,6 +157,8 @@ function ContinuationPanel({ portal }: { portal: Portal }) {
       </div>
       {continuation.reason === "resume" && continuation.resumeUrl ? <Button asChild className="bg-amber-400 font-bold text-slate-950 hover:bg-amber-300">
         <Link href={continuation.resumeUrl}>Continue signup</Link>
+      </Button> : canUseTestInvitation ? <Button asChild className="bg-amber-400 font-bold text-slate-950 hover:bg-amber-300">
+        <Link href={portal.testInviteUrl!}>Open test invitation</Link>
       </Button> : null}
     </div>
     {portal.application ? <div className="mt-6 h-2 overflow-hidden rounded-full bg-slate-800" aria-label={`${portal.application.completionPercent}% of signup milestones saved`}>
