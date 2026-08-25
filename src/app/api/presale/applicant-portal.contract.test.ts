@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 
 function source(path: string) {
-  return readFileSync(new URL(`../../../../${path}`, import.meta.url), "utf8");
+  return readFileSync(new URL(`../../../../${path}`, import.meta.url), "utf8").replace(/\r\n/g, "\n");
 }
 
 describe("isolated KaSiShares applicant portal", () => {
@@ -35,8 +35,8 @@ describe("isolated KaSiShares applicant portal", () => {
     expect(migration).toContain("order_id UUID REFERENCES presale_orders(id)");
     expect(migration).toContain("uq_presale_reservation_email_delivery");
     expect(api).toContain("presale-reservation-created/${input.orderId}");
-    expect(api).toContain("await tx.commit();\n      const intent = await ensurePresalePaymentIntent(order, campaign);");
-    expect(api).toContain("const emailStatus = await ensurePresaleReservationCreatedEmail(order, campaign, intent.network);");
+    expect(api).toContain('await tx.commit();\n      const intent = order.payment_rail === "remitano_usdt" ? await ensurePresalePaymentIntent(order, campaign) : undefined;');
+    expect(api).toContain('const emailStatus = await ensurePresaleReservationCreatedEmail(order, campaign, intent?.network ?? "webpay");');
     expect(api).toContain('return { order: orderResponse(order, campaign, null, 0, intent), accessToken, emailStatus };');
   });
 
@@ -74,5 +74,11 @@ describe("isolated KaSiShares applicant portal", () => {
     expect(account).toContain("continuation.resumeUrl");
     expect(presale).toContain("portal.continuation?.nextStep ?? portal.application.nextStep");
     expect(api).not.toMatch(/resumeUrl[^\n]+[?&]step=/);
+  });
+
+  test("does not let hidden completed phases block the final reservation submit", () => {
+    const presale = source("src/app/presale/presale-client.tsx");
+    expect(presale).toContain("<form key={resumeApplicant?.profileNumber ?? \"new-applicant\"} className=\"space-y-5\" noValidate");
+    expect(presale).toContain('<Button formNoValidate className="flex-1 bg-amber-400');
   });
 });
