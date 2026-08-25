@@ -12,7 +12,7 @@ type Portal = {
   applicant: { profileNumber: string; email: string };
   application: null | { applicationNumber: string; campaignName: string; status: string; phaseCompleted: number; completionPercent: number; nextStep: number; resumeUrl: string | null };
   kyc: { status: string; verified: boolean };
-  order: null | { orderReference: string; status: string; incorporationStatus: string };
+  order: null | { orderReference: string; status: string; incorporationStatus: string; paymentRail: "remitano_usdt" | "webpay_card"; webPayProcessStatus?: string; webPayProcessStage?: string };
   testInviteUrl?: string;
   continuation?: {
     nextStep: number | null;
@@ -33,6 +33,7 @@ export function SharesAccountClient() {
   const [portal, setPortal] = useState<Portal | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [confirmingPayment, setConfirmingPayment] = useState(false);
 
   const loadPortal = useCallback(async () => {
     const response = await fetch("/api/presale/portal", { cache: "no-store" });
@@ -40,6 +41,7 @@ export function SharesAccountClient() {
     const body = await response.json();
     if (!response.ok) throw new Error(body.error ?? "Applicant status is unavailable");
     setPortal(body);
+    if (body.order?.status !== "awaiting_payment") setConfirmingPayment(false);
   }, []);
 
   useEffect(() => {
@@ -48,6 +50,26 @@ export function SharesAccountClient() {
     }, 0);
     return () => window.clearTimeout(timer);
   }, [loadPortal]);
+
+  useEffect(() => {
+    if (portal?.order?.paymentRail !== "webpay_card" || portal.order.status !== "awaiting_payment") return;
+    const returnState = new URLSearchParams(window.location.search).get("payment");
+    if (returnState !== "webpay" && returnState !== "cancelled") return;
+    const startTimer = returnState === "webpay" ? window.setTimeout(() => setConfirmingPayment(true), 0) : undefined;
+    let attempts = 0;
+    const interval = window.setInterval(() => {
+      attempts += 1;
+      void loadPortal().catch((reason) => setError(reason.message));
+      if (attempts >= 15) {
+        window.clearInterval(interval);
+        setConfirmingPayment(false);
+      }
+    }, 2_000);
+    return () => {
+      if (startTimer !== undefined) window.clearTimeout(startTimer);
+      window.clearInterval(interval);
+    };
+  }, [loadPortal, portal?.order?.paymentRail, portal?.order?.status]);
 
   async function login(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -86,7 +108,7 @@ export function SharesAccountClient() {
         <Link href="/" className="relative h-[76px] w-[134px]"><Image src="/kasishares-logo.png" alt="KaSiShares home" fill sizes="134px" className="object-contain object-left" priority /></Link>
         {portal ? <Button variant="outline" onClick={() => void logout()} className="border-white/20 bg-transparent text-white"><LogOut className="mr-2 h-4 w-4" />Sign out</Button> : null}
       </header>
-      {loading ? <p className="text-slate-300">Loading applicant account…</p> : portal ? <PortalView portal={portal} error={error} onCancel={cancelReservation} /> : <LoginForm error={error} onSubmit={login} />}
+      {loading ? <p className="text-slate-300">Loading applicant account…</p> : portal ? <PortalView portal={portal} error={error} confirmingPayment={confirmingPayment} onCancel={cancelReservation} /> : <LoginForm error={error} onSubmit={login} />}
     </div>
   </main>;
 }
@@ -105,14 +127,16 @@ function LoginForm({ error, onSubmit }: { error: string; onSubmit: (event: FormE
   </section>;
 }
 
-function PortalView({ portal, error, onCancel }: { portal: Portal; error: string; onCancel: (orderReference: string) => Promise<void> }) {
+function PortalView({ portal, error, confirmingPayment, onCancel }: { portal: Portal; error: string; confirmingPayment: boolean; onCancel: (orderReference: string) => Promise<void> }) {
   return <div className="space-y-6">
     <div><p className="text-xs font-bold uppercase tracking-[.18em] text-amber-300">Applicant account</p><h1 className="mt-2 text-3xl font-black">Welcome back</h1><p className="mt-2 text-slate-300">{portal.applicant.email} · {portal.applicant.profileNumber}</p></div>
     <div className="grid gap-5 md:grid-cols-3">
       <StatusCard title="Application" value={portal.application ? `Step ${portal.application.nextStep} of 5` : "Not started"} detail={portal.application?.applicationNumber ?? "No application record"} complete={Boolean(portal.application && portal.application.phaseCompleted >= 4 && portal.kyc.verified)} />
       <StatusCard title="Identity verification" value={portal.kyc.verified ? "Verified" : portal.kyc.status} detail="ID, liveness and face match" complete={portal.kyc.verified} />
-      <StatusCard title="Reservation" value={portal.order?.status ?? "Not created"} detail={portal.order?.orderReference ?? "Payment remains locked until eligible"} complete={portal.order?.status === "confirmed"} />
+      <StatusCard title="Reservation" value={confirmingPayment ? "confirming_payment" : portal.order?.status ?? "Not created"} detail={portal.order?.orderReference ?? "Payment remains locked until eligible"} complete={portal.order?.status === "confirmed"} />
     </div>
+    {portal.order?.webPayProcessStatus && ["FAILED", "REJECTED", "EXPIRED", "REVERSED"].includes(portal.order.webPayProcessStatus) ? <p role="status" className="rounded-xl border border-rose-300/30 bg-rose-400/10 p-4 text-sm text-rose-100">The last WebPay attempt was {portal.order.webPayProcessStatus.toLowerCase()}. No successful card payment was recorded and no shares were allocated.</p> : null}
+    {confirmingPayment ? <p role="status" className="rounded-xl border border-sky-300/30 bg-sky-400/10 p-4 text-sm text-sky-100">WebPay returned successfully. We are waiting for the signed payment notification before confirming your shares.</p> : null}
     <ContinuationPanel portal={portal} error={error} onCancel={onCancel} />
     <p className="flex items-center gap-2 text-xs text-slate-400"><ShieldCheck className="h-4 w-4" />This account cannot enter the normal KaSiHub member dashboard.</p>
   </div>;

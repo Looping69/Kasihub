@@ -56,6 +56,24 @@ export function verifyWebPayChecksum(input: Parameters<typeof webPayChecksum>[0]
   return actual.length === expected.length && timingSafeEqual(actual, expected);
 }
 
+export function webPayProcessChecksum(input: {
+  accountUuid: string;
+  processUuid: string;
+  processStage: string;
+  securityKey: string;
+}): string {
+  return createHash("md5")
+    .update([input.accountUuid, input.processUuid, input.processStage, input.securityKey].join("_"), "utf8")
+    .digest("hex");
+}
+
+export function verifyWebPayProcessChecksum(input: Parameters<typeof webPayProcessChecksum>[0], received: string): boolean {
+  if (!/^[0-9a-f]{32}$/i.test(received)) return false;
+  const expected = Buffer.from(webPayProcessChecksum(input), "hex");
+  const actual = Buffer.from(received, "hex");
+  return actual.length === expected.length && timingSafeEqual(actual, expected);
+}
+
 export function webPayOrderNumber(routingCode: string, orderReference: string): string {
   if (!/^[A-Z0-9]{3}$/.test(routingCode)) throw new Error("invalid_webpay_routing_code");
   const suffix = createHash("sha256").update(orderReference).digest("hex").slice(0, 17).toUpperCase();

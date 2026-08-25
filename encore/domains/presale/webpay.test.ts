@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { verifyWebPayChecksum, webPayChecksum, webPayMerchantFields, webPayOrderNumber, webPayTotalZar } from "./webpay";
+import { verifyWebPayChecksum, verifyWebPayProcessChecksum, webPayChecksum, webPayMerchantFields, webPayOrderNumber, webPayProcessChecksum, webPayTotalZar } from "./webpay";
 
 describe("WebPay presale contract", () => {
   test("posts the merchant site identifier required by hosted checkout", () => {
@@ -32,6 +32,19 @@ describe("WebPay presale contract", () => {
     expect(webPayChecksum(input)).toBe("6b4f5905ad54ae85bc840aa3e15795f5");
     expect(verifyWebPayChecksum(input, webPayChecksum(input))).toBe(true);
     expect(verifyWebPayChecksum(input, "00000000000000000000000000000000")).toBe(false);
+  });
+
+  test("uses the documented account, process, stage and key process checksum order", () => {
+    const input = {
+      accountUuid: "8aa93ae6-c516-4c50-8ce8-b0f531cbe92c",
+      processUuid: "3233f9a2-b7e7-4ff1-a6ac-4af2ee987e01",
+      processStage: "return_card_payment",
+      securityKey: "test-security-key",
+    };
+    const checksum = webPayProcessChecksum(input);
+    expect(checksum).toMatch(/^[0-9a-f]{32}$/);
+    expect(verifyWebPayProcessChecksum(input, checksum)).toBe(true);
+    expect(verifyWebPayProcessChecksum(input, "00000000000000000000000000000000")).toBe(false);
   });
 
   test("creates a stable 20-character provider order number", () => {

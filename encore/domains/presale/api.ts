@@ -34,7 +34,7 @@ import { issuedSharesForPresale, quotedUsdtAmount } from "./settlement";
 import { INVESTOR_APPLICATION_SCHEMA_VERSION, phaseOneApplicantSchema, type PhaseOneApplicant } from "./application";
 import { deriveApplicantContinuation, type ApplicantContinuationReason } from "./applicant-continuation";
 import { databaseBinaryToBuffer, type DatabaseBinary } from "./database-binary";
-import { WEBPAY_UNIT_PRICE_ZAR, verifyWebPayChecksum, webPayChecksum, webPayMerchantFields, webPayOrderNumber, webPayTotalZar, type PresalePaymentRail } from "./webpay";
+import { WEBPAY_UNIT_PRICE_ZAR, verifyWebPayChecksum, verifyWebPayProcessChecksum, webPayChecksum, webPayMerchantFields, webPayOrderNumber, webPayTotalZar, type PresalePaymentRail } from "./webpay";
 
 const PresaleWebhookSecret = secret("PresaleWebhookSecret");
 const InvestorApplicationEncryptionKey = secret("InvestorApplicationEncryptionKey");
@@ -763,6 +763,15 @@ interface WebPayNotificationRequest {
   checksum: string;
 }
 
+interface WebPayProcessNotificationRequest {
+  payeeAccountUuid: string;
+  processUuid: string;
+  processStage: string;
+  processStatus: "payment_in_progress" | "COMPLETED" | "EXPIRED" | "FAILED" | "PENDING" | "REJECTED" | "REVERSED";
+  processOrderNo: string;
+  checksum: string;
+}
+
 type ApplicationDraftResponse = {
   applicationId: string;
   applicationNumber: string;
@@ -860,7 +869,7 @@ interface PresalePortalResponse {
     draft: Record<string, string | boolean> | null;
   };
   kyc: { status: string; verified: boolean };
-  order: null | { orderReference: string; status: string; incorporationStatus: string };
+  order: null | { orderReference: string; status: string; incorporationStatus: string; paymentRail: PresalePaymentRail; webPayProcessStatus?: string; webPayProcessStage?: string };
   continuation: { nextStep: number | null; reason: ApplicantContinuationReason; resumeUrl: string | null };
 }
 
@@ -1046,6 +1055,15 @@ const webPayNotificationInput = z.object({
   checksum: z.string().trim().length(32),
 }).passthrough();
 
+const webPayProcessNotificationInput = z.object({
+  payeeAccountUuid: z.string().uuid(),
+  processUuid: z.string().uuid(),
+  processStage: z.string().trim().min(1).max(36),
+  processStatus: z.enum(["payment_in_progress", "COMPLETED", "EXPIRED", "FAILED", "PENDING", "REJECTED", "REVERSED"]),
+  processOrderNo: z.string().trim().length(20),
+  checksum: z.string().trim().length(32),
+}).passthrough();
+
 export const logoutPresaleApplicant = api<void, { ok: true }>(
   { method: "POST", path: "/presale/auth/logout", expose: true },
   async () => {
@@ -1091,11 +1109,13 @@ export const presaleApplicantPortal = api<void, PresalePortalResponse>(
     );
     const order = await presaleDb.rawQueryRow<{
       order_reference: string; status: string; incorporation_status: string;
-      buyer_name: string; buyer_email: string; buyer_phone: string | null; quantity: number; payment_rail: string;
+      buyer_name: string; buyer_email: string; buyer_phone: string | null; quantity: number; payment_rail: PresalePaymentRail;
+      webpay_process_status: string | null; webpay_process_stage: string | null;
       investor_application_ciphertext: DatabaseBinary | null; investor_application_nonce: DatabaseBinary | null;
       investor_application_auth_tag: DatabaseBinary | null;
     }>(
       `SELECT order_reference, status, incorporation_status, buyer_name, buyer_email, buyer_phone, quantity, payment_rail,
+              webpay_process_status, webpay_process_stage,
               investor_application_ciphertext, investor_application_nonce, investor_application_auth_tag
        FROM presale_orders
        WHERE external_profile_id = $1 ORDER BY created_at DESC LIMIT 1`,
@@ -1153,7 +1173,9 @@ export const presaleApplicantPortal = api<void, PresalePortalResponse>(
         draft: restoredDraft,
       } : null,
       kyc: { status: kyc?.status ?? "pending", verified: kyc?.status === "approved" },
-      order: order ? { orderReference: order.order_reference, status: order.status, incorporationStatus: order.incorporation_status } : null,
+      order: order ? { orderReference: order.order_reference, status: order.status, incorporationStatus: order.incorporation_status,
+        paymentRail: order.payment_rail, webPayProcessStatus: order.webpay_process_status ?? undefined,
+        webPayProcessStage: order.webpay_process_stage ?? undefined } : null,
       continuation: { ...continuation, resumeUrl },
     };
   },
@@ -1600,9 +1622,10 @@ export const createPresaleWebPayCheckout = api<
     m_snapscan_allowed: "false",
     b_name: firstName,
     b_email: order.buyer_email,
-    m_return_url: "https://shares.kasihub.net/shares/account",
+    m_return_url: "https://shares.kasihub.net/shares/account?payment=webpay",
     m_notify_url: notifyUrl,
-    m_back2shop_url: "https://shares.kasihub.net/shares/account",
+    m_process_url: "https://shares.kasihub.net/api/presale/webpay/process",
+    m_back2shop_url: "https://shares.kasihub.net/shares/account?payment=cancelled",
   };
   if (surnameParts.length) fields.b_surname = surnameParts.join(" ");
   if (order.buyer_phone) fields.b_mobile = order.buyer_phone;
@@ -1783,6 +1806,43 @@ export const receivePresaleWebPayNotification = api<
   }
   await fulfilWebPayPresalePayment(order.order_reference, providerReference, event.paymentMethod);
   return { accepted: true, outcome: "confirmed", orderReference: order.order_reference };
+});
+
+export const receivePresaleWebPayProcessNotification = api<
+  WebPayProcessNotificationRequest,
+  { accepted: true; outcome: string; orderReference: string }
+>({ method: "POST", path: "/presale/webhooks/webpay-process", expose: true }, async (request) => {
+  const event = webPayProcessNotificationInput.parse(request);
+  if (event.payeeAccountUuid !== WebPayAccountUuid()) {
+    throw APIError.unauthenticated("WebPay process account does not match");
+  }
+  if (!verifyWebPayProcessChecksum({
+    accountUuid: event.payeeAccountUuid,
+    processUuid: event.processUuid,
+    processStage: event.processStage,
+    securityKey: WebPaySecurityKey(),
+  }, event.checksum)) throw APIError.unauthenticated("Invalid WebPay process checksum");
+
+  const order = await presaleDb.rawQueryRow<{ id: string; order_reference: string; payment_rail: PresalePaymentRail }>(
+    "SELECT id,order_reference,payment_rail FROM presale_orders WHERE webpay_order_number = $1",
+    event.processOrderNo,
+  );
+  if (!order || order.payment_rail !== "webpay_card") {
+    throw APIError.failedPrecondition("WebPay process notification does not match a reservation");
+  }
+  const eventId = `${event.processUuid}:${event.processStage}:${event.processStatus}`;
+  await presaleDb.rawExec(
+    `INSERT INTO presale_payment_events (provider,provider_event_id,tx_hash,payload,outcome)
+     VALUES ('webpay_process',$1,$2,$3::jsonb,$4) ON CONFLICT (provider,provider_event_id) DO NOTHING`,
+    eventId, event.processUuid, JSON.stringify(event), event.processStatus.toLowerCase(),
+  );
+  await presaleDb.rawExec(
+    `UPDATE presale_orders SET webpay_process_uuid = $2, webpay_process_stage = $3,
+            webpay_process_status = $4, webpay_process_updated_at = now(), updated_at = now()
+      WHERE id = $1 AND status = 'awaiting_payment'`,
+    order.id, event.processUuid, event.processStage, event.processStatus,
+  );
+  return { accepted: true, outcome: event.processStatus.toLowerCase(), orderReference: order.order_reference };
 });
 
 export const upsertPresaleCampaign = api<UpsertPresaleCampaignRequest, { campaignId: string; status: string }>(
