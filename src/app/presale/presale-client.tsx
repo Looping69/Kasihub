@@ -23,6 +23,9 @@ type Order = {
   buyerName: string;
   buyerEmail: string;
   quantity: number;
+  paymentRail: "remitano_usdt" | "webpay_card";
+  unitPriceZar?: string;
+  totalZar?: string;
   unitPriceUsdt: string;
   totalUsdt: string;
   status: string;
@@ -87,6 +90,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
   const [copied, setCopied] = useState(false);
   const [applicationPhase, setApplicationPhase] = useState(1);
   const [quantity, setQuantity] = useState("1");
+  const [paymentRail, setPaymentRail] = useState<"remitano_usdt" | "webpay_card">("remitano_usdt");
   const [applicantType, setApplicantType] = useState<"individual" | "company" | "trust">("individual");
   const [termsRead, setTermsRead] = useState(false);
   const [verificationStarted, setVerificationStarted] = useState(false);
@@ -193,6 +197,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
           buyerEmail: data.get("buyerEmail"),
           buyerPhone: data.get("buyerPhone") || undefined,
           quantity,
+          paymentRail: data.get("paymentRail"),
           termsAccepted: data.get("termsAccepted") === "on",
           investorApplication: {
             applicantType: data.get("applicantType"),
@@ -280,6 +285,36 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
     }
     setDiditUrl(payload.session.url);
     setVerificationStarted(true);
+  }
+
+  async function startWebPayCheckout() {
+    if (!order || order.paymentRail !== "webpay_card" || !accessToken) return;
+    setSubmitting(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/presale/orders/${encodeURIComponent(order.orderReference)}/webpay-checkout`, {
+        method: "POST",
+        headers: { "X-Presale-Access-Token": accessToken },
+      });
+      const payload = await response.json() as { actionUrl?: string; fields?: Record<string, string>; error?: string };
+      if (!response.ok) throw new Error(payload.error ?? "WebPay checkout could not be started");
+      if (!payload.actionUrl?.startsWith("https://") || !payload.fields) throw new Error("WebPay returned an invalid checkout");
+      const form = document.createElement("form");
+      form.method = "POST";
+      form.action = payload.actionUrl;
+      for (const [name, value] of Object.entries(payload.fields)) {
+        const input = document.createElement("input");
+        input.type = "hidden";
+        input.name = name;
+        input.value = value;
+        form.appendChild(input);
+      }
+      document.body.appendChild(form);
+      form.submit();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "WebPay checkout could not be started");
+      setSubmitting(false);
+    }
   }
 
   async function runPaymentRehearsal() {
@@ -498,6 +533,15 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
               </div>
               <div data-application-phase="5" hidden={applicationPhase !== 5} className="space-y-5">
               <SectionTitle>Terms and reservation</SectionTitle>
+              <fieldset className="space-y-3">
+                <legend className="text-sm font-semibold text-white">Choose how you want to pay</legend>
+                <label className={`block cursor-pointer rounded-xl border p-4 transition ${paymentRail === "remitano_usdt" ? "border-amber-300 bg-amber-300/10" : "border-white/15 bg-black/20"}`}>
+                  <span className="flex items-start gap-3"><input name="paymentRail" type="radio" value="remitano_usdt" checked={paymentRail === "remitano_usdt"} onChange={() => setPaymentRail("remitano_usdt")} className="mt-1" required /><span><strong className="block text-white">International payment — Remitano</strong><span className="mt-1 block text-xs leading-5 text-slate-300">Pay the locked USDT amount using the displayed blockchain network and receiving address.</span></span></span>
+                </label>
+                <label className={`block cursor-pointer rounded-xl border p-4 transition ${paymentRail === "webpay_card" ? "border-sky-300 bg-sky-300/10" : "border-white/15 bg-black/20"}`}>
+                  <span className="flex items-start gap-3"><input name="paymentRail" type="radio" value="webpay_card" checked={paymentRail === "webpay_card"} onChange={() => setPaymentRail("webpay_card")} className="mt-1" required /><span><strong className="block text-white">Debit or credit card — WebPay</strong><span className="mt-1 block text-xs leading-5 text-slate-300">R450.00 per paid share. Your card details are entered only on the secure WebPay checkout.</span><span className="mt-2 block font-bold text-sky-100">Total: R{(Number(quantity || 0) * 450).toFixed(2)}</span></span></span>
+                </label>
+              </fieldset>
               <a href={TERMS_PDF_PATH} target="_blank" rel="noreferrer" className="inline-flex text-sm font-semibold text-amber-200 underline underline-offset-4 hover:text-amber-100">Open the authoritative terms PDF</a>
               <div tabIndex={0} onScroll={(event) => { const node = event.currentTarget; if (node.scrollTop + node.clientHeight >= node.scrollHeight - 8) setTermsRead(true); }} className="h-[32rem] overflow-y-auto rounded-xl border border-white/15 bg-slate-100 p-2" aria-label="Investor terms document">
                 {applicationPhase === 5 && TERMS_PAGE_PATHS.map((path, index) => <Image key={path} src={path} alt={`SOLIDUS Class B investor terms page ${index + 1} of ${TERMS_PAGE_PATHS.length}`} width={992} height={1403} loading={index === 0 ? "eager" : "lazy"} className="mb-2 h-auto w-full bg-white last:mb-0" />)}
@@ -522,12 +566,16 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
             <CardHeader><div className="flex items-start justify-between gap-4"><div><h2 className="font-semibold leading-none">{statusLabel(order.status)}</h2><CardDescription className="mt-2 text-slate-400">{order.orderReference}</CardDescription></div>
               {order.status === "confirmed" ? <CheckCircle2 className="h-8 w-8 text-emerald-400" /> : <Clock3 className="h-8 w-8 text-amber-400" />}</div></CardHeader>
             <CardContent className="space-y-5">
-              <div className="rounded-xl border border-amber-400/20 bg-amber-400/10 p-4">
+              {order.paymentRail === "webpay_card" ? <div className="rounded-xl border border-sky-400/30 bg-sky-400/10 p-4">
+                <p className="text-xs uppercase tracking-wider text-sky-200">WebPay card amount</p><p className="mt-1 text-3xl font-black text-white">R{order.totalZar}</p>
+                <p className="mt-1 text-sm text-sky-100/80">R{order.unitPriceZar} per paid share · bonus shares are free</p>
+                <p className="mt-3 border-t border-sky-200/20 pt-3 text-sm text-sky-50">Pay before <time dateTime={order.paymentDeadline} className="font-semibold">{new Date(order.paymentDeadline).toLocaleString()}</time>.</p>
+              </div> : <div className="rounded-xl border border-amber-400/20 bg-amber-400/10 p-4">
                 <p className="text-xs uppercase tracking-wider text-amber-200">{offer.isMock ? "Simulated amount — do not send funds" : "Send exactly"}</p><p className="mt-1 text-3xl font-black text-white">{order.totalUsdt} USDT</p>
                 <p className="mt-1 text-sm text-amber-100/80">using {order.network} only</p>
                 {!offer.isMock && <p className="mt-3 border-t border-amber-200/20 pt-3 text-sm text-amber-50">Pay before <time dateTime={order.paymentDeadline} className="font-semibold">{new Date(order.paymentDeadline).toLocaleString()}</time>. Do not send funds after this deadline.</p>}
-              </div>
-              {!offer.isMock && <>
+              </div>}
+              {order.paymentRail === "remitano_usdt" && !offer.isMock && <>
                 <div className="rounded-xl border border-rose-400/30 bg-rose-400/10 p-4 text-sm leading-6 text-rose-50">
                   <p className="font-semibold">The receiving address must get exactly {order.totalUsdt} USDT.</p>
                   <p className="mt-1 text-rose-100/85">Exchange withdrawal fees and network fees are additional. If your wallet deducts fees from the amount, increase the amount sent so the recipient still receives exactly {order.totalUsdt} USDT.</p>
@@ -539,6 +587,8 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
               </>}
               {order.status === "confirmed" ? (
                 <div className="rounded-xl border border-emerald-400/20 bg-emerald-400/10 p-4 text-sm text-emerald-100">Payment has reached {order.confirmations} confirmations. Your order is secured and ready for the next processing step.</div>
+              ) : order.paymentRail === "webpay_card" ? (
+                <div className="space-y-3"><div className="rounded-xl border border-sky-400/20 bg-sky-400/10 p-4 text-sm leading-6 text-sky-100">Your reservation is locked to WebPay. You will enter card details only on WebPay&apos;s secure hosted checkout.</div>{error && <p className="text-sm text-red-300">{error}</p>}<Button type="button" className="w-full bg-sky-300 font-bold text-slate-950 hover:bg-sky-200" disabled={submitting} onClick={() => void startWebPayCheckout()}>{submitting ? "Opening WebPay…" : "Continue to secure WebPay checkout"}</Button></div>
               ) : (
                 offer.isMock ? <div className="space-y-3"><p className="rounded-lg border border-sky-400/30 bg-sky-400/10 p-3 text-sm text-sky-100">This staging rehearsal moves no USDT. It exercises the reservation, payment intent, evidence validation, confirmation and settlement records using deterministic test evidence.</p>{error && <p className="text-sm text-red-300">{error}</p>}<Button type="button" className="w-full" disabled={submitting} onClick={() => void runPaymentRehearsal()}>{submitting ? "Running rehearsal…" : "Run no-money payment rehearsal"}</Button></div> :
                 <form className="space-y-3" onSubmit={submitProof}><Field label="Transaction hash"><Input value={txHash} onChange={(event) => setTxHash(event.target.value)} required minLength={16} placeholder="Paste the blockchain transaction hash" className="border-white/15 bg-black/20" /></Field>

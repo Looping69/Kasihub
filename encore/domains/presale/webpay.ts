@@ -1,0 +1,49 @@
+// Author: Klaasvaakie ( |╲ )
+import { createHash, timingSafeEqual } from "node:crypto";
+
+export const WEBPAY_UNIT_PRICE_ZAR = "450.00";
+export type PresalePaymentRail = "remitano_usdt" | "webpay_card";
+
+function decimalToCents(value: string): number {
+  if (!/^\d+(\.\d{1,2})?$/.test(value)) throw new Error("invalid_zar_amount");
+  const [whole, fraction = ""] = value.split(".");
+  const cents = Number(whole) * 100 + Number(fraction.padEnd(2, "0"));
+  if (!Number.isSafeInteger(cents) || cents <= 0) throw new Error("invalid_zar_amount");
+  return cents;
+}
+
+export function webPayTotalZar(quantity: number): string {
+  if (!Number.isSafeInteger(quantity) || quantity <= 0) throw new Error("invalid_share_quantity");
+  return ((decimalToCents(WEBPAY_UNIT_PRICE_ZAR) * quantity) / 100).toFixed(2);
+}
+
+export function webPayChecksum(input: {
+  merchantUuid: string;
+  accountUuid: string;
+  transactionId: string;
+  amountZar: string;
+  securityKey: string;
+}): string {
+  const material = [
+    input.merchantUuid,
+    input.accountUuid,
+    input.transactionId,
+    decimalToCents(input.amountZar),
+    "ZAR",
+    input.securityKey,
+  ].join("_");
+  return createHash("md5").update(material, "utf8").digest("hex");
+}
+
+export function verifyWebPayChecksum(input: Parameters<typeof webPayChecksum>[0], received: string): boolean {
+  const expected = Buffer.from(webPayChecksum(input), "hex");
+  if (!/^[0-9a-f]{32}$/i.test(received)) return false;
+  const actual = Buffer.from(received, "hex");
+  return actual.length === expected.length && timingSafeEqual(actual, expected);
+}
+
+export function webPayOrderNumber(routingCode: string, orderReference: string): string {
+  if (!/^[A-Z0-9]{3}$/.test(routingCode)) throw new Error("invalid_webpay_routing_code");
+  const suffix = createHash("sha256").update(orderReference).digest("hex").slice(0, 17).toUpperCase();
+  return `${routingCode}${suffix}`;
+}

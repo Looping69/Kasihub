@@ -51,6 +51,13 @@ export async function proxy(request: NextRequest) {
 
   if (!isApi || SAFE_METHODS.has(request.method)) return NextResponse.next();
 
+  // Provider webhooks cannot satisfy browser same-origin headers. This exact
+  // endpoint authenticates every message using WebPay's merchant identity,
+  // checksum and order/amount/currency reconciliation before any mutation.
+  if (request.nextUrl.pathname === "/api/presale/webpay/notify" && request.method === "POST") {
+    return NextResponse.next();
+  }
+
   const origin = request.headers.get("origin");
   const fetchSite = request.headers.get("sec-fetch-site");
   if (!origin || origin !== externalOrigin(request) || (fetchSite && fetchSite !== "same-origin")) {

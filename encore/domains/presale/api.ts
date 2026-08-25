@@ -33,11 +33,18 @@ import { issuedSharesForPresale, quotedUsdtAmount } from "./settlement";
 import { INVESTOR_APPLICATION_SCHEMA_VERSION, phaseOneApplicantSchema, type PhaseOneApplicant } from "./application";
 import { deriveApplicantContinuation, type ApplicantContinuationReason } from "./applicant-continuation";
 import { databaseBinaryToBuffer, type DatabaseBinary } from "./database-binary";
+import { WEBPAY_UNIT_PRICE_ZAR, verifyWebPayChecksum, webPayChecksum, webPayOrderNumber, webPayTotalZar, type PresalePaymentRail } from "./webpay";
 
 const PresaleWebhookSecret = secret("PresaleWebhookSecret");
 const InvestorApplicationEncryptionKey = secret("InvestorApplicationEncryptionKey");
 const ResendApiKey = secret("RESEND_API_KEY");
 const ResendFromEmail = secret("RESEND_FROM_EMAIL");
+const WebPayMerchantUuid = secret("WEBPAY_MERCHANT_UUID");
+const WebPayAccountUuid = secret("WEBPAY_ACCOUNT_UUID");
+const WebPaySecurityKey = secret("WEBPAY_SECURITY_KEY");
+const WebPayCheckoutUrl = secret("WEBPAY_CHECKOUT_URL");
+const WebPayNotifyUrl = secret("WEBPAY_NOTIFY_URL");
+const WebPaySiteId = secret("WEBPAY_SITE_ID");
 
 function escapeHtml(value: string): string {
   return value.replace(/[&<>'"]/g, (character) => ({
@@ -107,8 +114,8 @@ async function sendPresaleReservationCreatedEmail(input: {
   orderReference: string;
   campaignName: string;
   quantity: number;
-  totalUsdt: string;
-  network: string;
+  amountLabel: string;
+  paymentMethod: string;
   paymentDeadline: string;
 }): Promise<"sent" | "failed"> {
   const orderUrl = "https://shares.kasihub.net/shares/account";
@@ -124,8 +131,8 @@ async function sendPresaleReservationCreatedEmail(input: {
         from: ResendFromEmail(),
         to: [input.recipient],
         subject: `KaSiShares reservation ${input.orderReference} created`,
-        html: `<!doctype html><html lang="en"><body style="margin:0;background:#071a2f;font-family:Arial,sans-serif;color:#f8fafc"><div style="display:none;max-height:0;overflow:hidden">Your KaSiShares reservation has been created. Review the payment instructions in your secure account.</div><div style="max-width:600px;margin:0 auto;padding:32px 20px"><div style="border:1px solid #334155;border-radius:18px;background:#0f2744;padding:32px"><h1 style="margin:0 0 18px;color:#fbbf24;font-size:26px">Reservation created</h1><p style="font-size:16px;line-height:1.6">Hello ${escapeHtml(input.buyerName)},</p><p style="font-size:16px;line-height:1.6">Your reservation for ${input.quantity} ${input.quantity === 1 ? "share" : "shares"} in ${escapeHtml(input.campaignName)} has been created.</p><p style="font-size:15px;line-height:1.8"><strong>Reference:</strong> ${escapeHtml(input.orderReference)}<br><strong>Amount:</strong> ${escapeHtml(input.totalUsdt)} USDT<br><strong>Network:</strong> ${escapeHtml(input.network)}<br><strong>Payment deadline:</strong> ${escapeHtml(input.paymentDeadline)}</p><p style="margin:28px 0"><a href="${orderUrl}" style="display:inline-block;box-sizing:border-box;border-radius:10px;background:#fbbf24;color:#071a2f;padding:14px 22px;font-weight:700;text-decoration:none">Open my KaSiShares account</a></p><p style="font-size:13px;line-height:1.6;color:#cbd5e1">This email confirms a reservation, not payment or share ownership. Use only the payment instructions shown inside your secure KaSiShares session. Never send funds based only on an email.</p></div></div></body></html>`,
-        text: `Hello ${input.buyerName},\n\nYour reservation for ${input.quantity} ${input.quantity === 1 ? "share" : "shares"} in ${input.campaignName} has been created.\n\nReference: ${input.orderReference}\nAmount: ${input.totalUsdt} USDT\nNetwork: ${input.network}\nPayment deadline: ${input.paymentDeadline}\n\nOpen your secure KaSiShares account to review payment instructions: ${orderUrl}\n\nThis confirms a reservation, not payment or share ownership. Never send funds based only on an email.`,
+        html: `<!doctype html><html lang="en"><body style="margin:0;background:#071a2f;font-family:Arial,sans-serif;color:#f8fafc"><div style="display:none;max-height:0;overflow:hidden">Your KaSiShares reservation has been created. Review the payment instructions in your secure account.</div><div style="max-width:600px;margin:0 auto;padding:32px 20px"><div style="border:1px solid #334155;border-radius:18px;background:#0f2744;padding:32px"><h1 style="margin:0 0 18px;color:#fbbf24;font-size:26px">Reservation created</h1><p style="font-size:16px;line-height:1.6">Hello ${escapeHtml(input.buyerName)},</p><p style="font-size:16px;line-height:1.6">Your reservation for ${input.quantity} ${input.quantity === 1 ? "share" : "shares"} in ${escapeHtml(input.campaignName)} has been created.</p><p style="font-size:15px;line-height:1.8"><strong>Reference:</strong> ${escapeHtml(input.orderReference)}<br><strong>Amount:</strong> ${escapeHtml(input.amountLabel)}<br><strong>Payment method:</strong> ${escapeHtml(input.paymentMethod)}<br><strong>Payment deadline:</strong> ${escapeHtml(input.paymentDeadline)}</p><p style="margin:28px 0"><a href="${orderUrl}" style="display:inline-block;box-sizing:border-box;border-radius:10px;background:#fbbf24;color:#071a2f;padding:14px 22px;font-weight:700;text-decoration:none">Open my KaSiShares account</a></p><p style="font-size:13px;line-height:1.6;color:#cbd5e1">This email confirms a reservation, not payment or share ownership. Use only the payment instructions shown inside your secure KaSiShares session. Never send funds based only on an email.</p></div></div></body></html>`,
+        text: `Hello ${input.buyerName},\n\nYour reservation for ${input.quantity} ${input.quantity === 1 ? "share" : "shares"} in ${input.campaignName} has been created.\n\nReference: ${input.orderReference}\nAmount: ${input.amountLabel}\nPayment method: ${input.paymentMethod}\nPayment deadline: ${input.paymentDeadline}\n\nOpen your secure KaSiShares account to review payment instructions: ${orderUrl}\n\nThis confirms a reservation, not payment or share ownership. Never send funds based only on an email.`,
         tags: [{ name: "email_type", value: "presale_reservation_created" }],
       }),
     });
@@ -174,8 +181,8 @@ async function ensurePresaleReservationCreatedEmail(order: OrderRow, campaign: C
     orderReference: order.order_reference,
     campaignName: campaign.name,
     quantity: order.quantity,
-    totalUsdt: order.total_usdt,
-    network,
+    amountLabel: order.payment_rail === "webpay_card" ? `R${order.total_zar}` : `${order.total_usdt} USDT`,
+    paymentMethod: order.payment_rail === "webpay_card" ? "WebPay debit or credit card" : `Remitano / USDT on ${network}`,
     paymentDeadline: order.payment_deadline,
   });
 }
@@ -215,6 +222,7 @@ const orderInput = z.object({
   buyerEmail: z.string().email().max(254),
   buyerPhone: z.string().trim().max(40).optional(),
   quantity: z.number().int().positive().max(1_000_000),
+  paymentRail: z.enum(["remitano_usdt", "webpay_card"]).default("remitano_usdt"),
   termsAccepted: z.literal(true),
   investorApplication: z.object({
     applicantType: z.enum(["individual", "company", "trust"]),
@@ -352,6 +360,9 @@ type OrderRow = {
   buyer_email: string;
   external_profile_id: string | null;
   quantity: number;
+  payment_rail: PresalePaymentRail;
+  unit_price_zar: string | null;
+  total_zar: string | null;
   unit_price_usdt: string;
   total_usdt: string;
   unit_price_usd: string;
@@ -402,6 +413,9 @@ interface PresaleOrderResponse {
   buyerName: string;
   buyerEmail: string;
   quantity: number;
+  paymentRail: PresalePaymentRail;
+  unitPriceZar?: string;
+  totalZar?: string;
   unitPriceUsdt: string;
   totalUsdt: string;
   unitPriceUsd: string;
@@ -427,6 +441,7 @@ interface CreatePresaleOrderRequest {
   buyerEmail: string;
   buyerPhone?: string;
   quantity: number;
+  paymentRail: PresalePaymentRail;
   termsAccepted: boolean;
   investorApplication: {
     applicantType: "individual" | "company" | "trust";
@@ -569,6 +584,9 @@ function orderResponse(order: OrderRow, campaign: CampaignRow, txHash?: string |
     buyerName: order.buyer_name,
     buyerEmail: order.buyer_email,
     quantity: order.quantity,
+    paymentRail: order.payment_rail,
+    unitPriceZar: order.unit_price_zar ?? undefined,
+    totalZar: order.total_zar ?? undefined,
     unitPriceUsdt: order.unit_price_usdt,
     totalUsdt: order.total_usdt,
     unitPriceUsd: order.unit_price_usd,
@@ -686,6 +704,52 @@ export async function fulfilSettledPresalePayment(
     try { await tx.rollback(); } catch { /* transaction may already be closed */ }
     throw error;
   }
+}
+
+async function fulfilWebPayPresalePayment(orderReference: string, providerReference: string, paymentMethod: string): Promise<void> {
+  const tx = await presaleDb.begin();
+  try {
+    const order = await tx.rawQueryRow<{ id: string; campaign_id: string; quantity: number; status: string; payment_rail: PresalePaymentRail; bonus_buy_one_get_one: boolean }>(
+      `SELECT o.id,o.campaign_id,o.quantity,o.status,o.payment_rail,c.bonus_buy_one_get_one
+         FROM presale_orders o JOIN presale_campaigns c ON c.id = o.campaign_id
+        WHERE o.order_reference = $1 FOR UPDATE OF o`, orderReference);
+    if (!order) throw APIError.notFound("Presale order not found");
+    if (order.payment_rail !== "webpay_card") throw APIError.failedPrecondition("WebPay payment does not belong to this order");
+    if (["confirmed", "incorporated"].includes(order.status)) { await tx.commit(); return; }
+    if (!["awaiting_payment", "payment_submitted", "payment_detected"].includes(order.status)) {
+      throw APIError.failedPrecondition(`Presale order cannot be fulfilled while ${order.status}`);
+    }
+    const issuedQuantity = issuedSharesForPresale(order.quantity, order.bonus_buy_one_get_one);
+    const moved = await tx.rawQueryRow<{ id: string }>(`UPDATE presale_campaigns SET reserved_shares = reserved_shares - $2,
+      sold_shares = sold_shares + $2, updated_at = now()
+      WHERE id = $1 AND reserved_shares >= $2 AND sold_shares + $2 <= total_shares RETURNING id`, order.campaign_id, issuedQuantity);
+    if (!moved) throw APIError.failedPrecondition("Presale reservation accounting is inconsistent");
+    await tx.rawExec(`UPDATE presale_orders SET status = 'confirmed', confirmed_at = COALESCE(confirmed_at, now()),
+      webpay_system_reference = COALESCE(webpay_system_reference, $2), webpay_payment_method = COALESCE(webpay_payment_method, $3),
+      payment_settled_at = COALESCE(payment_settled_at, now()), updated_at = now() WHERE id = $1`,
+    order.id, providerReference, paymentMethod);
+    await tx.commit();
+  } catch (error) {
+    try { await tx.rollback(); } catch { /* transaction may already be closed */ }
+    throw error;
+  }
+}
+
+interface WebPayNotificationRequest {
+  payeeSiteId: string;
+  payeeUuid: string;
+  payeeAccountUuid: string;
+  payeeRefInfo: string;
+  payeeOrderNr: string;
+  requestTokenId: string;
+  requestAmount: string | number;
+  requestCurrency: "ZAR";
+  requestStatus: "COMPLETED" | "EXPIRED" | "PENDING" | "CANCELLED";
+  paymentSystemReference?: string;
+  paymentAmount?: string | number;
+  paymentCurrency?: string;
+  paymentMethod?: string;
+  checksum: string;
 }
 
 type ApplicationDraftResponse = {
@@ -909,6 +973,23 @@ export const loginPresaleApplicant = api<
   );
   return { token, profileId: user.profile_id, profileNumber: user.profile_number };
 });
+
+const webPayNotificationInput = z.object({
+  payeeSiteId: z.string().trim().min(1).max(20),
+  payeeUuid: z.string().uuid(),
+  payeeAccountUuid: z.string().uuid(),
+  payeeRefInfo: z.string().trim().min(1).max(36),
+  payeeOrderNr: z.string().trim().length(20),
+  requestTokenId: z.string().trim().min(1).max(20),
+  requestAmount: z.union([z.string(), z.number()]).transform(String),
+  requestCurrency: z.literal("ZAR"),
+  requestStatus: z.enum(["COMPLETED", "EXPIRED", "PENDING", "CANCELLED"]),
+  paymentSystemReference: z.string().trim().max(100).optional(),
+  paymentAmount: z.union([z.string(), z.number()]).transform(String).optional(),
+  paymentCurrency: z.string().trim().max(3).optional(),
+  paymentMethod: z.string().trim().max(40).optional(),
+  checksum: z.string().trim().length(32),
+}).passthrough();
 
 export const logoutPresaleApplicant = api<void, { ok: true }>(
   { method: "POST", path: "/presale/auth/logout", expose: true },
@@ -1180,6 +1261,7 @@ export const createPresaleOrder = api<CreatePresaleOrderRequest, { order: Presal
       buyerEmail: normalizeEmail(session.user.email),
       buyerPhone: payload.buyerPhone ?? "",
       quantity: payload.quantity,
+      paymentRail: payload.paymentRail,
       termsVersion: PRESALE_TERMS_VERSION,
       investorApplicationVersion: INVESTOR_APPLICATION_VERSION,
       investorApplication: payload.investorApplication,
@@ -1192,7 +1274,9 @@ export const createPresaleOrder = api<CreatePresaleOrderRequest, { order: Presal
          FROM presale_invitations WHERE token_hash = $1 FOR UPDATE`, inviteHash);
       if (!invitation) throw APIError.permissionDenied("This invitation is invalid or expired");
       const replay = await tx.rawQueryRow<OrderRow & { request_hash: string }>(
-        `SELECT id, order_reference, campaign_id, buyer_name, buyer_email, external_profile_id, quantity, unit_price_usdt::text AS unit_price_usdt,
+        `SELECT id, order_reference, campaign_id, buyer_name, buyer_email, external_profile_id, quantity,
+                payment_rail, unit_price_zar::text AS unit_price_zar, total_zar::text AS total_zar,
+                unit_price_usdt::text AS unit_price_usdt,
                 total_usdt::text AS total_usdt, unit_price_usd::text AS unit_price_usd, total_usd::text AS total_usd,
                 usdt_per_usd::text AS usdt_per_usd, quote_reference, status, payment_deadline, confirmed_at, incorporation_status,
                 payment_obligation_id,payment_intent_id,payment_network,payment_receiving_address,payment_token_contract,
@@ -1204,8 +1288,8 @@ export const createPresaleOrder = api<CreatePresaleOrderRequest, { order: Presal
         const campaign = await tx.rawQueryRow<CampaignRow>("SELECT * FROM presale_campaigns WHERE id = $1", replay.campaign_id);
         if (!campaign) throw new Error("presale_campaign_not_found");
         await tx.commit();
-        const intent = await ensurePresalePaymentIntent(replay, campaign);
-        const emailStatus = await ensurePresaleReservationCreatedEmail(replay, campaign, intent.network);
+        const intent = replay.payment_rail === "remitano_usdt" ? await ensurePresalePaymentIntent(replay, campaign) : undefined;
+        const emailStatus = await ensurePresaleReservationCreatedEmail(replay, campaign, intent?.network ?? "webpay");
         return { order: orderResponse(replay, campaign, null, 0, intent), accessToken, emailStatus };
       }
       if (invitation.status !== "active" || (invitation.expires_at && new Date(invitation.expires_at) <= new Date())) {
@@ -1243,6 +1327,7 @@ export const createPresaleOrder = api<CreatePresaleOrderRequest, { order: Presal
           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::numeric,$11::numeric,$12::numeric,$13::numeric,$14::numeric,$15,$16,$17,$18,$19,now(),
                   $20::jsonb,$21,$22,$23,$24,now(),now() + ($25::int * interval '1 minute'))
           RETURNING id, order_reference, campaign_id, buyer_name, buyer_email, external_profile_id, quantity,
+                    payment_rail, unit_price_zar::text AS unit_price_zar, total_zar::text AS total_zar,
                     unit_price_usdt::text AS unit_price_usdt, total_usdt::text AS total_usdt, unit_price_usd::text AS unit_price_usd,
                     total_usd::text AS total_usd, usdt_per_usd::text AS usdt_per_usd, quote_reference, status,
                     payment_deadline, confirmed_at, incorporation_status,
@@ -1254,9 +1339,21 @@ export const createPresaleOrder = api<CreatePresaleOrderRequest, { order: Presal
         JSON.stringify(applicationSummary), encryptedApplication.ciphertext, encryptedApplication.nonce,
         encryptedApplication.authTag, INVESTOR_APPLICATION_VERSION, campaign.payment_window_minutes);
       if (!order) throw new Error("presale_order_not_created");
+      const totalZar = payload.paymentRail === "webpay_card" ? webPayTotalZar(payload.quantity) : null;
+      await tx.rawExec(
+        `UPDATE presale_orders SET payment_rail = $2, unit_price_zar = $3::numeric, total_zar = $4::numeric
+          WHERE id = $1`,
+        order.id,
+        payload.paymentRail,
+        payload.paymentRail === "webpay_card" ? WEBPAY_UNIT_PRICE_ZAR : null,
+        totalZar,
+      );
+      order.payment_rail = payload.paymentRail;
+      order.unit_price_zar = payload.paymentRail === "webpay_card" ? WEBPAY_UNIT_PRICE_ZAR : null;
+      order.total_zar = totalZar;
       await tx.commit();
-      const intent = await ensurePresalePaymentIntent(order, campaign);
-      const emailStatus = await ensurePresaleReservationCreatedEmail(order, campaign, intent.network);
+      const intent = order.payment_rail === "remitano_usdt" ? await ensurePresalePaymentIntent(order, campaign) : undefined;
+      const emailStatus = await ensurePresaleReservationCreatedEmail(order, campaign, intent?.network ?? "webpay");
       return { order: orderResponse(order, campaign, null, 0, intent), accessToken, emailStatus };
     } catch (error) {
       try { await tx.rollback(); } catch { /* transaction may already be closed */ }
@@ -1277,6 +1374,7 @@ export const getPresaleOrder = api<
   }
   const row = await presaleDb.rawQueryRow<OrderRow & CampaignRow & { campaign_status: string; tx_hash: string | null; confirmations: number | null }>(
     `SELECT o.id, o.order_reference, o.campaign_id, o.buyer_name, o.buyer_email, o.external_profile_id, o.quantity,
+            o.payment_rail, o.unit_price_zar::text AS unit_price_zar, o.total_zar::text AS total_zar,
             o.unit_price_usdt::text AS unit_price_usdt, o.total_usdt::text AS total_usdt,
             o.unit_price_usd::text AS unit_price_usd, o.total_usd::text AS total_usd, o.usdt_per_usd::text AS usdt_per_usd, o.quote_reference, o.status,
             o.payment_deadline, o.confirmed_at, o.incorporation_status,
@@ -1291,6 +1389,86 @@ export const getPresaleOrder = api<
   if (!row) throw APIError.notFound("Presale order not found");
   const campaign: CampaignRow = { ...row, status: row.campaign_status };
   return { order: orderResponse(row, campaign, row.tx_hash, row.confirmations ?? 0) };
+});
+
+type WebPayCheckoutResponse = {
+  actionUrl: string;
+  fields: Record<string, string>;
+};
+
+export const createPresaleWebPayCheckout = api<
+  { orderReference: string },
+  WebPayCheckoutResponse
+>({ method: "POST", path: "/presale/orders/:orderReference/webpay-checkout", expose: true }, async (req) => {
+  const accessToken = requestHeader("x-presale-access-token").trim();
+  if (accessToken.length < 32 || accessToken.length > 256) {
+    throw APIError.unauthenticated("A valid order access token is required");
+  }
+  const actionUrl = WebPayCheckoutUrl().trim();
+  const notifyUrl = WebPayNotifyUrl().trim();
+  if (!actionUrl.startsWith("https://") || !notifyUrl.startsWith("https://")) {
+    throw APIError.unavailable("WebPay checkout is not configured");
+  }
+  const order = await presaleDb.rawQueryRow<{
+    id: string; order_reference: string; buyer_name: string; buyer_email: string; buyer_phone: string | null;
+    quantity: number; payment_rail: PresalePaymentRail; total_zar: string | null; status: string;
+    payment_deadline: string; webpay_transaction_id: string | null; webpay_order_number: string | null;
+  }>(
+    `SELECT id,order_reference,buyer_name,buyer_email,buyer_phone,quantity,payment_rail,
+            total_zar::text AS total_zar,status,payment_deadline,
+            webpay_transaction_id::text AS webpay_transaction_id,webpay_order_number
+       FROM presale_orders WHERE order_reference = $1 AND access_token_hash = $2`,
+    req.orderReference, hashSecret(accessToken),
+  );
+  if (!order) throw APIError.notFound("Presale order not found");
+  if (order.payment_rail !== "webpay_card" || !order.total_zar) {
+    throw APIError.failedPrecondition("This reservation is not configured for WebPay");
+  }
+  if (order.status !== "awaiting_payment" || new Date(order.payment_deadline) <= new Date()) {
+    throw APIError.failedPrecondition("This reservation no longer accepts payment");
+  }
+  const transactionId = order.webpay_transaction_id ?? crypto.randomUUID();
+  const orderNumber = order.webpay_order_number ?? webPayOrderNumber("KSH", order.order_reference);
+  await presaleDb.rawExec(
+    `UPDATE presale_orders SET webpay_transaction_id = $2, webpay_order_number = $3, updated_at = now()
+      WHERE id = $1 AND (webpay_transaction_id IS NULL OR webpay_transaction_id = $2)`,
+    order.id, transactionId, orderNumber,
+  );
+  const [firstName, ...surnameParts] = order.buyer_name.trim().split(/\s+/);
+  const fields: Record<string, string> = {
+    m_uuid: WebPayMerchantUuid(),
+    m_account_uuid: WebPayAccountUuid(),
+    m_tx_order_nr: orderNumber,
+    m_tx_id: transactionId,
+    m_tx_currency: "ZAR",
+    m_tx_amount: order.total_zar,
+    m_tx_item_name: "KaSiShares Class B shares",
+    m_tx_item_description: `${order.quantity} paid KaSiShares Class B share${order.quantity === 1 ? "" : "s"}`,
+    m_site_name: "KASIHUB ECO",
+    m_card_allowed: "true",
+    m_ieft_allowed: "false",
+    m_chips_allowed: "false",
+    m_trident_allowed: "false",
+    m_mpass_allowed: "false",
+    m_payat_allowed: "false",
+    m_zapper_allowed: "false",
+    m_snapscan_allowed: "false",
+    b_name: firstName,
+    b_email: order.buyer_email,
+    m_return_url: "https://shares.kasihub.net/shares/account",
+    m_notify_url: notifyUrl,
+    m_back2shop_url: "https://shares.kasihub.net/shares/account",
+  };
+  if (surnameParts.length) fields.b_surname = surnameParts.join(" ");
+  if (order.buyer_phone) fields.b_mobile = order.buyer_phone;
+  fields.checksum = webPayChecksum({
+    merchantUuid: fields.m_uuid,
+    accountUuid: fields.m_account_uuid,
+    transactionId,
+    amountZar: order.total_zar,
+    securityKey: WebPaySecurityKey(),
+  });
+  return { actionUrl, fields };
 });
 
 export const submitPresalePaymentProof = api<PresalePaymentProofRequest, { orderReference: string; status: string; transactionHash: string }>(
@@ -1347,6 +1525,56 @@ export const receivePresalePaymentEvent = api<PresalePaymentEventRequest, { acce
     return { accepted: true, outcome: "ignored_requires_chain_verification", orderReference: event.orderReference };
   },
 );
+
+export const receivePresaleWebPayNotification = api<
+  WebPayNotificationRequest,
+  { accepted: true; outcome: string; orderReference: string }
+>({ method: "POST", path: "/presale/webhooks/webpay", expose: true }, async (request) => {
+  const event = webPayNotificationInput.parse(request);
+  const amount = Number(event.requestAmount);
+  if (!Number.isFinite(amount) || amount <= 0) throw APIError.invalidArgument("Invalid WebPay amount");
+  const requestedAmount = amount.toFixed(2);
+  if (event.payeeSiteId !== WebPaySiteId()
+    || event.payeeUuid !== WebPayMerchantUuid()
+    || event.payeeAccountUuid !== WebPayAccountUuid()) {
+    throw APIError.unauthenticated("WebPay merchant identity does not match");
+  }
+  if (!verifyWebPayChecksum({
+    merchantUuid: event.payeeUuid,
+    accountUuid: event.payeeAccountUuid,
+    transactionId: event.payeeRefInfo,
+    amountZar: requestedAmount,
+    securityKey: WebPaySecurityKey(),
+  }, event.checksum)) throw APIError.unauthenticated("Invalid WebPay notification checksum");
+
+  const order = await presaleDb.rawQueryRow<{
+    id: string; order_reference: string; payment_rail: PresalePaymentRail; total_zar: string | null;
+    webpay_transaction_id: string | null; webpay_order_number: string | null; status: string;
+  }>(`SELECT id,order_reference,payment_rail,total_zar::text AS total_zar,
+             webpay_transaction_id::text AS webpay_transaction_id,webpay_order_number,status
+        FROM presale_orders
+       WHERE webpay_transaction_id::text = $1 OR webpay_order_number = $1`, event.payeeRefInfo);
+  if (!order || order.payment_rail !== "webpay_card" || order.webpay_order_number !== event.payeeOrderNr) {
+    throw APIError.failedPrecondition("WebPay notification does not match a reservation");
+  }
+  if (order.total_zar !== requestedAmount) throw APIError.failedPrecondition("WebPay amount does not match the reservation");
+  const providerReference = event.paymentSystemReference ?? `${event.requestTokenId}:${event.requestStatus}`;
+  const eventId = `${event.requestTokenId}:${event.requestStatus}`;
+  await presaleDb.rawExec(`INSERT INTO presale_payment_events (provider,provider_event_id,tx_hash,payload,outcome)
+    VALUES ('webpay',$1,$2,$3::jsonb,$4) ON CONFLICT (provider,provider_event_id) DO NOTHING`,
+  eventId, providerReference, JSON.stringify(event), event.requestStatus.toLowerCase());
+
+  if (event.requestStatus !== "COMPLETED") {
+    return { accepted: true, outcome: event.requestStatus.toLowerCase(), orderReference: order.order_reference };
+  }
+  const paidAmount = Number(event.paymentAmount);
+  if (!Number.isFinite(paidAmount) || paidAmount.toFixed(2) !== requestedAmount
+    || event.paymentCurrency !== "ZAR" || !event.paymentMethod?.startsWith("CARD")) {
+    throw APIError.failedPrecondition("Completed WebPay payment evidence does not match the reservation");
+  }
+  await fulfilWebPayPresalePayment(order.order_reference, providerReference, event.paymentMethod);
+  return { accepted: true, outcome: "confirmed", orderReference: order.order_reference };
+});
 
 export const upsertPresaleCampaign = api<UpsertPresaleCampaignRequest, { campaignId: string; status: string }>(
   { method: "POST", path: "/admin/presale/campaigns", expose: true },
