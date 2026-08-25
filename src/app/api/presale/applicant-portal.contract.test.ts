@@ -36,7 +36,7 @@ describe("isolated KaSiShares applicant portal", () => {
     expect(migration).toContain("uq_presale_reservation_email_delivery");
     expect(api).toContain("presale-reservation-created/${input.orderId}");
     expect(api).toContain('await tx.commit();\n      const intent = order.payment_rail === "remitano_usdt" ? await ensurePresalePaymentIntent(order, campaign) : undefined;');
-    expect(api).toContain('const emailStatus = await ensurePresaleReservationCreatedEmail(order, campaign, intent?.network ?? "webpay");');
+    expect(api).toContain('const emailStatus = await safelyEnsurePresaleReservationCreatedEmail(order, campaign, intent?.network ?? "webpay");');
     expect(api).toContain('return { order: orderResponse(order, campaign, null, 0, intent), accessToken, emailStatus };');
   });
 
@@ -108,5 +108,15 @@ describe("isolated KaSiShares applicant portal", () => {
     expect(api).toContain("investor_application_ciphertext");
     expect(api).toContain("const restoredDraft = { ...orderDraft, ...applicationDraft }");
     expect(account).toContain("application.phaseCompleted >= 4 && portal.kyc.verified");
+  });
+
+  test("recovers a committed active reservation and keeps email delivery non-fatal", () => {
+    const api = source("encore/domains/presale/api.ts");
+    const migration = source("encore/migrations/presale/12_reservation_email_uniqueness.up.sql");
+    expect(api).toContain("safelyEnsurePresaleReservationCreatedEmail");
+    expect(api).toContain("An active reservation already exists with a different quantity or payment method");
+    expect(api).toContain("status = 'awaiting_payment' AND payment_deadline > now()");
+    expect(migration).toContain("DROP CONSTRAINT IF EXISTS presale_email_deliveries_external_profile_id_email_type_key");
+    expect(migration).toContain("uq_presale_account_created_email_delivery");
   });
 });

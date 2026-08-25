@@ -2,6 +2,7 @@
 import { api, APIError } from "encore.dev/api";
 import { secret } from "encore.dev/config";
 import { CronJob } from "encore.dev/cron";
+import * as log from "encore.dev/log";
 import { createCipheriv, createDecipheriv, createHash as createNodeHash, randomBytes } from "node:crypto";
 import { z } from "zod";
 import { identityDb, kycDb, presaleDb, sharesDb } from "../../resources";
@@ -185,6 +186,16 @@ async function ensurePresaleReservationCreatedEmail(order: OrderRow, campaign: C
     paymentMethod: order.payment_rail === "webpay_card" ? "WebPay debit or credit card" : `Remitano / USDT on ${network}`,
     paymentDeadline: order.payment_deadline,
   });
+}
+
+async function safelyEnsurePresaleReservationCreatedEmail(order: OrderRow, campaign: CampaignRow, network: string): Promise<"sent" | "failed" | "existing"> {
+  try {
+    return await ensurePresaleReservationCreatedEmail(order, campaign, network);
+  } catch (error) {
+    // A committed financial reservation must never be reported as failed because an ancillary email could not be queued.
+    log.error(error, "presale reservation email could not be queued", { orderId: order.id });
+    return "failed";
+  }
 }
 
 function encryptInvestorApplication(value: unknown): { ciphertext: Buffer; nonce: Buffer; authTag: Buffer } {
@@ -1395,8 +1406,33 @@ export const createPresaleOrder = api<CreatePresaleOrderRequest, { order: Presal
         if (!campaign) throw new Error("presale_campaign_not_found");
         await tx.commit();
         const intent = replay.payment_rail === "remitano_usdt" ? await ensurePresalePaymentIntent(replay, campaign) : undefined;
-        const emailStatus = await ensurePresaleReservationCreatedEmail(replay, campaign, intent?.network ?? "webpay");
+        const emailStatus = await safelyEnsurePresaleReservationCreatedEmail(replay, campaign, intent?.network ?? "webpay");
         return { order: orderResponse(replay, campaign, null, 0, intent), accessToken, emailStatus };
+      }
+      const existing = await tx.rawQueryRow<OrderRow>(
+        `SELECT id, order_reference, campaign_id, buyer_name, buyer_email, external_profile_id, quantity,
+                payment_rail, unit_price_zar::text AS unit_price_zar, total_zar::text AS total_zar,
+                unit_price_usdt::text AS unit_price_usdt, total_usdt::text AS total_usdt,
+                unit_price_usd::text AS unit_price_usd, total_usd::text AS total_usd,
+                usdt_per_usd::text AS usdt_per_usd, quote_reference, status, payment_deadline, confirmed_at, incorporation_status,
+                payment_obligation_id,payment_intent_id,payment_network,payment_receiving_address,payment_token_contract,
+                payment_min_confirmations,payment_settled_at,created_at
+         FROM presale_orders
+         WHERE invitation_id = $1 AND external_profile_id::text = $2::text
+           AND status = 'awaiting_payment' AND payment_deadline > now()
+         ORDER BY created_at DESC LIMIT 1 FOR UPDATE`, invitation.id, session.profile.id,
+      );
+      if (existing) {
+        if (existing.quantity !== payload.quantity || existing.payment_rail !== payload.paymentRail) {
+          throw APIError.failedPrecondition("An active reservation already exists with a different quantity or payment method");
+        }
+        await tx.rawExec("UPDATE presale_orders SET access_token_hash = $2, updated_at = now() WHERE id = $1", existing.id, hashSecret(accessToken));
+        const campaign = await tx.rawQueryRow<CampaignRow>("SELECT * FROM presale_campaigns WHERE id = $1", existing.campaign_id);
+        if (!campaign) throw new Error("presale_campaign_not_found");
+        await tx.commit();
+        const intent = existing.payment_rail === "remitano_usdt" ? await ensurePresalePaymentIntent(existing, campaign) : undefined;
+        const emailStatus = await safelyEnsurePresaleReservationCreatedEmail(existing, campaign, intent?.network ?? "webpay");
+        return { order: orderResponse(existing, campaign, null, 0, intent), accessToken, emailStatus };
       }
       if (invitation.status !== "active" || (invitation.expires_at && new Date(invitation.expires_at) <= new Date())) {
         throw APIError.permissionDenied("This invitation is invalid or expired");
@@ -1459,7 +1495,7 @@ export const createPresaleOrder = api<CreatePresaleOrderRequest, { order: Presal
       order.total_zar = totalZar;
       await tx.commit();
       const intent = order.payment_rail === "remitano_usdt" ? await ensurePresalePaymentIntent(order, campaign) : undefined;
-      const emailStatus = await ensurePresaleReservationCreatedEmail(order, campaign, intent?.network ?? "webpay");
+      const emailStatus = await safelyEnsurePresaleReservationCreatedEmail(order, campaign, intent?.network ?? "webpay");
       return { order: orderResponse(order, campaign, null, 0, intent), accessToken, emailStatus };
     } catch (error) {
       try { await tx.rollback(); } catch { /* transaction may already be closed */ }
