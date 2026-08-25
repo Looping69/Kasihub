@@ -21,6 +21,12 @@ type RegisterResponse = {
 type LoginResponse = { token: string };
 type ProfileResponse = { member: Member };
 
+function optionalString(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim();
+  return normalized || undefined;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -38,24 +44,24 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify({
         email: body.email,
         password: body.password,
-        phone: body.mobile,
-        firstName: body.firstName,
-        surname: body.lastName,
-        companyName: body.companyName,
-        companyRegistrationNumber: body.companyRegNo,
-        idOrPassportNumber: body.idPassport,
-        sarsNumber: body.sarsNumber,
-        country: body.country,
+        phone: optionalString(body.mobile),
+        firstName: optionalString(body.firstName),
+        surname: optionalString(body.lastName),
+        companyName: optionalString(body.companyName),
+        companyRegistrationNumber: optionalString(body.companyRegNo),
+        idOrPassportNumber: optionalString(body.idPassport),
+        sarsNumber: optionalString(body.sarsNumber),
+        country: optionalString(body.country),
         membershipType: body.membershipType,
         citizenshipType: body.citizenshipType,
         onboardingAuthority: body.onboardingAuthority,
-        addressLine: body.addressLine,
-        city: body.city,
-        postalCode: body.postalCode,
-        beneficiaryName: body.beneficiaryName,
-        beneficiaryId: body.beneficiaryId,
-        guardianName: body.guardianName,
-        uplineProfileNumber: body.uplineProfileNumber,
+        addressLine: optionalString(body.addressLine),
+        city: optionalString(body.city),
+        postalCode: optionalString(body.postalCode),
+        beneficiaryName: optionalString(body.beneficiaryName),
+        beneficiaryId: optionalString(body.beneficiaryId),
+        guardianName: optionalString(body.guardianName),
+        uplineProfileNumber: optionalString(body.uplineProfileNumber),
         uplineConfirmed: Boolean(body.uplineConfirmed),
       }),
     });

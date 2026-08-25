@@ -109,6 +109,46 @@ describe("registration and dashboard contracts", () => {
     expect(await response.json()).toEqual({ error: "A member with these identity details already exists." });
   });
 
+  test("registration omits null and blank optional fields before calling Encore", async () => {
+    mocks.encoreRequest
+      .mockResolvedValueOnce({
+        registrationId: "registration",
+        status: "awaiting_payment",
+        nextAction: "payment",
+        routing: { kycRail: "instapay", paymentRail: "instapay" },
+        user: { profileId: "profile", profileNumber: "KSI-1" },
+      })
+      .mockResolvedValueOnce({ token: "token" })
+      .mockResolvedValueOnce({ member });
+
+    const response = await register(post({
+      email: "member@example.test",
+      password: "strong-password",
+      membershipType: "INDIVIDUAL_ADULT",
+      citizenshipType: "SA_CITIZEN_SA",
+      onboardingAuthority: "provider",
+      mobile: "+27 82 123 4567",
+      addressLine: null,
+      city: "   ",
+      postalCode: null,
+      beneficiaryName: null,
+      beneficiaryId: null,
+      guardianName: null,
+      uplineProfileNumber: null,
+      uplineConfirmed: false,
+    }));
+
+    expect(response.status).toBe(201);
+    const forwarded = JSON.parse(mocks.encoreRequest.mock.calls[0][1].body as string);
+    expect(forwarded.phone).toBe("+27 82 123 4567");
+    for (const key of [
+      "addressLine", "city", "postalCode", "beneficiaryName", "beneficiaryId",
+      "guardianName", "uplineProfileNumber",
+    ]) {
+      expect(forwarded).not.toHaveProperty(key);
+    }
+  });
+
   test("dashboard requires member identity and authentication", async () => {
     expect((await dashboard(new NextRequest("https://kasihub.test/api/dashboard"))).status).toBe(400);
     mocks.encoreSessionToken.mockResolvedValue(undefined);
