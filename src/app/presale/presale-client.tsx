@@ -1,7 +1,7 @@
 "use client";
 
 // Author: Klaasvaakie ( |╲ )
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { CheckCircle2, ChevronLeft, ChevronRight, ClipboardCheck, Clock3, Copy, FileCheck2, Landmark, LockKeyhole, ShieldCheck, UserRound, WalletCards } from "lucide-react";
@@ -49,7 +49,7 @@ type KycVerification = {
 
 type ResumePortal = {
   applicant: { profileNumber: string; email: string; legalName: string; phone: string; country: string; physicalAddress: string };
-  application: null | { applicantType: "individual" | "company" | "trust"; nextStep: number };
+  application: null | { applicantType: "individual" | "company" | "trust"; nextStep: number; draft: Record<string, string | boolean> | null };
   continuation?: { nextStep: number | null; reason: string; resumeUrl: string | null };
 };
 
@@ -100,6 +100,8 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
   const [accountEmailStatus, setAccountEmailStatus] = useState<"sent" | "failed" | "existing" | "">("");
   const [resumeApplicant, setResumeApplicant] = useState<ResumePortal["applicant"] | null>(null);
   const [resumeLoading, setResumeLoading] = useState(!devPreview);
+  const [resumeDraft, setResumeDraft] = useState<Record<string, string | boolean> | null>(null);
+  const applicationFormRef = useRef<HTMLFormElement | null>(null);
 
   useEffect(() => {
     // Development preview has static display data and cannot contact the BFF.
@@ -126,12 +128,34 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
         setMemberProfileNumber(portal.applicant.profileNumber);
         if (!portal.application) return;
         setApplicantType(portal.application.applicantType);
+        setResumeDraft(portal.application.draft);
+        if (typeof portal.application.draft?.quantity === "string") setQuantity(portal.application.draft.quantity);
+        if (portal.application.draft?.paymentRail === "webpay_card" || portal.application.draft?.paymentRail === "remitano_usdt") {
+          setPaymentRail(portal.application.draft.paymentRail);
+        }
         const authoritativeNextStep = portal.continuation?.nextStep ?? portal.application.nextStep;
         setApplicationPhase(Math.max(1, Math.min(5, authoritativeNextStep)));
       }).catch(() => undefined).finally(() => setResumeLoading(false));
     }, 0);
     return () => window.clearTimeout(timer);
   }, [devPreview]);
+
+  useEffect(() => {
+    const form = applicationFormRef.current;
+    if (!form || !resumeDraft) return;
+    for (const [name, value] of Object.entries(resumeDraft)) {
+      if (name === "accountPassword" || name === "confirmAccountPassword") continue;
+      const controls = form.elements.namedItem(name);
+      const elements = controls instanceof RadioNodeList ? Array.from(controls) : controls ? [controls] : [];
+      for (const control of elements) {
+        if (control instanceof HTMLInputElement && (control.type === "checkbox" || control.type === "radio")) {
+          control.checked = typeof value === "boolean" ? value : control.value === value;
+        } else if (control instanceof HTMLInputElement || control instanceof HTMLSelectElement || control instanceof HTMLTextAreaElement) {
+          control.value = String(value);
+        }
+      }
+    }
+  }, [resumeDraft, applicationPhase]);
 
   const refreshOrder = useCallback(async () => {
     if (!order || !accessToken) return;
@@ -388,12 +412,24 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
     setAccountEmailStatus(payload.emailStatus);
   }
 
-  async function saveProgress(phaseCompleted: number) {
+  function applicationDraft(form: HTMLFormElement): Record<string, string | boolean> {
+    const draft: Record<string, string | boolean> = {};
+    for (const [name, value] of new FormData(form).entries()) {
+      if (name !== "accountPassword" && name !== "confirmAccountPassword") draft[name] = String(value);
+    }
+    for (const name of ["amlDeclarationAccepted", "suitabilityDeclarationAccepted", "informationDeclarationAccepted"]) {
+      const control = form.elements.namedItem(name);
+      draft[name] = control instanceof HTMLInputElement && control.checked;
+    }
+    return draft;
+  }
+
+  async function saveProgress(form: HTMLFormElement, phaseCompleted: number) {
     if (devPreview) return;
     const response = await fetch("/api/presale/progress", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ phaseCompleted }),
+      body: JSON.stringify({ phaseCompleted, draft: applicationDraft(form) }),
     });
     if (!response.ok) throw new Error("Application progress could not be saved.");
   }
@@ -413,6 +449,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
       setError("");
       try {
         await registerMember(form);
+        await saveProgress(form, 1);
       } catch (reason) {
         setError(reason instanceof Error ? reason.message : "Member registration is temporarily unavailable.");
         return;
@@ -431,7 +468,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
         await startIdentityVerification();
         const verification = await refreshKycVerification();
         if (!verification?.verified) return;
-        await saveProgress(4);
+        await saveProgress(form, 4);
       } catch {
         setError("Identity verification is currently unavailable. Please try again shortly.");
         return;
@@ -441,7 +478,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
     }
     if (applicationPhase === 2 || applicationPhase === 3) {
       try {
-        await saveProgress(applicationPhase);
+        await saveProgress(form, applicationPhase);
       } catch (reason) {
         setError(reason instanceof Error ? reason.message : "Application progress could not be saved.");
         return;
@@ -489,7 +526,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
         {!order ? (
           <Card className="presale-form-card min-w-0 text-white shadow-2xl shadow-black/20">
             <CardHeader><p className="text-xs font-bold uppercase tracking-[.18em] text-amber-300">Investor application</p><h2 className="mt-2 font-semibold leading-none">{APPLICATION_PHASES[applicationPhase - 1].title}</h2><CardDescription className="text-slate-400">Step {applicationPhase} of 5 · {APPLICATION_PHASES[applicationPhase - 1].description}</CardDescription></CardHeader>
-            <CardContent><form key={resumeApplicant?.profileNumber ?? "new-applicant"} className="space-y-5" noValidate onSubmit={createOrder}>
+            <CardContent><form ref={applicationFormRef} key={resumeApplicant?.profileNumber ?? "new-applicant"} className="space-y-5" noValidate onSubmit={createOrder}>
               <ApplicationProgress phase={applicationPhase} />
               <div data-application-phase="1" hidden={applicationPhase !== 1} className="space-y-5">
               <SectionTitle>KaSiHub member profile</SectionTitle>

@@ -78,10 +78,21 @@ describe("isolated KaSiShares applicant portal", () => {
 
   test("does not let hidden completed phases block the final reservation submit", () => {
     const presale = source("src/app/presale/presale-client.tsx");
-    expect(presale).toContain("<form key={resumeApplicant?.profileNumber ?? \"new-applicant\"} className=\"space-y-5\" noValidate");
+    expect(presale).toContain('key={resumeApplicant?.profileNumber ?? "new-applicant"} className="space-y-5" noValidate');
     expect(presale).toContain('<Button formNoValidate className="flex-1 bg-amber-400');
     expect(presale).not.toContain("event.currentTarget.checkValidity()");
     expect(presale).toContain("setApplicationPhase(1)");
     expect(presale).toContain("setApplicationPhase(4)");
+  });
+
+  test("persists and restores the encrypted applicant form draft", () => {
+    const presale = source("src/app/presale/presale-client.tsx");
+    const api = source("encore/domains/presale/api.ts");
+    expect(presale).toContain("draft: applicationDraft(form)");
+    expect(presale).toContain("setResumeDraft(portal.application.draft)");
+    expect(presale).toContain('name !== "accountPassword" && name !== "confirmAccountPassword"');
+    expect(api).toContain("decryptPresaleApplicationDraft");
+    expect(api).toContain('for (const forbidden of ["accountPassword", "confirmAccountPassword"])');
+    expect(api).toContain("payload_ciphertext,payload_nonce,payload_auth_tag");
   });
 });

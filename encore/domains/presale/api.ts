@@ -786,6 +786,19 @@ function decryptPresaleSecret(ciphertext: DatabaseBinary, nonce: DatabaseBinary,
   return decoded;
 }
 
+function decryptPresaleApplicationDraft(ciphertext: DatabaseBinary, nonce: DatabaseBinary, authTag: DatabaseBinary): Record<string, string | boolean> {
+  const key = createNodeHash("sha256").update(InvestorApplicationEncryptionKey()).digest();
+  const decipher = createDecipheriv("aes-256-gcm", key, databaseBinaryToBuffer(nonce));
+  decipher.setAuthTag(databaseBinaryToBuffer(authTag));
+  const decoded = JSON.parse(Buffer.concat([
+    decipher.update(databaseBinaryToBuffer(ciphertext)),
+    decipher.final(),
+  ]).toString("utf8")) as unknown;
+  if (!decoded || typeof decoded !== "object" || Array.isArray(decoded)) throw new Error("invalid_presale_application_draft");
+  return Object.fromEntries(Object.entries(decoded).filter((entry): entry is [string, string | boolean] =>
+    typeof entry[1] === "string" || typeof entry[1] === "boolean"));
+}
+
 interface RegisterPresaleMemberRequest {
   inviteToken: string;
   email: string;
@@ -803,6 +816,7 @@ interface PresalePortalResponse {
   application: null | {
     applicationId: string; applicationNumber: string; campaignName: string; status: string;
     applicantType: "individual" | "company" | "trust"; phaseCompleted: number; completionPercent: number; nextStep: number; resumeUrl: string | null;
+    draft: Record<string, string | boolean> | null;
   };
   kyc: { status: string; verified: boolean };
   order: null | { orderReference: string; status: string; incorporationStatus: string };
@@ -1016,13 +1030,16 @@ export const presaleApplicantPortal = api<void, PresalePortalResponse>(
       applicant_type: "individual" | "company" | "trust";
       phase_completed: number; completion_percent: number; resume_token_ciphertext: DatabaseBinary | null;
       resume_token_nonce: DatabaseBinary | null; resume_token_auth_tag: DatabaseBinary | null; resume_access_available: boolean;
+      payload_ciphertext: DatabaseBinary | null; payload_nonce: DatabaseBinary | null; payload_auth_tag: DatabaseBinary | null;
     }>(
       `SELECT a.id, a.application_number, c.name AS campaign_name, a.status, a.applicant_type, a.phase_completed, a.completion_percent,
               a.resume_token_ciphertext, a.resume_token_nonce, a.resume_token_auth_tag,
+              v.payload_ciphertext, v.payload_nonce, v.payload_auth_tag,
               COALESCE((i.status = 'active' AND (i.expires_at IS NULL OR i.expires_at > now())
                AND c.status = 'active' AND (c.starts_at IS NULL OR c.starts_at <= now())
                AND (c.ends_at IS NULL OR c.ends_at > now())), false) AS resume_access_available
        FROM presale_applications a JOIN presale_campaigns c ON c.id = a.campaign_id
+       LEFT JOIN presale_application_versions v ON v.application_id = a.id AND v.version = a.current_version
        LEFT JOIN presale_invitations i ON i.id = a.invitation_id
        WHERE a.external_profile_id = $1 ORDER BY a.created_at DESC LIMIT 1`,
       session.profile.id,
@@ -1060,6 +1077,9 @@ export const presaleApplicantPortal = api<void, PresalePortalResponse>(
         phaseCompleted: application.phase_completed, completionPercent: application.completion_percent,
         nextStep: continuation.nextStep ?? Math.min(5, application.phase_completed + 1),
         resumeUrl,
+        draft: application.payload_ciphertext && application.payload_nonce && application.payload_auth_tag
+          ? decryptPresaleApplicationDraft(application.payload_ciphertext, application.payload_nonce, application.payload_auth_tag)
+          : null,
       } : null,
       kyc: { status: kyc?.status ?? "pending", verified: kyc?.status === "approved" },
       order: order ? { orderReference: order.order_reference, status: order.status, incorporationStatus: order.incorporation_status } : null,
@@ -1069,20 +1089,46 @@ export const presaleApplicantPortal = api<void, PresalePortalResponse>(
 );
 
 export const updatePresaleApplicantProgress = api<
-  { phaseCompleted: number }, { phaseCompleted: number; completionPercent: number }
+  { phaseCompleted: number; draft?: Record<string, string | boolean> }, { phaseCompleted: number; completionPercent: number }
 >({ method: "POST", path: "/presale/applicant/progress", expose: true }, async (request) => {
   const session = await requirePresaleSession();
-  const payload = z.object({ phaseCompleted: z.number().int().min(1).max(4) }).parse(request);
-  const updated = await presaleDb.rawQueryRow<{ phase_completed: number; completion_percent: number }>(
-    `UPDATE presale_applications SET phase_completed = GREATEST(phase_completed, $2),
-       completion_percent = GREATEST(completion_percent, $2 * 20), updated_at = now()
-     WHERE id = (SELECT id FROM presale_applications WHERE external_profile_id = $1
-                 ORDER BY created_at DESC LIMIT 1)
-     RETURNING phase_completed, completion_percent`,
-    session.profile.id, payload.phaseCompleted,
-  );
-  if (!updated) throw APIError.notFound("Investor application not found");
-  return { phaseCompleted: updated.phase_completed, completionPercent: updated.completion_percent };
+  const payload = z.object({
+    phaseCompleted: z.number().int().min(1).max(4),
+    draft: z.record(z.string().min(1).max(80), z.union([z.string().max(2000), z.boolean()])).default({}),
+  }).parse(request);
+  for (const forbidden of ["accountPassword", "confirmAccountPassword"]) delete payload.draft[forbidden];
+  const encrypted = encryptInvestorApplication(payload.draft);
+  const payloadHash = createNodeHash("sha256").update(JSON.stringify(payload.draft)).digest("hex");
+  const tx = await presaleDb.begin();
+  try {
+    const application = await tx.rawQueryRow<{ id: string; current_version: number }>(
+      `SELECT id,current_version FROM presale_applications
+       WHERE external_profile_id = $1 ORDER BY created_at DESC LIMIT 1 FOR UPDATE`, session.profile.id,
+    );
+    if (!application) throw APIError.notFound("Investor application not found");
+    const nextVersion = application.current_version + 1;
+    await tx.rawExec("UPDATE presale_application_versions SET status = 'superseded' WHERE application_id = $1 AND status = 'draft'", application.id);
+    await tx.rawExec(
+      `INSERT INTO presale_application_versions
+         (id,application_id,version,schema_version,status,public_summary,payload_ciphertext,payload_nonce,payload_auth_tag,
+          encryption_key_version,payload_sha256,created_by_profile_id,created_by_user_id)
+       VALUES ($1,$2,$3,$4,'draft',$5::jsonb,$6,$7,$8,'v1',$9,$10,$11)`,
+      crypto.randomUUID(), application.id, nextVersion, INVESTOR_APPLICATION_SCHEMA_VERSION,
+      JSON.stringify({ phaseCompleted: payload.phaseCompleted }), encrypted.ciphertext, encrypted.nonce, encrypted.authTag,
+      payloadHash, session.profile.id, session.user.id,
+    );
+    const updated = await tx.rawQueryRow<{ phase_completed: number; completion_percent: number }>(
+      `UPDATE presale_applications SET current_version = $2, phase_completed = GREATEST(phase_completed, $3),
+         completion_percent = GREATEST(completion_percent, $3 * 20), row_version = row_version + 1, updated_at = now()
+       WHERE id = $1 RETURNING phase_completed, completion_percent`, application.id, nextVersion, payload.phaseCompleted,
+    );
+    await tx.commit();
+    if (!updated) throw APIError.notFound("Investor application not found");
+    return { phaseCompleted: updated.phase_completed, completionPercent: updated.completion_percent };
+  } catch (error) {
+    try { await tx.rollback(); } catch { /* transaction may already be closed */ }
+    throw error;
+  }
 });
 
 export const createPresaleApplication = api<CreatePresaleApplicationRequest, { application: ApplicationDraftResponse }>(
