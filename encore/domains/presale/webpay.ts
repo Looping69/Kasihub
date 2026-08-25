@@ -26,9 +26,9 @@ function decimalToCents(value: string): number {
   return cents;
 }
 
-export function webPayTotalZar(quantity: number): string {
+export function webPayTotalZar(quantity: number, unitPriceZar = WEBPAY_UNIT_PRICE_ZAR): string {
   if (!Number.isSafeInteger(quantity) || quantity <= 0) throw new Error("invalid_share_quantity");
-  return ((decimalToCents(WEBPAY_UNIT_PRICE_ZAR) * quantity) / 100).toFixed(2);
+  return ((decimalToCents(unitPriceZar) * quantity) / 100).toFixed(2);
 }
 
 export function webPayChecksum(input: {

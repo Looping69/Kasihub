@@ -13,6 +13,7 @@ import { availablePaidShares, formatUsdt } from "@/lib/presale-display";
 
 type Offer = PresaleDevPreviewOffer & {
   invitationEmail?: string;
+  webPayUnitPriceZar?: string;
 };
 
 type Order = {
@@ -203,6 +204,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
 
   const maximumPaidShares = offer ? availablePaidShares(offer.invitationSharesRemaining, offer.sharesRemaining) : 0;
   const totalPreview = offer ? Number(offer.priceUsdt) * Number(quantity || 0) : 0;
+  const webPayUnitPriceZar = Number(offer?.webPayUnitPriceZar ?? 450);
 
   async function createOrder(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -602,7 +604,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
                   <span className="flex items-start gap-3"><input name="paymentRail" type="radio" value="remitano_usdt" checked={paymentRail === "remitano_usdt"} onChange={() => setPaymentRail("remitano_usdt")} className="mt-1" required /><span><strong className="block text-white">International payment — Remitano</strong><span className="mt-1 block text-xs leading-5 text-slate-300">Pay the locked USDT amount using the displayed blockchain network and receiving address.</span></span></span>
                 </label>
                 <label className={`block cursor-pointer rounded-xl border p-4 transition ${paymentRail === "webpay_card" ? "border-sky-300 bg-sky-300/10" : "border-white/15 bg-black/20"}`}>
-                  <span className="flex items-start gap-3"><input name="paymentRail" type="radio" value="webpay_card" checked={paymentRail === "webpay_card"} onChange={() => setPaymentRail("webpay_card")} className="mt-1" required /><span><strong className="block text-white">Debit or credit card — WebPay</strong><span className="mt-1 block text-xs leading-5 text-slate-300">R450.00 per paid share. Your card details are entered only on the secure WebPay checkout.</span><span className="mt-2 block font-bold text-sky-100">Total: R{(Number(quantity || 0) * 450).toFixed(2)}</span></span></span>
+                  <span className="flex items-start gap-3"><input name="paymentRail" type="radio" value="webpay_card" checked={paymentRail === "webpay_card"} onChange={() => setPaymentRail("webpay_card")} className="mt-1" required /><span><strong className="block text-white">Debit or credit card — WebPay</strong><span className="mt-1 block text-xs leading-5 text-slate-300">R{webPayUnitPriceZar.toFixed(2)} per paid share. Your card details are entered only on the secure WebPay checkout.</span><span className="mt-2 block font-bold text-sky-100">Total: R{(Number(quantity || 0) * webPayUnitPriceZar).toFixed(2)}</span></span></span>
                 </label>
               </fieldset>
               <a href={TERMS_PDF_PATH} target="_blank" rel="noreferrer" className="inline-flex text-sm font-semibold text-amber-200 underline underline-offset-4 hover:text-amber-100">Open the authoritative terms PDF</a>

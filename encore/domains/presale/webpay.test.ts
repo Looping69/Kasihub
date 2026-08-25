@@ -21,6 +21,11 @@ describe("WebPay presale contract", () => {
     expect(webPayTotalZar(5)).toBe("2250.00");
   });
 
+  test("supports a transaction-scoped unit price", () => {
+    expect(webPayTotalZar(1, "20.00")).toBe("20.00");
+    expect(webPayTotalZar(5, "20.00")).toBe("100.00");
+  });
+
   test("uses the documented merchant, account, transaction, cents, currency and key checksum order", () => {
     const input = {
       merchantUuid: "merchant",

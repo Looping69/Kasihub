@@ -401,6 +401,7 @@ interface PresaleOfferResponse {
   shareClass: string;
   priceUsdt: string;
   priceUsd: string;
+  webPayUnitPriceZar: string;
   usdtPerUsd: string;
   network: string;
   tokenContract?: string;
@@ -1337,18 +1338,19 @@ export const getPresaleOffer = api<
   { offer: PresaleOfferResponse }
 >({ method: "GET", path: "/presale/offer", expose: true }, async (req) => {
   if (!req.inviteToken || req.inviteToken.length < 32) throw APIError.permissionDenied("A valid private invitation is required");
-  const row = await presaleDb.rawQueryRow<CampaignRow & { max_shares: number; used_shares: number; invitation_email: string | null }>(
-    `SELECT c.*, i.max_shares, i.used_shares, i.email AS invitation_email
+  const row = await presaleDb.rawQueryRow<CampaignRow & { max_shares: number; used_shares: number; invitation_email: string | null; webpay_unit_price_zar: string }>(
+    `SELECT c.*, i.max_shares, i.used_shares, i.email AS invitation_email,
+            COALESCE(i.webpay_unit_price_zar_override, $2::numeric)::text AS webpay_unit_price_zar
      FROM presale_invitations i JOIN presale_campaigns c ON c.id = i.campaign_id
      WHERE i.token_hash = $1 AND i.status = 'active' AND (i.expires_at IS NULL OR i.expires_at > now())
        AND c.status = 'active' AND (c.starts_at IS NULL OR c.starts_at <= now()) AND (c.ends_at IS NULL OR c.ends_at > now())`,
-    hashSecret(req.inviteToken),
+    hashSecret(req.inviteToken), WEBPAY_UNIT_PRICE_ZAR,
   );
   if (!row) throw APIError.permissionDenied("This invitation is invalid, expired, or the presale is not active");
-  return { offer: offerResponse(row, row.max_shares - row.used_shares, row.invitation_email) };
+  return { offer: offerResponse(row, row.max_shares - row.used_shares, row.invitation_email, row.webpay_unit_price_zar) };
 });
 
-function offerResponse(campaign: CampaignRow, invitationSharesRemaining: number, invitationEmail?: string | null): PresaleOfferResponse {
+function offerResponse(campaign: CampaignRow, invitationSharesRemaining: number, invitationEmail?: string | null, webPayUnitPriceZar = WEBPAY_UNIT_PRICE_ZAR): PresaleOfferResponse {
   return {
     slug: campaign.slug,
     name: campaign.name,
@@ -1356,6 +1358,7 @@ function offerResponse(campaign: CampaignRow, invitationSharesRemaining: number,
     shareClass: campaign.share_class,
     priceUsdt: campaign.price_usdt,
     priceUsd: campaign.price_usd,
+    webPayUnitPriceZar,
     usdtPerUsd: campaign.usdt_per_usd,
     network: campaign.network,
     // Payment instructions are issued only after reservation by the locked
@@ -1408,8 +1411,9 @@ export const createPresaleOrder = api<CreatePresaleOrderRequest, { order: Presal
     const accessToken = crypto.randomUUID() + crypto.randomUUID();
     const tx = await presaleDb.begin();
     try {
-      const invitation = await tx.rawQueryRow<{ id: string; campaign_id: string; email: string | null; max_shares: number; used_shares: number; status: string; expires_at: string | null }>(
-        `SELECT id, campaign_id, email, max_shares, used_shares, status, expires_at
+      const invitation = await tx.rawQueryRow<{ id: string; campaign_id: string; email: string | null; max_shares: number; used_shares: number; status: string; expires_at: string | null; webpay_unit_price_zar_override: string | null }>(
+        `SELECT id, campaign_id, email, max_shares, used_shares, status, expires_at,
+                webpay_unit_price_zar_override::text AS webpay_unit_price_zar_override
          FROM presale_invitations WHERE token_hash = $1 FOR UPDATE`, inviteHash);
       if (!invitation) throw APIError.permissionDenied("This invitation is invalid or expired");
       const replay = await tx.rawQueryRow<OrderRow & { request_hash: string }>(
@@ -1503,18 +1507,22 @@ export const createPresaleOrder = api<CreatePresaleOrderRequest, { order: Presal
         JSON.stringify(applicationSummary), encryptedApplication.ciphertext, encryptedApplication.nonce,
         encryptedApplication.authTag, INVESTOR_APPLICATION_VERSION, campaign.payment_window_minutes);
       if (!order) throw new Error("presale_order_not_created");
-      const totalZar = payload.paymentRail === "webpay_card" ? webPayTotalZar(payload.quantity) : null;
+      const webPayUnitPriceZar = invitation.webpay_unit_price_zar_override ?? WEBPAY_UNIT_PRICE_ZAR;
+      const totalZar = payload.paymentRail === "webpay_card" ? webPayTotalZar(payload.quantity, webPayUnitPriceZar) : null;
       await tx.rawExec(
         `UPDATE presale_orders SET payment_rail = $2, unit_price_zar = $3::numeric, total_zar = $4::numeric
           WHERE id = $1`,
         order.id,
         payload.paymentRail,
-        payload.paymentRail === "webpay_card" ? WEBPAY_UNIT_PRICE_ZAR : null,
+        payload.paymentRail === "webpay_card" ? webPayUnitPriceZar : null,
         totalZar,
       );
       order.payment_rail = payload.paymentRail;
-      order.unit_price_zar = payload.paymentRail === "webpay_card" ? WEBPAY_UNIT_PRICE_ZAR : null;
+      order.unit_price_zar = payload.paymentRail === "webpay_card" ? webPayUnitPriceZar : null;
       order.total_zar = totalZar;
+      if (payload.paymentRail === "webpay_card" && invitation.webpay_unit_price_zar_override) {
+        await tx.rawExec("UPDATE presale_invitations SET webpay_unit_price_zar_override = NULL WHERE id = $1", invitation.id);
+      }
       await tx.commit();
       const intent = order.payment_rail === "remitano_usdt" ? await ensurePresalePaymentIntent(order, campaign) : undefined;
       const emailStatus = await safelyEnsurePresaleReservationCreatedEmail(order, campaign, intent?.network ?? "webpay");
