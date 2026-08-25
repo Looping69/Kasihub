@@ -98,7 +98,11 @@ export function SharesAccountClient() {
       body: JSON.stringify({ acknowledgeNoPaymentSent: true }),
     });
     const body = await response.json();
-    if (!response.ok) { setError(body.error ?? "The reservation could not be cancelled."); return; }
+    if (!response.ok) {
+      await loadPortal().catch(() => undefined);
+      setError(body.error ?? "The reservation could not be cancelled. Your account status has been refreshed.");
+      return;
+    }
     await loadPortal();
   }
 

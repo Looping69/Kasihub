@@ -15,8 +15,8 @@ export async function POST(req: NextRequest, context: { params: Promise<{ refere
     ));
   } catch (error) {
     const status = error instanceof EncoreRequestError ? error.status : 500;
-    const message = status === 409 || status === 412
-      ? "This reservation can no longer be cancelled online. Contact KaSiHub support."
+    const message = status === 400 || status === 409 || status === 412
+      ? "This reservation has already expired, changed status, or entered WebPay checkout. Your account status will be refreshed."
       : "The unpaid reservation could not be cancelled.";
     return NextResponse.json({ error: message }, { status });
   }

@@ -130,6 +130,8 @@ describe("isolated KaSiShares applicant portal", () => {
     expect(api).toContain("reserved_shares = reserved_shares - $2");
     expect(api).toContain("used_shares = used_shares - $2");
     expect(route).toContain("presaleSessionToken");
+    expect(route).toContain("Your account status will be refreshed");
+    expect(account).toContain("await loadPortal().catch(() => undefined)");
     expect(account).toContain("Cancel unpaid reservation &amp; change payment method");
     expect(account).toContain("no card payment or crypto transfer has been sent");
   });
