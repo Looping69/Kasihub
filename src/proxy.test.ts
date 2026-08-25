@@ -57,9 +57,11 @@ describe("temporary site lock", () => {
     delete process.env.SITE_LOCK_SECRET;
   });
 
-  test("allows only the checksum-authenticated WebPay webhook to be originless", async () => {
+  test("allows only the checksum-authenticated WebPay webhooks to be originless", async () => {
     const webhook = await proxy(new NextRequest("https://shares.kasihub.net/api/presale/webpay/notify", { method: "POST" }));
     expect(webhook.status).toBe(200);
+    const processWebhook = await proxy(new NextRequest("https://shares.kasihub.net/api/presale/webpay/process", { method: "POST" }));
+    expect(processWebhook.status).toBe(200);
     const adjacent = await proxy(new NextRequest("https://shares.kasihub.net/api/presale/webpay/notify/other", { method: "POST" }));
     expect(adjacent.status).toBe(403);
   });

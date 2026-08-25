@@ -51,10 +51,11 @@ export async function proxy(request: NextRequest) {
 
   if (!isApi || SAFE_METHODS.has(request.method)) return NextResponse.next();
 
-  // Provider webhooks cannot satisfy browser same-origin headers. This exact
-  // endpoint authenticates every message using WebPay's merchant identity,
-  // checksum and order/amount/currency reconciliation before any mutation.
-  if (request.nextUrl.pathname === "/api/presale/webpay/notify" && request.method === "POST") {
+  // Provider webhooks cannot satisfy browser same-origin headers. These exact
+  // endpoints authenticate every message using WebPay's merchant identity,
+  // signed checksum and order reconciliation before any mutation.
+  if (["/api/presale/webpay/notify", "/api/presale/webpay/process"].includes(request.nextUrl.pathname)
+    && request.method === "POST") {
     return NextResponse.next();
   }
 
