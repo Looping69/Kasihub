@@ -1668,6 +1668,70 @@ export const receivePresalePaymentEvent = api<PresalePaymentEventRequest, { acce
   },
 );
 
+export const cancelPresaleOrder = api<
+  { orderReference: string; acknowledgeNoPaymentSent: boolean },
+  { orderReference: string; status: "cancelled"; cancelledCount: number }
+>({ method: "POST", path: "/presale/orders/:orderReference/cancel", expose: true }, async (request) => {
+  const session = await requirePresaleSession();
+  if (request.acknowledgeNoPaymentSent !== true) {
+    throw APIError.invalidArgument("Confirm that no card payment or crypto transfer was sent before cancelling");
+  }
+  const tx = await presaleDb.begin();
+  let obligations: string[] = [];
+  try {
+    const target = await tx.rawQueryRow<{ invitation_id: string; status: string; webpay_transaction_id: string | null }>(
+      `SELECT invitation_id,status,webpay_transaction_id FROM presale_orders
+       WHERE order_reference = $1 AND external_profile_id::text = $2::text FOR UPDATE`,
+      request.orderReference, session.profile.id,
+    );
+    if (!target) throw APIError.notFound("Reservation not found");
+    if (target.status !== "awaiting_payment") throw APIError.failedPrecondition("Only an unpaid reservation can be cancelled");
+    if (target.webpay_transaction_id) throw APIError.failedPrecondition("WebPay checkout has already started; contact support before changing payment method");
+
+    // Cancel every unpaid duplicate created for the same applicant invitation. This repairs historical
+    // post-commit retry duplicates and preserves one clear business action for the applicant.
+    const orders = await tx.rawQueryAll<{
+      id: string; campaign_id: string; invitation_id: string; quantity: number;
+      payment_obligation_id: string | null; bonus_buy_one_get_one: boolean;
+    }>(
+      `SELECT o.id,o.campaign_id,o.invitation_id,o.quantity,o.payment_obligation_id,c.bonus_buy_one_get_one
+       FROM presale_orders o JOIN presale_campaigns c ON c.id = o.campaign_id
+       WHERE o.invitation_id = $1 AND o.external_profile_id::text = $2::text
+         AND o.status = 'awaiting_payment' AND o.webpay_transaction_id IS NULL
+       ORDER BY o.created_at FOR UPDATE OF o`, target.invitation_id, session.profile.id,
+    );
+    if (orders.length === 0) throw APIError.failedPrecondition("No cancellable unpaid reservation remains");
+    obligations = orders.flatMap((order) => order.payment_obligation_id ? [order.payment_obligation_id] : []);
+    for (const order of orders) {
+      const issuedQuantity = issuedSharesForPresale(order.quantity, order.bonus_buy_one_get_one);
+      const released = await tx.rawQueryRow<{ id: string }>(
+        "UPDATE presale_campaigns SET reserved_shares = reserved_shares - $2, updated_at = now() WHERE id = $1 AND reserved_shares >= $2 RETURNING id",
+        order.campaign_id, issuedQuantity,
+      );
+      if (!released) throw APIError.failedPrecondition("Reservation accounting is inconsistent; contact support");
+      const invitation = await tx.rawQueryRow<{ id: string }>(
+        `UPDATE presale_invitations SET used_shares = used_shares - $2,
+           status = CASE WHEN status = 'exhausted' THEN 'active' ELSE status END
+         WHERE id = $1 AND used_shares >= $2 RETURNING id`, order.invitation_id, order.quantity,
+      );
+      if (!invitation) throw APIError.failedPrecondition("Invitation accounting is inconsistent; contact support");
+      await tx.rawExec("UPDATE presale_orders SET status = 'cancelled', updated_at = now() WHERE id = $1", order.id);
+    }
+    await tx.commit();
+    for (const obligationId of obligations) {
+      try {
+        await cancelPaymentObligation({ obligationId, reason: `Applicant cancelled reservation ${request.orderReference} before payment` });
+      } catch (error) {
+        log.error(error, "cancelled presale order obligation cleanup failed", { obligationId, orderReference: request.orderReference });
+      }
+    }
+    return { orderReference: request.orderReference, status: "cancelled", cancelledCount: orders.length };
+  } catch (error) {
+    try { await tx.rollback(); } catch { /* transaction may already be closed */ }
+    throw error;
+  }
+});
+
 export const receivePresaleWebPayNotification = api<
   WebPayNotificationRequest,
   { accepted: true; outcome: string; orderReference: string }

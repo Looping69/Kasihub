@@ -119,4 +119,18 @@ describe("isolated KaSiShares applicant portal", () => {
     expect(migration).toContain("DROP CONSTRAINT IF EXISTS presale_email_deliveries_external_profile_id_email_type_key");
     expect(migration).toContain("uq_presale_account_created_email_delivery");
   });
+
+  test("lets the applicant cancel only an unpaid reservation before changing payment method", () => {
+    const api = source("encore/domains/presale/api.ts");
+    const account = source("src/app/shares/account/shares-account-client.tsx");
+    const route = source("src/app/api/presale/orders/[reference]/cancel/route.ts");
+    expect(api).toContain('path: "/presale/orders/:orderReference/cancel"');
+    expect(api).toContain("acknowledgeNoPaymentSent !== true");
+    expect(api).toContain('target.status !== "awaiting_payment"');
+    expect(api).toContain("reserved_shares = reserved_shares - $2");
+    expect(api).toContain("used_shares = used_shares - $2");
+    expect(route).toContain("presaleSessionToken");
+    expect(account).toContain("Cancel unpaid reservation &amp; change payment method");
+    expect(account).toContain("no card payment or crypto transfer has been sent");
+  });
 });
