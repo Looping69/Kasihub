@@ -4,6 +4,7 @@ import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
 import { ThemeRuntime } from "@/components/theme-runtime";
 import { ThemeProvider } from "@/components/theme-provider";
+import { DevSentinel } from "@/devtools/dev-sentinel";
 
 const interSans = Inter({
   variable: "--font-inter-sans",
@@ -53,6 +54,7 @@ export default function RootLayout({
           <ThemeRuntime />
           {children}
           <Toaster />
+          <DevSentinel />
         </ThemeProvider>
       </body>
     </html>
