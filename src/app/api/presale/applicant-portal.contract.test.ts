@@ -105,6 +105,8 @@ describe("isolated KaSiShares applicant portal", () => {
     expect(api).toContain("normalizePresaleApplicationDraft");
     expect(api).toContain('assign("buyerPhone", source.mobileNumber)');
     expect(api).toContain("restoredDraft.buyerEmail ??= session.user.email");
+    expect(api).toContain("investor_application_ciphertext");
+    expect(api).toContain("const restoredDraft = { ...orderDraft, ...applicationDraft }");
     expect(account).toContain("application.phaseCompleted >= 4 && portal.kyc.verified");
   });
 });

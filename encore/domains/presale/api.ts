@@ -1078,8 +1078,15 @@ export const presaleApplicantPortal = api<void, PresalePortalResponse>(
       `SELECT status FROM kyc_cases WHERE profile_id = $1 AND provider = 'kasihub_international'
        ORDER BY submitted_at DESC NULLS LAST LIMIT 1`, session.profile.id,
     );
-    const order = await presaleDb.rawQueryRow<{ order_reference: string; status: string; incorporation_status: string }>(
-      `SELECT order_reference, status, incorporation_status FROM presale_orders
+    const order = await presaleDb.rawQueryRow<{
+      order_reference: string; status: string; incorporation_status: string;
+      buyer_name: string; buyer_email: string; buyer_phone: string | null; quantity: number; payment_rail: string;
+      investor_application_ciphertext: DatabaseBinary | null; investor_application_nonce: DatabaseBinary | null;
+      investor_application_auth_tag: DatabaseBinary | null;
+    }>(
+      `SELECT order_reference, status, incorporation_status, buyer_name, buyer_email, buyer_phone, quantity, payment_rail,
+              investor_application_ciphertext, investor_application_nonce, investor_application_auth_tag
+       FROM presale_orders
        WHERE external_profile_id = $1 ORDER BY created_at DESC LIMIT 1`,
       session.profile.id,
     );
@@ -1097,9 +1104,23 @@ export const presaleApplicantPortal = api<void, PresalePortalResponse>(
       && application.resume_token_nonce && application.resume_token_auth_tag
       ? `/presale?invite=${encodeURIComponent(decryptPresaleSecret(application.resume_token_ciphertext, application.resume_token_nonce, application.resume_token_auth_tag))}`
       : null;
-    const restoredDraft = application?.payload_ciphertext && application.payload_nonce && application.payload_auth_tag
+    const orderDraft = order?.investor_application_ciphertext && order.investor_application_nonce && order.investor_application_auth_tag
+      ? decryptPresaleApplicationDraft(order.investor_application_ciphertext, order.investor_application_nonce, order.investor_application_auth_tag)
+      : {};
+    const applicationDraft = application?.payload_ciphertext && application.payload_nonce && application.payload_auth_tag
       ? decryptPresaleApplicationDraft(application.payload_ciphertext, application.payload_nonce, application.payload_auth_tag)
       : {};
+    const restoredDraft = { ...orderDraft, ...applicationDraft };
+    if (order) {
+      restoredDraft.buyerName ||= order.buyer_name;
+      restoredDraft.buyerEmail ||= order.buyer_email;
+      if (order.buyer_phone) {
+        restoredDraft.buyerPhone ||= order.buyer_phone;
+        restoredDraft.confirmMobileNumber ||= order.buyer_phone;
+      }
+      restoredDraft.quantity ||= String(order.quantity);
+      if (order.payment_rail === "webpay_card" || order.payment_rail === "remitano_usdt") restoredDraft.paymentRail ||= order.payment_rail;
+    }
     if (profile?.first_name || profile?.company_name) restoredDraft.buyerName ??= profile.first_name ?? profile.company_name ?? "";
     restoredDraft.buyerEmail ??= session.user.email;
     if (profile?.phone) {
