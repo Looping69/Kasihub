@@ -1,7 +1,21 @@
 import { describe, expect, test } from "vitest";
-import { verifyWebPayChecksum, webPayChecksum, webPayOrderNumber, webPayTotalZar } from "./webpay";
+import { verifyWebPayChecksum, webPayChecksum, webPayMerchantFields, webPayOrderNumber, webPayTotalZar } from "./webpay";
 
 describe("WebPay presale contract", () => {
+  test("posts the merchant site identifier required by hosted checkout", () => {
+    expect(webPayMerchantFields({
+      merchantUuid: "merchant-uuid",
+      accountUuid: "account-uuid",
+      siteId: "site-id",
+      siteName: "KASIHUB ECO",
+    })).toEqual({
+      m_uuid: "merchant-uuid",
+      m_account_uuid: "account-uuid",
+      m_site_id: "site-id",
+      m_site_name: "KASIHUB ECO",
+    });
+  });
+
   test("charges exactly R450 per paid share", () => {
     expect(webPayTotalZar(1)).toBe("450.00");
     expect(webPayTotalZar(5)).toBe("2250.00");

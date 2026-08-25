@@ -4,6 +4,20 @@ import { createHash, timingSafeEqual } from "node:crypto";
 export const WEBPAY_UNIT_PRICE_ZAR = "450.00";
 export type PresalePaymentRail = "remitano_usdt" | "webpay_card";
 
+export function webPayMerchantFields(input: {
+  merchantUuid: string;
+  accountUuid: string;
+  siteId: string;
+  siteName: string;
+}): Record<string, string> {
+  return {
+    m_uuid: input.merchantUuid,
+    m_account_uuid: input.accountUuid,
+    m_site_id: input.siteId,
+    m_site_name: input.siteName,
+  };
+}
+
 function decimalToCents(value: string): number {
   if (!/^\d+(\.\d{1,2})?$/.test(value)) throw new Error("invalid_zar_amount");
   const [whole, fraction = ""] = value.split(".");

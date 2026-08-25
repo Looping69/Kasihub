@@ -34,7 +34,7 @@ import { issuedSharesForPresale, quotedUsdtAmount } from "./settlement";
 import { INVESTOR_APPLICATION_SCHEMA_VERSION, phaseOneApplicantSchema, type PhaseOneApplicant } from "./application";
 import { deriveApplicantContinuation, type ApplicantContinuationReason } from "./applicant-continuation";
 import { databaseBinaryToBuffer, type DatabaseBinary } from "./database-binary";
-import { WEBPAY_UNIT_PRICE_ZAR, verifyWebPayChecksum, webPayChecksum, webPayOrderNumber, webPayTotalZar, type PresalePaymentRail } from "./webpay";
+import { WEBPAY_UNIT_PRICE_ZAR, verifyWebPayChecksum, webPayChecksum, webPayMerchantFields, webPayOrderNumber, webPayTotalZar, type PresalePaymentRail } from "./webpay";
 
 const PresaleWebhookSecret = secret("PresaleWebhookSecret");
 const InvestorApplicationEncryptionKey = secret("InvestorApplicationEncryptionKey");
@@ -1578,15 +1578,18 @@ export const createPresaleWebPayCheckout = api<
   );
   const [firstName, ...surnameParts] = order.buyer_name.trim().split(/\s+/);
   const fields: Record<string, string> = {
-    m_uuid: WebPayMerchantUuid(),
-    m_account_uuid: WebPayAccountUuid(),
+    ...webPayMerchantFields({
+      merchantUuid: WebPayMerchantUuid(),
+      accountUuid: WebPayAccountUuid(),
+      siteId: WebPaySiteId(),
+      siteName: "KASIHUB ECO",
+    }),
     m_tx_order_nr: orderNumber,
     m_tx_id: transactionId,
     m_tx_currency: "ZAR",
     m_tx_amount: order.total_zar,
     m_tx_item_name: "KaSiShares Class B shares",
     m_tx_item_description: `${order.quantity} paid KaSiShares Class B share${order.quantity === 1 ? "" : "s"}`,
-    m_site_name: "KASIHUB ECO",
     m_card_allowed: "true",
     m_ieft_allowed: "false",
     m_chips_allowed: "false",
