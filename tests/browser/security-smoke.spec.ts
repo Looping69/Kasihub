@@ -417,6 +417,7 @@ test("invited buyer can reserve shares without exposing the order access token i
         buyerName: "Private Buyer",
         buyerEmail: "buyer@example.test",
         quantity: 2,
+        paymentRail: "remitano_usdt",
         unitPriceUsdt: "25.000000",
         totalUsdt: "50.000000",
         status: "awaiting_payment",
@@ -459,6 +460,7 @@ test("invited buyer can reserve shares without exposing the order access token i
         buyerName: "Private Buyer",
         buyerEmail: "buyer@example.test",
         quantity: 2,
+        paymentRail: "remitano_usdt",
         unitPriceUsdt: "25.000000",
         totalUsdt: "50.000000",
         status: "payment_submitted",
@@ -503,6 +505,7 @@ test("invited buyer can reserve shares without exposing the order access token i
   await page.getByLabel("Account number").fill("1234567890");
   await page.getByRole("button", { name: "Continue" }).click();
 
+  await expect(page.getByRole("heading", { name: "Identity evidence" })).toBeVisible();
   await page.getByLabel(/I confirm that the investment funds/).check();
   await page.getByLabel(/I understand that the investment is long-term/).check();
   await page.getByLabel(/I confirm that the investor information supplied/).check();
@@ -513,7 +516,7 @@ test("invited buyer can reserve shares without exposing the order access token i
   expect(await page.locator("form :invalid").evaluateAll((fields) => fields.map((field) => field.getAttribute("name")))).toEqual([]);
   await page.getByRole("button", { name: "Reserve and view payment" }).click();
 
-  await expect(page.getByText("50.000000 USDT")).toBeVisible();
+  await expect(page.getByText("50.000000 USDT", { exact: true })).toBeVisible();
   await expect(page.getByText("TControlledReceiverAddress")).toBeVisible();
   await expect(page.getByText(/transaction hash is not accepted as settled/i)).toBeVisible();
 

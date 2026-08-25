@@ -195,9 +195,11 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
   }, [devPreview, verificationStarted, kycVerification?.verified, refreshKycVerification]);
 
   useEffect(() => {
-    if (applicationPhase !== 4 || devPreview || !memberProfileNumber || kycVerification) return;
+    // A fresh applicant must accept the phase-four declarations before KYC can
+    // advance them. Only resume polling after verification was explicitly started.
+    if (applicationPhase !== 4 || devPreview || !memberProfileNumber || !verificationStarted || kycVerification) return;
     void refreshKycVerification().catch(() => undefined);
-  }, [applicationPhase, devPreview, memberProfileNumber, kycVerification, refreshKycVerification]);
+  }, [applicationPhase, devPreview, memberProfileNumber, verificationStarted, kycVerification, refreshKycVerification]);
 
   const maximumPaidShares = offer ? availablePaidShares(offer.invitationSharesRemaining, offer.sharesRemaining) : 0;
   const totalPreview = offer ? Number(offer.priceUsdt) * Number(quantity || 0) : 0;
