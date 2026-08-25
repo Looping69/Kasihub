@@ -179,13 +179,34 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
     event.preventDefault();
     if (devPreview) return;
     if (!offer) return;
-    if (!event.currentTarget.checkValidity()) {
-      event.currentTarget.reportValidity();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const requiredIdentityFields = [
+      "buyerName", "buyerEmail", "buyerPhone", "confirmMobileNumber", "applicantType",
+      "nationality", "countryOfResidence", "occupation", "employer", "taxNumber", "physicalAddress",
+    ];
+    const missingIdentityField = requiredIdentityFields.find((name) => !String(data.get(name) ?? "").trim());
+    if (missingIdentityField || data.get("buyerPhone") !== data.get("confirmMobileNumber")) {
+      setApplicationPhase(1);
+      setError(missingIdentityField
+        ? "Review your investor identity details before creating the reservation."
+        : "Cellphone numbers must match before creating the reservation.");
+      return;
+    }
+    const declarationsAccepted = ["amlDeclarationAccepted", "suitabilityDeclarationAccepted", "informationDeclarationAccepted"]
+      .every((name) => data.get(name) === "on");
+    if (!declarationsAccepted) {
+      setApplicationPhase(4);
+      setError("Review and accept all investor declarations before creating the reservation.");
+      return;
+    }
+    if (!Number.isInteger(Number(data.get("quantity"))) || Number(data.get("quantity")) < 1) {
+      setApplicationPhase(2);
+      setError("Choose a valid share quantity before creating the reservation.");
       return;
     }
     setSubmitting(true);
     setError("");
-    const data = new FormData(event.currentTarget);
     const quantity = Number(data.get("quantity"));
     try {
       const response = await fetch("/api/presale/orders", {

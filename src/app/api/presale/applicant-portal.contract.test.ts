@@ -80,5 +80,8 @@ describe("isolated KaSiShares applicant portal", () => {
     const presale = source("src/app/presale/presale-client.tsx");
     expect(presale).toContain("<form key={resumeApplicant?.profileNumber ?? \"new-applicant\"} className=\"space-y-5\" noValidate");
     expect(presale).toContain('<Button formNoValidate className="flex-1 bg-amber-400');
+    expect(presale).not.toContain("event.currentTarget.checkValidity()");
+    expect(presale).toContain("setApplicationPhase(1)");
+    expect(presale).toContain("setApplicationPhase(4)");
   });
 });
