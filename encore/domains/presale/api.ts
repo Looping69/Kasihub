@@ -786,6 +786,38 @@ function decryptPresaleSecret(ciphertext: DatabaseBinary, nonce: DatabaseBinary,
   return decoded;
 }
 
+function normalizePresaleApplicationDraft(decoded: unknown): Record<string, string | boolean> {
+  if (!decoded || typeof decoded !== "object" || Array.isArray(decoded)) throw new Error("invalid_presale_application_draft");
+  const source = decoded as Record<string, unknown>;
+  const draft = Object.fromEntries(Object.entries(source).filter((entry): entry is [string, string | boolean] =>
+    typeof entry[1] === "string" || typeof entry[1] === "boolean"));
+
+  // Versions created by the original application API used the structured PhaseOneApplicant contract.
+  // Translate those fields into the current form names instead of silently dropping nested legacy data.
+  const address = source.physicalAddress && typeof source.physicalAddress === "object" && !Array.isArray(source.physicalAddress)
+    ? source.physicalAddress as Record<string, unknown> : null;
+  const entity = source.entity && typeof source.entity === "object" && !Array.isArray(source.entity)
+    ? source.entity as Record<string, unknown> : null;
+  const representative = entity?.authorisedRepresentative && typeof entity.authorisedRepresentative === "object"
+    && !Array.isArray(entity.authorisedRepresentative)
+    ? entity.authorisedRepresentative as Record<string, unknown> : null;
+  const assign = (name: string, value: unknown) => {
+    if (typeof value === "string" && value.trim() && !(name in draft)) draft[name] = value;
+  };
+  assign("buyerName", [source.legalName, source.surname].filter((value) => typeof value === "string" && value.trim()).join(" "));
+  assign("buyerEmail", source.emailAddress);
+  assign("buyerPhone", source.mobileNumber);
+  assign("confirmMobileNumber", source.mobileNumber);
+  assign("countryOfResidence", address?.country);
+  assign("physicalAddress", address ? [address.line1, address.line2, address.city, address.region, address.postalCode, address.country]
+    .filter((value) => typeof value === "string" && value.trim()).join(", ") : undefined);
+  assign("entityRegistrationNumber", entity?.registrationNumber);
+  assign("vatNumber", entity?.vatNumber);
+  assign("authorisedRepresentativeName", representative?.name);
+  assign("authorisedRepresentativePosition", representative?.position);
+  return draft;
+}
+
 function decryptPresaleApplicationDraft(ciphertext: DatabaseBinary, nonce: DatabaseBinary, authTag: DatabaseBinary): Record<string, string | boolean> {
   const key = createNodeHash("sha256").update(InvestorApplicationEncryptionKey()).digest();
   const decipher = createDecipheriv("aes-256-gcm", key, databaseBinaryToBuffer(nonce));
@@ -794,9 +826,7 @@ function decryptPresaleApplicationDraft(ciphertext: DatabaseBinary, nonce: Datab
     decipher.update(databaseBinaryToBuffer(ciphertext)),
     decipher.final(),
   ]).toString("utf8")) as unknown;
-  if (!decoded || typeof decoded !== "object" || Array.isArray(decoded)) throw new Error("invalid_presale_application_draft");
-  return Object.fromEntries(Object.entries(decoded).filter((entry): entry is [string, string | boolean] =>
-    typeof entry[1] === "string" || typeof entry[1] === "boolean"));
+  return normalizePresaleApplicationDraft(decoded);
 }
 
 interface RegisterPresaleMemberRequest {
@@ -1067,6 +1097,17 @@ export const presaleApplicantPortal = api<void, PresalePortalResponse>(
       && application.resume_token_nonce && application.resume_token_auth_tag
       ? `/presale?invite=${encodeURIComponent(decryptPresaleSecret(application.resume_token_ciphertext, application.resume_token_nonce, application.resume_token_auth_tag))}`
       : null;
+    const restoredDraft = application?.payload_ciphertext && application.payload_nonce && application.payload_auth_tag
+      ? decryptPresaleApplicationDraft(application.payload_ciphertext, application.payload_nonce, application.payload_auth_tag)
+      : {};
+    if (profile?.first_name || profile?.company_name) restoredDraft.buyerName ??= profile.first_name ?? profile.company_name ?? "";
+    restoredDraft.buyerEmail ??= session.user.email;
+    if (profile?.phone) {
+      restoredDraft.buyerPhone ??= profile.phone;
+      restoredDraft.confirmMobileNumber ??= profile.phone;
+    }
+    if (profile?.country) restoredDraft.countryOfResidence ??= profile.country;
+    if (profile?.address_line) restoredDraft.physicalAddress ??= profile.address_line;
     return {
       applicant: { profileId: session.profile.id, profileNumber: session.profile.unique_profile_number, email: session.user.email,
         legalName: profile?.first_name ?? profile?.company_name ?? "", phone: profile?.phone ?? "",
@@ -1077,9 +1118,7 @@ export const presaleApplicantPortal = api<void, PresalePortalResponse>(
         phaseCompleted: application.phase_completed, completionPercent: application.completion_percent,
         nextStep: continuation.nextStep ?? Math.min(5, application.phase_completed + 1),
         resumeUrl,
-        draft: application.payload_ciphertext && application.payload_nonce && application.payload_auth_tag
-          ? decryptPresaleApplicationDraft(application.payload_ciphertext, application.payload_nonce, application.payload_auth_tag)
-          : null,
+        draft: restoredDraft,
       } : null,
       kyc: { status: kyc?.status ?? "pending", verified: kyc?.status === "approved" },
       order: order ? { orderReference: order.order_reference, status: order.status, incorporationStatus: order.incorporation_status } : null,

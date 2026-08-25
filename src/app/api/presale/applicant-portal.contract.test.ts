@@ -95,4 +95,16 @@ describe("isolated KaSiShares applicant portal", () => {
     expect(api).toContain('for (const forbidden of ["accountPassword", "confirmAccountPassword"])');
     expect(api).toContain("payload_ciphertext,payload_nonce,payload_auth_tag");
   });
+
+  test("restores authoritative KYC and legacy structured application data", () => {
+    const presale = source("src/app/presale/presale-client.tsx");
+    const account = source("src/app/shares/account/shares-account-client.tsx");
+    const api = source("encore/domains/presale/api.ts");
+    expect(presale).toContain("verified: portal.kyc.verified");
+    expect(presale).toContain("setVerificationStarted(portal.kyc.verified");
+    expect(api).toContain("normalizePresaleApplicationDraft");
+    expect(api).toContain('assign("buyerPhone", source.mobileNumber)');
+    expect(api).toContain("restoredDraft.buyerEmail ??= session.user.email");
+    expect(account).toContain("application.phaseCompleted >= 4 && portal.kyc.verified");
+  });
 });

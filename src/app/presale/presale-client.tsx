@@ -50,6 +50,7 @@ type KycVerification = {
 type ResumePortal = {
   applicant: { profileNumber: string; email: string; legalName: string; phone: string; country: string; physicalAddress: string };
   application: null | { applicantType: "individual" | "company" | "trust"; nextStep: number; draft: Record<string, string | boolean> | null };
+  kyc: { status: string; verified: boolean };
   continuation?: { nextStep: number | null; reason: string; resumeUrl: string | null };
 };
 
@@ -126,6 +127,8 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
         const portal = await response.json() as ResumePortal;
         setResumeApplicant(portal.applicant);
         setMemberProfileNumber(portal.applicant.profileNumber);
+        setKycVerification({ required: true, verified: portal.kyc.verified, status: portal.kyc.status, caseId: null });
+        setVerificationStarted(portal.kyc.verified || portal.kyc.status.toLowerCase() !== "pending");
         if (!portal.application) return;
         setApplicantType(portal.application.applicantType);
         setResumeDraft(portal.application.draft);
