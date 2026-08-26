@@ -17,7 +17,7 @@ export type PresaleDevPreviewOffer = {
 
 /**
  * Keeps the invitation bypass inside `next dev` only. Deployment builds set
- * NODE_ENV to production, so preview/staging/production cannot enable it.
+ * NODE_ENV to production, so deployed environments cannot enable it.
  * Author: Klaasvaakie ( |╲ )
  */
 export function isLocalPresalePreviewRequested(

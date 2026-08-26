@@ -15,12 +15,6 @@ import { submitPaymentAttempt } from "../payments/attempts";
 import { createPaymentIntent, type PaymentIntentResponse } from "../payments/intents";
 import { cancelPaymentObligation, createPaymentObligation } from "../payments/obligations";
 import { resolveActiveReceivingConfiguration } from "../payments/registry";
-import {
-  ensurePaymentRehearsalWallet,
-  paymentRehearsalAllowed,
-  readPaymentRehearsalEvidence,
-  recordPaymentRehearsal,
-} from "../payments/rehearsal";
 import { verifyAndSettlePaymentAttempt } from "../payments/verification";
 import {
   hashSecret,
@@ -634,9 +628,6 @@ function orderResponse(order: OrderRow, campaign: CampaignRow, txHash?: string |
 
 async function ensurePresalePaymentIntent(order: OrderRow, campaign: CampaignRow): Promise<PaymentIntentResponse> {
   if (!order.external_profile_id) throw APIError.failedPrecondition("Presale order is not bound to an authenticated profile");
-  if (paymentRehearsalAllowed(campaign.is_mock)) {
-    await ensurePaymentRehearsalWallet(campaign.network, campaign.min_confirmations);
-  }
   const obligation = await createPaymentObligation({
     subjectType: "presale_order",
     subjectReference: order.order_reference,
@@ -1631,15 +1622,7 @@ export const createPresaleOrder = api<CreatePresaleOrderRequest, { order: Presal
   async (request) => {
     const payload = orderInput.parse(request);
     const session = await requirePresaleSession();
-    const invitedCampaign = await presaleDb.rawQueryRow<{ is_mock: boolean }>(
-      `SELECT c.is_mock FROM presale_invitations i
-       JOIN presale_campaigns c ON c.id = i.campaign_id
-       WHERE i.token_hash = $1`,
-      hashSecret(payload.inviteToken),
-    );
-    if (!paymentRehearsalAllowed(Boolean(invitedCampaign?.is_mock))) {
-      await requireInternationalKycVerified(session.profile.id);
-    }
+    await requireInternationalKycVerified(session.profile.id);
     if (normalizeEmail(payload.buyerEmail) !== normalizeEmail(session.user.email)) {
       throw APIError.permissionDenied("The presale order email must match the authenticated member");
     }
@@ -1915,9 +1898,9 @@ export const submitPresalePaymentProof = api<PresalePaymentProofRequest, { order
   { method: "POST", path: "/presale/orders/:orderReference/payment-proof", expose: true },
   async (request) => {
     const payload = proofInput.parse(request);
-    const order = await presaleDb.rawQueryRow<{ id: string; status: string; external_profile_id: string | null; payment_intent_id: string | null; is_mock: boolean }>(
-      `SELECT o.id,o.status,o.external_profile_id,o.payment_intent_id,c.is_mock
-       FROM presale_orders o JOIN presale_campaigns c ON c.id = o.campaign_id
+    const order = await presaleDb.rawQueryRow<{ id: string; status: string; external_profile_id: string | null; payment_intent_id: string | null }>(
+      `SELECT o.id,o.status,o.external_profile_id,o.payment_intent_id
+       FROM presale_orders o
        WHERE o.order_reference = $1 AND o.access_token_hash = $2`, payload.orderReference, hashSecret(payload.accessToken));
     if (!order) throw APIError.notFound("Presale order not found");
     if (["confirmed", "expired", "cancelled", "incorporated"].includes(order.status)) throw APIError.failedPrecondition("This order no longer accepts payment proof");
@@ -1930,14 +1913,7 @@ export const submitPresalePaymentProof = api<PresalePaymentProofRequest, { order
     });
     await presaleDb.rawExec(`UPDATE presale_orders SET status = CASE WHEN status = 'awaiting_payment' THEN 'payment_submitted' ELSE status END,
       updated_at = now() WHERE id = $1`, order.id);
-    const rehearsal = paymentRehearsalAllowed(order.is_mock);
-    const verification = await verifyAndSettlePaymentAttempt(
-      attempt.id,
-      rehearsal
-        ? (network, transactionHash) => readPaymentRehearsalEvidence(attempt.id, network, transactionHash)
-        : undefined,
-    );
-    if (rehearsal && verification.status === "settled") await recordPaymentRehearsal(attempt.id);
+    const verification = await verifyAndSettlePaymentAttempt(attempt.id);
     if (verification.status === "settled") {
       if (verification.subjectType !== "presale_order" || verification.subjectReference !== payload.orderReference) {
         throw APIError.failedPrecondition("Settled payment subject does not match this presale order");
@@ -2127,9 +2103,7 @@ export const upsertPresaleCampaign = api<UpsertPresaleCampaignRequest, { campaig
     await requireAdminAccess();
     const payload = campaignInput.parse(request);
     if (payload.endsAt && payload.startsAt && new Date(payload.endsAt) <= new Date(payload.startsAt)) throw APIError.invalidArgument("Campaign end must be after its start");
-    if (payload.status === "active" && payload.isMock && !paymentRehearsalAllowed(true)) {
-      throw APIError.invalidArgument("A mock campaign cannot be activated in production");
-    }
+    if (payload.isMock) throw APIError.invalidArgument("Mock campaigns are no longer supported");
     const activeRoute = payload.status === "active"
       ? await resolveActiveReceivingConfiguration(payload.network, "USDT")
       : null;
@@ -2151,9 +2125,9 @@ export const upsertPresaleCampaign = api<UpsertPresaleCampaignRequest, { campaig
        RETURNING id, status`,
       payload.slug, payload.name, payload.issuerName, payload.shareClass, payload.status, payload.totalShares,
       (payload.priceUsd * payload.usdtPerUsd).toFixed(6), payload.priceUsd.toFixed(6), payload.usdtPerUsd.toFixed(6), payload.sharePhaseNumber,
-      payload.network, payload.isMock ? null : activeRoute?.tokenContract ?? payload.tokenContract ?? null,
-      payload.isMock ? null : activeRoute?.addressReference ?? payload.receivingAddress ?? null,
-      activeRoute?.minimumConfirmations ?? payload.minConfirmations, payload.paymentWindowMinutes, payload.bonusBuyOneGet, payload.isMock,
+      payload.network, activeRoute?.tokenContract ?? payload.tokenContract ?? null,
+      activeRoute?.addressReference ?? payload.receivingAddress ?? null,
+      activeRoute?.minimumConfirmations ?? payload.minConfirmations, payload.paymentWindowMinutes, payload.bonusBuyOneGet, false,
       payload.startsAt ?? null, payload.endsAt ?? null);
     if (!row) throw APIError.failedPrecondition("Total shares cannot be lower than current reserved and sold shares");
     return { campaignId: row.id, status: row.status };

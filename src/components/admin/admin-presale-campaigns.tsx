@@ -147,19 +147,6 @@ export function AdminPresaleCampaigns() {
       ),
     });
   }
-  function newPhaseOneMock() {
-    setDraft({
-      ...blankDraft(),
-      slug: "phase-1-bogo-mock",
-      name: "Phase 1 BOGO mock — not for sale",
-      issuerName: "Solidus Holdings (Pty) Ltd",
-      shareClass: "Class B",
-      totalShares: 100_000,
-      priceUsd: 25,
-      bonusBuyOneGet: true,
-      isMock: true,
-    });
-  }
   function edit(campaign: Campaign) {
     setDraft({
       ...campaign,
@@ -247,10 +234,6 @@ export function AdminPresaleCampaigns() {
           >
             <Plus className="h-4 w-4 mr-1.5" />
             New campaign
-          </Button>
-          <Button variant="outline" onClick={newPhaseOneMock}>
-            <Sparkles className="h-4 w-4 mr-1.5 text-amber-600" />
-            Phase 1 BOGO mock
           </Button>
         </div>
         {campaigns.length === 0 ? (
@@ -418,45 +401,26 @@ export function AdminPresaleCampaigns() {
                   </SelectContent>
                 </Select>
               </div>
-              <label className="sm:col-span-2 flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50/50 p-3 text-sm dark:border-slate-800 dark:bg-slate-950/20">
-                <input
-                  type="checkbox"
-                  checked={draft.isMock}
-                  onChange={(event) => update("isMock", event.target.checked)}
-                  className="mt-0.5 h-4 w-4 accent-slate-600"
-                />
-                <span>
-                  <span className="font-semibold">Mock only</span>
-                  <span className="block text-xs text-muted-foreground mt-0.5">
-                    A mock can never be activated, shown to members, sent as an
-                    invitation, or linked to a payment route.
-                  </span>
-                </span>
-              </label>
-              {!draft.isMock && (
-                <>
-                  <Field
-                    label="Receiving address"
-                    value={draft.receivingAddress ?? ""}
-                    onChange={(v) => update("receivingAddress", v)}
-                  />
-                  <Field
-                    label="USDT token contract"
-                    value={draft.tokenContract ?? ""}
-                    onChange={(v) => update("tokenContract", v)}
-                  />
-                  <NumberField
-                    label="Minimum confirmations"
-                    value={draft.minConfirmations}
-                    onChange={(v) => update("minConfirmations", v)}
-                  />
-                  <NumberField
-                    label="Payment window (minutes)"
-                    value={draft.paymentWindowMinutes}
-                    onChange={(v) => update("paymentWindowMinutes", v)}
-                  />
-                </>
-              )}
+              <Field
+                label="Receiving address"
+                value={draft.receivingAddress ?? ""}
+                onChange={(v) => update("receivingAddress", v)}
+              />
+              <Field
+                label="USDT token contract"
+                value={draft.tokenContract ?? ""}
+                onChange={(v) => update("tokenContract", v)}
+              />
+              <NumberField
+                label="Minimum confirmations"
+                value={draft.minConfirmations}
+                onChange={(v) => update("minConfirmations", v)}
+              />
+              <NumberField
+                label="Payment window (minutes)"
+                value={draft.paymentWindowMinutes}
+                onChange={(v) => update("paymentWindowMinutes", v)}
+              />
               <label className="sm:col-span-2 flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50/50 p-3 text-sm dark:border-amber-900 dark:bg-amber-950/20">
                 <input
                   type="checkbox"

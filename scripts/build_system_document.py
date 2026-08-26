@@ -191,7 +191,7 @@ def build_doc(frontend, backend, migrations, rev, branch, origin, test_counts):
     doc.add_heading("Current release evidence", 2)
     add_table(doc, ["Area", "Status", "Evidence / caveat"], [
         ("Repository", "Implemented", f"Local {branch} at {rev}; origin/main at {origin}."),
-        ("Backend WebPay rail", "Deployed", "Encore staging and production were activated for this revision; presale migration version 11 was observed clean in both environments."),
+        ("Backend WebPay rail", "Deployed", "Encore production was activated for this revision; presale migration version 11 was observed clean in production."),
         ("Backend probes", "Tested", "Unauthenticated checkout rejected with 401; malformed WebPay notification rejected with 400."),
         ("Frontend WebPay selector", "Not released", "Local revision is ahead of origin/main; production web UI must not be described as carrying the commit until pushed and deployed."),
         ("Live paid transaction", "Unknown / gated", "No real-money checkout or settlement is claimed by this document."),
@@ -273,10 +273,10 @@ def build_doc(frontend, backend, migrations, rev, branch, origin, test_counts):
     add_table(doc, ["Gate", "Repository contract"], [
         ("Frontend", "npm ci; lint; typecheck; coverage; production audit; build; Playwright Chromium"),
         ("Backend", "npm ci; Encore authentication; encore check; encore test; coverage artifact"),
-        ("Staging", "Manual workflow deploy plus registration policy canary"),
+        ("Production", "Controlled full-root deployment plus health and registration policy canaries"),
         ("Observed test inventory", f"{test_counts[0]} frontend test files and {test_counts[1]} Encore domain test files (count only, not a claim that the current run passed)."),
     ], [2100, 7260])
-    doc.add_paragraph("Known deployment defect: the staging workflow builds a subtree containing only encore/ while the Encore Cloud application root is configured as encore. This can produce an invalid root-directory activation. The successful backend release used a full-root deployment. The workflow must be corrected before it is treated as a reliable release path.")
+    doc.add_paragraph("Encore staging was retired in August 2026. Backend releases use a full-root production deployment followed by production health and policy checks.")
 
     doc.add_heading("10. Known gaps and launch blockers", 1)
     gaps = [
@@ -285,13 +285,12 @@ def build_doc(frontend, backend, migrations, rev, branch, origin, test_counts):
         ("High", "Provider production acceptance", "Complete an approved WebPay sandbox/production transaction and authenticated notification test before real customer use."),
         ("High", "Abuse controls", "Add and verify rate limiting/anomaly controls on login, registration and provider-cost endpoints."),
         ("Medium", "Payment FK validation", "Inspect/backfill historical rows and validate the deferred payment intent obligation foreign key in a follow-up migration."),
-        ("Medium", "Staging workflow root", "Remove the invalid subtree/root mismatch and verify a repeatable CI-driven deploy."),
         ("Governance", "Legal/compliance readiness", "Treat legal approval, privacy, KYC/AML policy and financial operations ownership as separate release gates."),
     ]
     add_table(doc, ["Severity", "Gap", "Required closure"], gaps, [1200, 2700, 5460])
 
     doc.add_heading("11. Ownership and maintenance rules", 1)
-    for t in ["Update this document on any added/removed endpoint, database, migration, provider rail or deployment boundary.", "Never edit an applied migration; add a new numbered migration and verify every target database's schema_migrations state.", "Pin releases to a Git revision and record frontend and backend deployment evidence separately.", "Do not infer a live feature from source presence, a commit, a successful build or a dashboard deployment banner.", "Keep provider secrets in environment secret stores and keep test/staging credentials non-production."]:
+    for t in ["Update this document on any added/removed endpoint, database, migration, provider rail or deployment boundary.", "Never edit an applied migration; add a new numbered migration and verify production schema_migrations state.", "Pin releases to a Git revision and record frontend and backend deployment evidence separately.", "Do not infer a live feature from source presence, a commit, a successful build or a dashboard deployment banner.", "Keep provider secrets in environment secret stores and never place them in source."]:
         add_bullet(doc, t)
     doc.add_paragraph("End of controlled reference.", style="Small Note")
     OUT.mkdir(parents=True, exist_ok=True)
