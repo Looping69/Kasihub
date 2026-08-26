@@ -35,6 +35,7 @@ import { INVESTOR_APPLICATION_SCHEMA_VERSION, phaseOneApplicantSchema, type Phas
 import { deriveApplicantContinuation, type ApplicantContinuationReason } from "./applicant-continuation";
 import { databaseBinaryToBuffer, type DatabaseBinary } from "./database-binary";
 import { WEBPAY_UNIT_PRICE_ZAR, verifyWebPayChecksum, verifyWebPayProcessChecksum, webPayChecksum, webPayMerchantFields, webPayOrderNumber, webPayTotalZar, type PresalePaymentRail } from "./webpay";
+import { buildShareholderPortfolio, type PresaleCertificate, type PresalePaidOrder } from "./shareholder-portfolio";
 
 const PresaleWebhookSecret = secret("PresaleWebhookSecret");
 const InvestorApplicationEncryptionKey = secret("InvestorApplicationEncryptionKey");
@@ -871,6 +872,14 @@ interface PresalePortalResponse {
   };
   kyc: { status: string; verified: boolean };
   order: null | { orderReference: string; status: string; incorporationStatus: string; paymentRail: PresalePaymentRail; webPayProcessStatus?: string; webPayProcessStage?: string };
+  shareholder: {
+    totalIssuedShares: number;
+    holdings: Array<{
+      orderReference: string; campaignName: string; paidShares: number; bonusShares: number; allocatedShares: number;
+      status: "awaiting_issuance" | "issued" | "revoked" | "issuance_error"; incorporationStatus: string;
+      certificate?: { certificateNumber: string; totalShares: number; status: string; issuedAt: string; revokedAt?: string };
+    }>;
+  };
   continuation: { nextStep: number | null; reason: ApplicantContinuationReason; resumeUrl: string | null };
 }
 
@@ -1122,6 +1131,22 @@ export const presaleApplicantPortal = api<void, PresalePortalResponse>(
        WHERE external_profile_id = $1 ORDER BY created_at DESC LIMIT 1`,
       session.profile.id,
     );
+    const paidOrders = await presaleDb.rawQueryAll<PresalePaidOrder>(
+      `SELECT o.order_reference, c.name AS campaign_name, o.quantity, c.bonus_buy_one_get_one,
+              o.status, o.incorporation_status
+       FROM presale_orders o JOIN presale_campaigns c ON c.id = o.campaign_id
+       WHERE o.external_profile_id = $1 AND o.status IN ('confirmed', 'incorporated')
+       ORDER BY o.confirmed_at DESC NULLS LAST, o.created_at DESC`,
+      session.profile.id,
+    );
+    const certificates = await sharesDb.rawQueryAll<PresaleCertificate>(
+      `SELECT certificate_number, total_shares, status, issued_at, revoked_at, presale_order_reference
+       FROM share_certificates
+       WHERE profile_id = $1 AND source = 'presale' AND presale_order_reference IS NOT NULL
+       ORDER BY issued_at DESC`,
+      session.profile.id,
+    );
+    const shareholder = buildShareholderPortfolio(paidOrders, certificates);
     const continuation = deriveApplicantContinuation({
       application: application ? {
         status: application.status,
@@ -1177,6 +1202,7 @@ export const presaleApplicantPortal = api<void, PresalePortalResponse>(
       order: order ? { orderReference: order.order_reference, status: order.status, incorporationStatus: order.incorporation_status,
         paymentRail: order.payment_rail, webPayProcessStatus: order.webpay_process_status ?? undefined,
         webPayProcessStage: order.webpay_process_stage ?? undefined } : null,
+      shareholder,
       continuation: { ...continuation, resumeUrl },
     };
   },
@@ -2030,8 +2056,11 @@ export const applyPresaleIncorporation = api<
       if (existing) {
         alreadyIncorporated += 1;
       } else {
+        // A paused retail phase must still honour an already-paid presale allocation
+        // through this administrator-controlled incorporation path. Closed phases fail shut.
+        // Author: Klaasvaakie ( |╲ )
         const phase = await shareTx.rawQueryRow<{ id: string }>(`UPDATE share_phases SET quantity_available = quantity_available - $2
-          WHERE phase_number = $1 AND status = 'active' AND quantity_available >= $2 RETURNING id`, order.share_phase_number, issuedQuantity);
+          WHERE phase_number = $1 AND status IN ('active', 'paused') AND quantity_available >= $2 RETURNING id`, order.share_phase_number, issuedQuantity);
         if (!phase) throw APIError.failedPrecondition(`Share phase ${order.share_phase_number} cannot fulfil ${issuedQuantity} shares`);
         purchaseId = crypto.randomUUID();
         await shareTx.rawExec(`INSERT INTO share_purchases

@@ -8,6 +8,9 @@ export type ShareCertificatePdfData = {
   totalShares: number;
   issuedAt: string;
   status: string;
+  campaignName?: string;
+  paidShares?: number;
+  bonusShares?: number;
 };
 
 const PAGE_WIDTH = 841.89;
@@ -30,6 +33,12 @@ export async function generateShareCertificatePdf(data: ShareCertificatePdfData)
   if (!data.certificateNumber.trim()) throw new Error("certificate_number_required");
   if (!data.holderName.trim()) throw new Error("holder_name_required");
   if (!Number.isInteger(data.totalShares) || data.totalShares <= 0) throw new Error("invalid_share_quantity");
+  if (data.paidShares !== undefined || data.bonusShares !== undefined) {
+    if (!Number.isInteger(data.paidShares) || data.paidShares! <= 0 || !Number.isInteger(data.bonusShares) || data.bonusShares! < 0) {
+      throw new Error("invalid_share_allocation");
+    }
+    if (data.paidShares! + data.bonusShares! !== data.totalShares) throw new Error("share_allocation_mismatch");
+  }
   const issuedDate = new Date(data.issuedAt);
   if (Number.isNaN(issuedDate.getTime())) throw new Error("invalid_issue_date");
 
@@ -70,8 +79,15 @@ export async function generateShareCertificatePdf(data: ShareCertificatePdfData)
   page.drawLine({ start: { x: 150, y: 394 }, end: { x: PAGE_WIDTH - 150, y: 394 }, thickness: 0.8, color: gold });
   centeredText(page, "is recorded in the share register as the holder of", 372, 11, serif, muted);
   centeredText(page, `${data.totalShares.toLocaleString("en-ZA")} Class B KaSiShare${data.totalShares === 1 ? "" : "s"}`, 335, 24, serifBold, deepGreen);
+  if (data.campaignName) {
+    const campaign = fitText(`Campaign: ${data.campaignName}`, bold, 9, 620);
+    centeredText(page, campaign.value, 318, campaign.size, bold, muted);
+  }
+  if (data.paidShares !== undefined && data.bonusShares !== undefined) {
+    centeredText(page, `Paid allocation: ${data.paidShares.toLocaleString("en-ZA")}  |  Bonus allocation: ${data.bonusShares.toLocaleString("en-ZA")}`, 304, 8.5, regular, muted);
+  }
 
-  const fieldY = 265;
+  const fieldY = 245;
   const fieldWidth = 224;
   const fieldX = [68, 309, 550];
   const field = (x: number, label: string, value: string) => {
