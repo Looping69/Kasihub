@@ -2,18 +2,29 @@
 import { NextRequest, NextResponse } from "next/server";
 import { EncoreRequestError, encoreRequest, encoreSessionToken } from "@/lib/encore-client";
 
-type Share = { quantity: number; totalAmount: number; profileId: string } & Record<string, unknown>;
+type Share = {
+  id: string; profileId: string; profileNumber: string; holderName: string; email: string; country: string;
+  phase: number; pricePerShare: number; quantity: number; purchasedQuantity: number; bonusQuantity: number;
+  totalAmount: number; currency: string; certificateNo: string; status: string; createdAt: string;
+  revokedAt: string | null; source: string; orderReference: string | null; campaignName: string | null;
+};
+
+type ShareRegisterResponse = {
+  shares: Share[];
+  summary: { registerEntries: number; shareholderCount: number; certificateCount: number; issuedShares: number; revokedShares: number };
+};
 
 export async function GET(req: NextRequest) {
   const token = await encoreSessionToken();
   if (!token) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
   const limit = Math.min(Math.max(Number(req.nextUrl.searchParams.get("limit") ?? 50), 1), 500);
   try {
-    const { shares } = await encoreRequest<{ shares: Share[] }>(`/admin/shares?limit=${limit}`, {}, token);
+    const { shares, summary } = await encoreRequest<ShareRegisterResponse>(`/admin/shares?limit=${limit}`, {}, token);
     return NextResponse.json({
-      shares: shares.map((share) => ({ ...share, member: { profileNumber: `KSI-${share.profileId.slice(0, 8).toUpperCase()}`, name: "Encore member", email: "" } })),
-      totalActiveShares: shares.reduce((sum, share) => sum + share.quantity, 0),
-      totalActiveValue: shares.reduce((sum, share) => sum + share.totalAmount, 0),
+      shares,
+      summary,
+      totalActiveShares: summary.issuedShares,
+      totalActiveValue: shares.filter((share) => share.status === "ISSUED").reduce((sum, share) => sum + share.totalAmount, 0),
     });
   } catch (error) {
     const status = error instanceof EncoreRequestError ? error.status : 500;

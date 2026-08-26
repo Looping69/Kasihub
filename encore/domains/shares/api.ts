@@ -2,7 +2,7 @@
 import { api, APIError } from "encore.dev/api";
 import { StructKeyspace, expireInSeconds } from "encore.dev/storage/cache";
 import { z } from "zod";
-import { applicationCache, auditDb, documentsBucket, financeDb, sharesDb } from "../../resources";
+import { applicationCache, auditDb, documentsBucket, financeDb, identityDb, presaleDb, sharesDb } from "../../resources";
 import { requireAdminAccess, requireProfileAccess } from "../auth/access";
 import {
   beginOperation,
@@ -406,28 +406,90 @@ export const updateSharePhase = api<
 
 export const adminShareCertificates = api<
   { limit?: number },
-  { shares: { id: string; profileId: string; phase: number; pricePerShare: number; quantity: number; totalAmount: number; certificateNo: string; status: string; createdAt: string }[] }
+  {
+    shares: {
+      id: string; profileId: string; profileNumber: string; holderName: string; email: string; country: string;
+      phase: number; pricePerShare: number; quantity: number; purchasedQuantity: number; bonusQuantity: number;
+      totalAmount: number; currency: string; certificateNo: string; status: string; createdAt: string;
+      revokedAt: string | null; source: string; orderReference: string | null; campaignName: string | null;
+    }[];
+    summary: { registerEntries: number; shareholderCount: number; certificateCount: number; issuedShares: number; revokedShares: number };
+  }
 >(
   { method: "GET", path: "/admin/shares", expose: true },
   async (req) => {
     await requireAdminAccess();
     const rows = await sharesDb.rawQueryAll<{
       id: string; profile_id: string; phase_number: number; price_per_share: string; total_shares: number;
-      total_amount: string; certificate_number: string; status: string; issued_at: string;
+      purchased_quantity: number; bonus_quantity: number; total_amount: string; currency: string;
+      certificate_number: string; status: string; issued_at: string; revoked_at: string | null;
+      source: string; presale_order_reference: string | null;
     }>(
       `SELECT c.id, c.profile_id, COALESCE(p.phase_number, 1) AS phase_number,
               COALESCE(p.price_per_share, 0)::text AS price_per_share, c.total_shares,
-              COALESCE(sp.total_amount, 0)::text AS total_amount, c.certificate_number, c.status, c.issued_at
+              COALESCE(sp.quantity, c.total_shares) AS purchased_quantity,
+              COALESCE(sp.bonus_quantity, 0) AS bonus_quantity,
+              COALESCE(sp.total_amount, 0)::text AS total_amount, COALESCE(p.currency, 'USD') AS currency,
+              c.certificate_number, c.status, c.issued_at, c.revoked_at, c.source, c.presale_order_reference
        FROM share_certificates c
-       LEFT JOIN LATERAL (
-         SELECT purchase.phase_id, purchase.total_amount FROM share_purchases purchase
-         WHERE purchase.profile_id = c.profile_id AND purchase.created_at <= c.issued_at
-         ORDER BY purchase.created_at DESC LIMIT 1
-       ) sp ON true
+       LEFT JOIN share_purchases sp ON sp.certificate_id = c.id
+         OR (sp.certificate_id IS NULL AND sp.presale_order_reference = c.presale_order_reference)
        LEFT JOIN share_phases p ON p.id = sp.phase_id
        ORDER BY c.issued_at DESC LIMIT $1`,
       Math.min(Math.max(req.limit ?? 50, 1), 500),
     );
-    return { shares: rows.map((row) => ({ id: row.id, profileId: row.profile_id, phase: row.phase_number, pricePerShare: Number(row.price_per_share), quantity: row.total_shares, totalAmount: Number(row.total_amount), certificateNo: row.certificate_number, status: row.status.toUpperCase(), createdAt: row.issued_at })) };
+    const ledgerSummary = await sharesDb.rawQueryRow<{
+      register_entries: string; shareholder_count: string; certificate_count: string;
+      issued_shares: string; revoked_shares: string;
+    }>(`SELECT COUNT(*)::text AS register_entries,
+              (COUNT(DISTINCT profile_id) FILTER (WHERE status='issued'))::text AS shareholder_count,
+              (COUNT(*) FILTER (WHERE status='issued'))::text AS certificate_count,
+              COALESCE(SUM(total_shares) FILTER (WHERE status='issued'),0)::text AS issued_shares,
+              COALESCE(SUM(total_shares) FILTER (WHERE status='revoked'),0)::text AS revoked_shares
+       FROM share_certificates`);
+    const profileIds = [...new Set(rows.map((row) => row.profile_id))];
+    const orderReferences = [...new Set(rows.flatMap((row) => row.presale_order_reference ? [row.presale_order_reference] : []))];
+    const [holders, campaigns] = await Promise.all([
+      profileIds.length === 0 ? [] : identityDb.rawQueryAll<{
+        id: string; profile_number: string; first_name: string | null; surname: string | null;
+        company_name: string | null; email: string; country: string | null;
+      }>(`SELECT p.id,p.unique_profile_number AS profile_number,p.first_name,p.surname,p.company_name,u.email,p.country
+          FROM profiles p JOIN users u ON u.id=p.user_id WHERE p.id=ANY($1::uuid[])`, profileIds),
+      orderReferences.length === 0 ? [] : presaleDb.rawQueryAll<{
+        order_reference: string; campaign_name: string;
+      }>(`SELECT o.order_reference,c.name AS campaign_name FROM presale_orders o
+          JOIN presale_campaigns c ON c.id=o.campaign_id WHERE o.order_reference=ANY($1::text[])`, orderReferences),
+    ]);
+    const holderByProfile = new Map(holders.map((holder) => [holder.id, holder]));
+    const campaignByOrder = new Map(campaigns.map((campaign) => [campaign.order_reference, campaign.campaign_name]));
+    const shares = rows.map((row) => {
+      const holder = holderByProfile.get(row.profile_id);
+      const holderName = holder?.company_name
+        ?? ([holder?.first_name, holder?.surname].filter(Boolean).join(" ")
+          || holder?.email
+          || holder?.profile_number
+          || row.profile_id);
+      return {
+        id: row.id, profileId: row.profile_id, profileNumber: holder?.profile_number ?? row.profile_id,
+        holderName, email: holder?.email ?? "", country: holder?.country ?? "",
+        phase: row.phase_number, pricePerShare: Number(row.price_per_share), quantity: row.total_shares,
+        purchasedQuantity: row.purchased_quantity, bonusQuantity: row.bonus_quantity,
+        totalAmount: Number(row.total_amount), currency: row.currency, certificateNo: row.certificate_number,
+        status: row.status.toUpperCase(), createdAt: row.issued_at, revokedAt: row.revoked_at,
+        source: row.source, orderReference: row.presale_order_reference,
+        campaignName: row.presale_order_reference ? campaignByOrder.get(row.presale_order_reference) ?? null : null,
+      };
+    });
+    const issued = shares.filter((share) => share.status === "ISSUED");
+    return {
+      shares,
+      summary: {
+        registerEntries: Number(ledgerSummary?.register_entries ?? 0),
+        shareholderCount: Number(ledgerSummary?.shareholder_count ?? new Set(issued.map((share) => share.profileId)).size),
+        certificateCount: Number(ledgerSummary?.certificate_count ?? issued.length),
+        issuedShares: Number(ledgerSummary?.issued_shares ?? issued.reduce((sum, share) => sum + share.quantity, 0)),
+        revokedShares: Number(ledgerSummary?.revoked_shares ?? shares.filter((share) => share.status === "REVOKED").reduce((sum, share) => sum + share.quantity, 0)),
+      },
+    };
   },
 );

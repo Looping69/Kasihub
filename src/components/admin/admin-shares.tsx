@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from "react";
 import {
-  Coins, Loader2, Award, TrendingUp, Edit, Save, X, Plus,
-  DollarSign, FileText, Calendar, Sparkles,
+  Coins, Loader2, Award, TrendingUp, Edit, Save,
+  DollarSign, Calendar, Sparkles, Search, Download, Users,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -27,8 +27,13 @@ interface Phase {
 }
 interface ShareRecord {
   id: string; phase: number; pricePerShare: number; quantity: number;
-  totalAmount: number; certificateNo: string; status: string; createdAt: string;
-  member: { profileNumber: string; name: string; email: string };
+  purchasedQuantity: number; bonusQuantity: number; totalAmount: number; currency: string;
+  certificateNo: string; status: string; createdAt: string; revokedAt: string | null;
+  profileId: string; profileNumber: string; holderName: string; email: string; country: string;
+  source: string; orderReference: string | null; campaignName: string | null;
+}
+interface RegisterSummary {
+  registerEntries: number; shareholderCount: number; certificateCount: number; issuedShares: number; revokedShares: number;
 }
 interface Dividend {
   id: string; amount: number; totalShares: number; perShareAmount: number;
@@ -43,6 +48,10 @@ export function AdminShares() {
   const [shares, setShares] = useState<ShareRecord[]>([]);
   const [dividends, setDividends] = useState<Dividend[]>([]);
   const [totals, setTotals] = useState({ totalActiveShares: 0, totalActiveValue: 0 });
+  const [registerSummary, setRegisterSummary] = useState<RegisterSummary>({ registerEntries: 0, shareholderCount: 0, certificateCount: 0, issuedShares: 0, revokedShares: 0 });
+  const [registerSearch, setRegisterSearch] = useState("");
+  const [registerStatus, setRegisterStatus] = useState("ALL");
+  const [registerSource, setRegisterSource] = useState("ALL");
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<Phase | null>(null);
   const [dividendOpen, setDividendOpen] = useState(false);
@@ -52,12 +61,13 @@ export function AdminShares() {
   async function load() {
     try {
       const [sharesRes, statsRes] = await Promise.all([
-        fetch("/api/admin/shares", { cache: "no-store" }),
+        fetch("/api/admin/shares?limit=500", { cache: "no-store" }),
         fetch("/api/admin/stats", { cache: "no-store" }),
       ]);
       if (sharesRes.ok) {
         const d = await sharesRes.json();
         setShares(d.shares);
+        setRegisterSummary(d.summary);
         setTotals({ totalActiveShares: d.totalActiveShares, totalActiveValue: d.totalActiveValue });
       }
       if (statsRes.ok) {
@@ -129,25 +139,46 @@ export function AdminShares() {
   const fmtUSD = (n: number) => `$${(n ?? 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const fmtZAR = (n: number) => `R ${(n ?? 0).toLocaleString("en-ZA", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-  // Phase 1 BOGO → legacy shares are FREE (paid nothing at purchase)
-  const phase1IsLegacy = phases.find((p) => p.phase === 1)?.bonusBuyOneGet === true;
-
   // Helper: get a share's phase pricePerShare (current value-per-share)
   const phasePriceFor = (s: ShareRecord): number => {
     const ph = phases.find((p) => p.phase === s.phase);
     return ph?.pricePerShare ?? s.pricePerShare ?? 0;
   };
-  const isLegacyShare = (s: ShareRecord): boolean => s.phase === 1 && phase1IsLegacy;
-
-  // Phase-based current total value across all ACTIVE shares
+  // Phase-based current total value across all issued shares.
   const totalPhaseValue = shares
-    .filter((s) => s.status === "ACTIVE")
+    .filter((s) => s.status === "ISSUED")
     .reduce((sum, s) => sum + s.quantity * phasePriceFor(s), 0);
 
   // Daily profit share per share (ZAR), based on a ~R37,000 pool split across all active shares
   const dailyProfitSharePerShare = totals.totalActiveShares > 0
     ? DAILY_PROFIT_POOL_ZAR / totals.totalActiveShares
     : 0;
+
+  const normalizedRegisterSearch = registerSearch.trim().toLowerCase();
+  const visibleRegister = shares.filter((share) => {
+    const searchable = [share.holderName, share.email, share.profileNumber, share.certificateNo, share.orderReference, share.campaignName]
+      .filter(Boolean).join(" ").toLowerCase();
+    return (!normalizedRegisterSearch || searchable.includes(normalizedRegisterSearch))
+      && (registerStatus === "ALL" || share.status === registerStatus)
+      && (registerSource === "ALL" || share.source === registerSource);
+  });
+
+  function exportRegister() {
+    const columns = ["Holder", "Email", "Profile number", "Country", "Campaign", "Source", "Order reference", "Certificate", "Shares", "Purchased", "Bonus", "Issued at", "Status"];
+    const csvCell = (value: string | number | null) => `"${String(value ?? "").replaceAll('"', '""')}"`;
+    const rows = visibleRegister.map((share) => [
+      share.holderName, share.email, share.profileNumber, share.country, share.campaignName, share.source,
+      share.orderReference, share.certificateNo, share.quantity, share.purchasedQuantity, share.bonusQuantity,
+      new Date(share.createdAt).toISOString(), share.status,
+    ]);
+    const blob = new Blob([[columns, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n")], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `kasihub-share-register-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
@@ -164,7 +195,7 @@ export function AdminShares() {
         <Card className="p-5">
           <div className="flex items-center justify-between"><p className="text-xs text-muted-foreground">Active shares outstanding</p><Coins className="h-4 w-4 text-amber-600" /></div>
           <p className="text-2xl font-black mt-1">{totals.totalActiveShares.toLocaleString()}</p>
-          <p className="text-[10px] text-muted-foreground mt-0.5">across {shares.filter((s) => s.status === "ACTIVE").length} certificate(s)</p>
+          <p className="text-[10px] text-muted-foreground mt-0.5">across {registerSummary.certificateCount.toLocaleString()} issued certificate(s)</p>
         </Card>
         <Card className="p-5">
           <div className="flex items-center justify-between"><p className="text-xs text-muted-foreground">Total value sold (purchase)</p><DollarSign className="h-4 w-4 text-emerald-600" /></div>
@@ -238,56 +269,73 @@ export function AdminShares() {
         )}
       </Card>
 
-      {/* All certificates */}
+      {/* Database-authoritative shareholder register */}
       <Card className="p-5">
-        <h3 className="font-bold mb-4 flex items-center gap-2"><FileText className="h-4 w-4 text-emerald-600" /> All certificates</h3>
-        <div className="overflow-x-auto scrollbar-kasi max-h-96">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <h3 className="font-bold flex items-center gap-2"><Users className="h-4 w-4 text-emerald-600" /> Shareholder register</h3>
+            <p className="mt-1 text-xs text-muted-foreground">Issued and revoked certificates from the authoritative share ledger. Showing {shares.length.toLocaleString()} of {registerSummary.registerEntries.toLocaleString()} entries.</p>
+          </div>
+          <Button variant="outline" size="sm" onClick={exportRegister} disabled={visibleRegister.length === 0}>
+            <Download className="mr-1.5 h-3.5 w-3.5" /> Export visible CSV
+          </Button>
+        </div>
+
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="rounded-lg border border-border/60 bg-muted/20 p-3"><p className="text-[10px] uppercase text-muted-foreground">Shareholders</p><p className="text-xl font-black">{registerSummary.shareholderCount.toLocaleString()}</p></div>
+          <div className="rounded-lg border border-border/60 bg-muted/20 p-3"><p className="text-[10px] uppercase text-muted-foreground">Issued certificates</p><p className="text-xl font-black">{registerSummary.certificateCount.toLocaleString()}</p></div>
+          <div className="rounded-lg border border-border/60 bg-muted/20 p-3"><p className="text-[10px] uppercase text-muted-foreground">Issued shares</p><p className="text-xl font-black text-emerald-700 dark:text-emerald-400">{registerSummary.issuedShares.toLocaleString()}</p></div>
+          <div className="rounded-lg border border-border/60 bg-muted/20 p-3"><p className="text-[10px] uppercase text-muted-foreground">Revoked shares</p><p className="text-xl font-black text-rose-700 dark:text-rose-400">{registerSummary.revokedShares.toLocaleString()}</p></div>
+        </div>
+
+        <div className="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_180px_180px]">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input value={registerSearch} onChange={(event) => setRegisterSearch(event.target.value)} placeholder="Search holder, profile, certificate or order" className="pl-9" />
+          </div>
+          <Select value={registerStatus} onValueChange={setRegisterStatus}>
+            <SelectTrigger><SelectValue placeholder="Status" /></SelectTrigger>
+            <SelectContent><SelectItem value="ALL">All statuses</SelectItem><SelectItem value="ISSUED">Issued</SelectItem><SelectItem value="REVOKED">Revoked</SelectItem></SelectContent>
+          </Select>
+          <Select value={registerSource} onValueChange={setRegisterSource}>
+            <SelectTrigger><SelectValue placeholder="Source" /></SelectTrigger>
+            <SelectContent><SelectItem value="ALL">All sources</SelectItem><SelectItem value="presale">Presale</SelectItem><SelectItem value="wallet">Wallet</SelectItem></SelectContent>
+          </Select>
+        </div>
+
+        <div className="mt-4 overflow-x-auto scrollbar-kasi max-h-[32rem]">
           <table className="w-full text-sm">
             <thead className="bg-muted/50 sticky top-0">
               <tr>
+                <th className="text-left px-3 py-2 font-semibold text-xs text-muted-foreground uppercase">Shareholder</th>
+                <th className="text-left px-3 py-2 font-semibold text-xs text-muted-foreground uppercase">Campaign / source</th>
                 <th className="text-left px-3 py-2 font-semibold text-xs text-muted-foreground uppercase">Certificate</th>
-                <th className="text-left px-3 py-2 font-semibold text-xs text-muted-foreground uppercase">Member</th>
-                <th className="text-left px-3 py-2 font-semibold text-xs text-muted-foreground uppercase">Phase</th>
-                <th className="text-right px-3 py-2 font-semibold text-xs text-muted-foreground uppercase">Qty</th>
-                <th className="text-right px-3 py-2 font-semibold text-xs text-muted-foreground uppercase">Phase price</th>
-                <th className="text-right px-3 py-2 font-semibold text-xs text-muted-foreground uppercase">Current value</th>
+                <th className="text-right px-3 py-2 font-semibold text-xs text-muted-foreground uppercase">Shares</th>
+                <th className="text-left px-3 py-2 font-semibold text-xs text-muted-foreground uppercase">Issued</th>
                 <th className="text-left px-3 py-2 font-semibold text-xs text-muted-foreground uppercase">Status</th>
               </tr>
             </thead>
             <tbody>
-              {shares.map((s) => {
-                const phasePrice = phasePriceFor(s);
-                const currentValue = s.quantity * phasePrice;
-                const legacy = isLegacyShare(s);
+              {visibleRegister.length === 0 ? (
+                <tr><td colSpan={6} className="px-3 py-10 text-center text-sm text-muted-foreground">No share register entries match these filters.</td></tr>
+              ) : visibleRegister.map((s) => {
                 return (
                   <tr key={s.id} className="border-b border-border/40 hover:bg-muted/30">
+                    <td className="px-3 py-2"><p className="font-semibold text-xs">{s.holderName}</p><p className="text-[10px] text-muted-foreground">{s.email}</p><p className="text-[10px] text-muted-foreground font-mono">{s.profileNumber}</p></td>
+                    <td className="px-3 py-2"><p className="text-xs font-medium">{s.campaignName ?? (s.source === "presale" ? "Presale" : "Direct share ledger")}</p><p className="text-[10px] text-muted-foreground font-mono">{s.orderReference ?? s.source}</p></td>
                     <td className="px-3 py-2 font-mono text-xs">{s.certificateNo}</td>
-                    <td className="px-3 py-2"><p className="font-semibold text-xs">{s.member.name}</p><p className="text-[10px] text-muted-foreground font-mono">{s.member.profileNumber}</p></td>
-                    <td className="px-3 py-2">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-xs">{s.phase}</span>
-                        {legacy && (
-                          <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200 text-[9px] px-1.5 py-0 flex items-center gap-0.5">
-                            <Sparkles className="h-2.5 w-2.5" />Legacy
-                          </Badge>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-3 py-2 text-right font-semibold">{s.quantity}</td>
-                    <td className="px-3 py-2 text-right font-mono text-xs">{fmtUSD(phasePrice)}</td>
-                    <td className="px-3 py-2 text-right font-mono text-xs font-semibold text-emerald-700 dark:text-emerald-400">{fmtUSD(currentValue)}</td>
-                    <td className="px-3 py-2"><Badge variant="outline" className={s.status === "ACTIVE" ? "bg-emerald-50 text-emerald-700 border-emerald-200 text-[9px]" : "bg-rose-50 text-rose-700 border-rose-200 text-[9px]"}>{s.status}</Badge></td>
+                    <td className="px-3 py-2 text-right"><p className="font-semibold">{s.quantity.toLocaleString()}</p>{s.bonusQuantity > 0 && <p className="text-[10px] text-amber-700">includes {s.bonusQuantity} bonus</p>}</td>
+                    <td className="px-3 py-2 text-xs">{new Date(s.createdAt).toLocaleDateString("en-ZA")}</td>
+                    <td className="px-3 py-2"><Badge variant="outline" className={s.status === "ISSUED" ? "bg-emerald-50 text-emerald-700 border-emerald-200 text-[9px]" : "bg-rose-50 text-rose-700 border-rose-200 text-[9px]"}>{s.status}</Badge></td>
                   </tr>
                 );
               })}
             </tbody>
             <tfoot className="bg-muted/50 sticky bottom-0">
               <tr>
-                <td colSpan={3} className="px-3 py-2 text-xs font-semibold uppercase text-muted-foreground">Total (active certificates, phase-based)</td>
-                <td className="px-3 py-2 text-right font-semibold text-xs">{totals.totalActiveShares.toLocaleString()}</td>
-                <td className="px-3 py-2 text-right text-[10px] text-muted-foreground">qty × phase price</td>
-                <td className="px-3 py-2 text-right font-mono text-sm font-black text-emerald-700 dark:text-emerald-400">{fmtUSD(totalPhaseValue)}</td>
-                <td />
+                <td colSpan={3} className="px-3 py-2 text-xs font-semibold uppercase text-muted-foreground">Visible register total ({visibleRegister.length} certificate(s))</td>
+                <td className="px-3 py-2 text-right font-semibold text-xs">{visibleRegister.reduce((sum, share) => sum + (share.status === "ISSUED" ? share.quantity : 0), 0).toLocaleString()}</td>
+                <td colSpan={2} />
               </tr>
             </tfoot>
           </table>
