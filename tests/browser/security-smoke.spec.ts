@@ -284,23 +284,32 @@ test("shareholder application enforces Step 1 identity and Step 3 banking requir
   await page.goto(`/presale?invite=${invite}`);
   await expect(page.getByRole("heading", { name: "KASIHUB SHAREHOLDER PROFILE" })).toBeVisible();
   await expect(page.getByText("Your secure Shareholder profile links to this application, identity verification, share purchase and certificate.")).toBeVisible();
-  await expect(page.getByLabel("Country code *")).toHaveValue("+27");
+  await expect(page.getByLabel("Cellphone country code *")).toHaveValue("+27");
+  await expect(page.getByLabel("Confirm country code *")).toHaveValue("+27");
   await expect(page.getByLabel("Street address *")).toBeAttached();
   await expect(page.getByLabel("Suburb *")).toBeAttached();
   await expect(page.getByLabel("City *")).toBeAttached();
   await expect(page.getByLabel("Postal code *")).toBeAttached();
 
   const password = page.locator('input[name="accountPassword"]');
+  await password.fill("twelveletters");
+  await expect(page.getByLabel("Password meets all requirements")).not.toBeVisible();
   await password.fill("Secure-pass-2026");
-  await expect(page.getByLabel("Password has at least 12 characters")).toBeVisible();
+  await expect(page.getByLabel("Password meets all requirements")).toBeVisible();
+  await expect(page.getByLabel("Passwords meet all requirements and match")).not.toBeVisible();
   await page.getByRole("button", { name: "Show password" }).click();
   await expect(password).toHaveAttribute("type", "text");
   await expect(page.getByRole("button", { name: "Show confirm password" })).toBeVisible();
 
   await page.getByLabel("Full legal name").fill("Test Shareholder");
   await page.getByLabel("Cellphone number *", { exact: true }).fill("82 123 4567");
+  await expect(page.getByLabel("Cellphone number is valid for the selected country code")).toBeVisible();
+  await page.getByLabel("Confirm cellphone number *", { exact: true }).fill("82 123 4568");
+  await expect(page.getByLabel("Cellphone numbers are valid and match")).not.toBeVisible();
   await page.getByLabel("Confirm cellphone number *", { exact: true }).fill("82 123 4567");
+  await expect(page.getByLabel("Cellphone numbers are valid and match")).toBeVisible();
   await page.locator('input[name="confirmAccountPassword"]').fill("Secure-pass-2026");
+  await expect(page.getByLabel("Passwords meet all requirements and match")).toBeVisible();
   await page.getByLabel("Nationality *").fill("South African");
   await page.getByLabel("Country of residence *").fill("South Africa");
   await page.getByLabel("Occupation *").fill("Engineer");

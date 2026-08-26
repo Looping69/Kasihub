@@ -80,6 +80,18 @@ function internationalCellphone(countryCode: string, nationalNumber: FormDataEnt
   return parsed.number;
 }
 
+function validatedInternationalCellphone(countryCode: string, nationalNumber: string): string | null {
+  try {
+    return internationalCellphone(countryCode, nationalNumber);
+  } catch {
+    return null;
+  }
+}
+
+function validAccountPassword(value: string): boolean {
+  return value.length >= 12 && /\d/.test(value) && /[^A-Za-z0-9]/.test(value);
+}
+
 function resumeNationalNumber(value?: string): string {
   return value ? parsePhoneNumberFromString(value)?.nationalNumber ?? value : "";
 }
@@ -117,6 +129,9 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
   const [accountEmailStatus, setAccountEmailStatus] = useState<"sent" | "failed" | "existing" | "">("");
   const [accountNotice, setAccountNotice] = useState(false);
   const [phoneCountryCode, setPhoneCountryCode] = useState("+27");
+  const [confirmPhoneCountryCode, setConfirmPhoneCountryCode] = useState("+27");
+  const [phoneNumber, setPhoneNumber] = useState("");
+  const [confirmPhoneNumber, setConfirmPhoneNumber] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -150,7 +165,14 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
         const portal = await response.json() as ResumePortal;
         setResumeApplicant(portal.applicant);
         const restoredPhone = parsePhoneNumberFromString(portal.applicant.phone);
-        if (restoredPhone) setPhoneCountryCode(`+${restoredPhone.countryCallingCode}`);
+        if (restoredPhone) {
+          const restoredCountryCode = `+${restoredPhone.countryCallingCode}`;
+          const restoredNationalNumber = restoredPhone.nationalNumber;
+          setPhoneCountryCode(restoredCountryCode);
+          setConfirmPhoneCountryCode(restoredCountryCode);
+          setPhoneNumber(restoredNationalNumber);
+          setConfirmPhoneNumber(restoredNationalNumber);
+        }
         setMemberProfileNumber(portal.applicant.profileNumber);
         setKycVerification({ required: true, verified: portal.kyc.verified, status: portal.kyc.status, caseId: null });
         setVerificationStarted(portal.kyc.verified || portal.kyc.status.toLowerCase() !== "pending");
@@ -230,6 +252,16 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
   const maximumPaidShares = offer ? availablePaidShares(offer.invitationSharesRemaining, offer.sharesRemaining) : 0;
   const totalPreview = offer ? Number(offer.priceUsdt) * Number(quantity || 0) : 0;
   const webPayUnitPriceZar = Number(offer?.webPayUnitPriceZar ?? 450);
+  const validatedPhoneNumber = validatedInternationalCellphone(phoneCountryCode, phoneNumber);
+  const validatedConfirmPhoneNumber = validatedInternationalCellphone(confirmPhoneCountryCode, confirmPhoneNumber);
+  const phoneNumberValid = Boolean(validatedPhoneNumber);
+  const confirmPhoneNumberValid = Boolean(
+    validatedConfirmPhoneNumber
+    && validatedPhoneNumber
+    && validatedConfirmPhoneNumber === validatedPhoneNumber,
+  );
+  const passwordValid = validAccountPassword(password);
+  const confirmPasswordValid = passwordValid && confirmPassword === password;
 
   async function createOrder(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -241,7 +273,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
     let confirmedCellphone: string;
     try {
       cellphone = internationalCellphone(String(data.get("phoneCountryCode") ?? "+27"), data.get("buyerPhone"));
-      confirmedCellphone = internationalCellphone(String(data.get("phoneCountryCode") ?? "+27"), data.get("confirmMobileNumber"));
+      confirmedCellphone = internationalCellphone(String(data.get("confirmPhoneCountryCode") ?? "+27"), data.get("confirmMobileNumber"));
     } catch (reason) {
       setApplicationPhase(1);
       setError(reason instanceof Error ? reason.message : "Enter a valid cellphone number.");
@@ -418,7 +450,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
       throw new Error("Use at least 12 characters with a number and a special character.");
     }
     const cellphone = internationalCellphone(String(data.get("phoneCountryCode") ?? "+27"), data.get("buyerPhone"));
-    const confirmedCellphone = internationalCellphone(String(data.get("phoneCountryCode") ?? "+27"), data.get("confirmMobileNumber"));
+    const confirmedCellphone = internationalCellphone(String(data.get("confirmPhoneCountryCode") ?? "+27"), data.get("confirmMobileNumber"));
     if (cellphone !== confirmedCellphone) throw new Error("Cellphone numbers must match.");
     const response = await fetch("/api/presale/members", {
       method: "POST",
@@ -567,14 +599,17 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
               <Field label="Full legal name"><Input name="buyerName" required minLength={2} defaultValue={resumeApplicant?.legalName} className="border-white/15 bg-black/20" /></Field>
               <Field label="Email address"><Input name="buyerEmail" type="email" required defaultValue={resumeApplicant?.email ?? offer.invitationEmail} readOnly={Boolean(resumeApplicant?.email || offer.invitationEmail)} className="border-white/15 bg-black/20" /></Field>
               <div className="grid gap-4 sm:grid-cols-[9rem_1fr]">
-                <Field label="Country code *"><select name="phoneCountryCode" required value={phoneCountryCode} onChange={(event) => setPhoneCountryCode(event.target.value)} className="h-10 w-full rounded-md border border-white/15 bg-slate-950 px-3 text-sm">{COUNTRY_CALLING_CODES.map(({ country, code }) => <option key={country} value={code}>{country} {code}</option>)}</select></Field>
-                <Field label="Cellphone number *"><Input name="buyerPhone" type="tel" inputMode="tel" required defaultValue={resumeNationalNumber(resumeApplicant?.phone)} placeholder="82 123 4567" className="border-white/15 bg-black/20" /></Field>
+                <Field label="Cellphone country code *"><select name="phoneCountryCode" required value={phoneCountryCode} onChange={(event) => setPhoneCountryCode(event.target.value)} className="h-10 w-full rounded-md border border-white/15 bg-slate-950 px-3 text-sm">{COUNTRY_CALLING_CODES.map(({ country, code }) => <option key={country} value={code}>{country} {code}</option>)}</select></Field>
+                <Field label="Cellphone number *"><div className="relative"><Input name="buyerPhone" type="tel" inputMode="tel" required value={phoneNumber} onChange={(event) => setPhoneNumber(event.target.value)} placeholder="82 123 4567" className="border-white/15 bg-black/20 pr-11" />{phoneNumberValid && <Check className="absolute right-3 top-1/2 h-5 w-5 -translate-y-1/2 text-emerald-400" aria-label="Cellphone number is valid for the selected country code" />}</div></Field>
               </div>
-              <Field label="Confirm cellphone number *"><Input name="confirmMobileNumber" type="tel" inputMode="tel" required defaultValue={resumeNationalNumber(resumeApplicant?.phone)} placeholder="82 123 4567" className="border-white/15 bg-black/20" /></Field>
+              <div className="grid gap-4 sm:grid-cols-[9rem_1fr]">
+                <Field label="Confirm country code *"><select name="confirmPhoneCountryCode" required value={confirmPhoneCountryCode} onChange={(event) => setConfirmPhoneCountryCode(event.target.value)} className="h-10 w-full rounded-md border border-white/15 bg-slate-950 px-3 text-sm">{COUNTRY_CALLING_CODES.map(({ country, code }) => <option key={country} value={code}>{country} {code}</option>)}</select></Field>
+                <Field label="Confirm cellphone number *"><div className="relative"><Input name="confirmMobileNumber" type="tel" inputMode="tel" required value={confirmPhoneNumber} onChange={(event) => setConfirmPhoneNumber(event.target.value)} placeholder="82 123 4567" className="border-white/15 bg-black/20 pr-11" />{confirmPhoneNumberValid && <Check className="absolute right-3 top-1/2 h-5 w-5 -translate-y-1/2 text-emerald-400" aria-label="Cellphone numbers are valid and match" />}</div></Field>
+              </div>
               <p className="text-xs leading-5 text-slate-400">Both cellphone entries must match and must be a valid length for the selected country code.</p>
               <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="Account password *"><div className="relative"><Input name="accountPassword" type={showPassword ? "text" : "password"} required minLength={12} autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} className="border-white/15 bg-black/20 pr-20" />{password.length >= 12 && <Check className="absolute right-11 top-1/2 h-5 w-5 -translate-y-1/2 text-emerald-400" aria-label="Password has at least 12 characters" />}<button type="button" onClick={() => setShowPassword((shown) => !shown)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-300 hover:text-white" aria-label={showPassword ? "Hide password" : "Show password"}>{showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}</button></div></Field>
-                <Field label="Confirm account password *"><div className="relative"><Input name="confirmAccountPassword" type={showConfirmPassword ? "text" : "password"} required minLength={12} autoComplete="new-password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} className="border-white/15 bg-black/20 pr-12" /><button type="button" onClick={() => setShowConfirmPassword((shown) => !shown)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-300 hover:text-white" aria-label={showConfirmPassword ? "Hide confirm password" : "Show confirm password"}>{showConfirmPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}</button></div></Field>
+                <Field label="Account password *"><div className="relative"><Input name="accountPassword" type={showPassword ? "text" : "password"} required minLength={12} autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} className="border-white/15 bg-black/20 pr-20" />{passwordValid && <Check className="absolute right-11 top-1/2 h-5 w-5 -translate-y-1/2 text-emerald-400" aria-label="Password meets all requirements" />}<button type="button" onClick={() => setShowPassword((shown) => !shown)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-300 hover:text-white" aria-label={showPassword ? "Hide password" : "Show password"}>{showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}</button></div></Field>
+                <Field label="Confirm account password *"><div className="relative"><Input name="confirmAccountPassword" type={showConfirmPassword ? "text" : "password"} required minLength={12} autoComplete="new-password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} className="border-white/15 bg-black/20 pr-20" />{confirmPasswordValid && <Check className="absolute right-11 top-1/2 h-5 w-5 -translate-y-1/2 text-emerald-400" aria-label="Passwords meet all requirements and match" />}<button type="button" onClick={() => setShowConfirmPassword((shown) => !shown)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-300 hover:text-white" aria-label={showConfirmPassword ? "Hide confirm password" : "Show confirm password"}>{showConfirmPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}</button></div></Field>
               </div>
               <p className="text-xs leading-5 text-slate-400">Password must contain at least 12 characters, including a number and a special character. Both passwords must match.</p>
               {memberProfileNumber ? <div className="rounded-xl border border-emerald-400/30 bg-emerald-400/10 p-4 text-sm text-emerald-100"><strong className="block text-white">Applicant profile ready</strong>Profile {memberProfileNumber} is securely linked to this application. {accountEmailStatus === "sent" ? "Your account email has been sent." : accountEmailStatus === "failed" ? "Your account exists, but the email provider did not accept the welcome email. Use Applicant login above and contact support if needed." : "Use Applicant login above to return later."}</div> : null}
