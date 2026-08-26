@@ -201,16 +201,16 @@ type RetryableEmailDelivery = {
   external_profile_id: string;
   order_id: string | null;
   recipient_email: string;
-  updated_at: string;
 };
 
 async function retryPresaleEmailDelivery(delivery: RetryableEmailDelivery): Promise<"sent" | "failed" | "skipped"> {
   const claimed = await presaleDb.rawQueryRow<{ id: string }>(
     `UPDATE presale_email_deliveries
         SET status = 'pending', updated_at = now()
-      WHERE id = $1 AND updated_at = $2 AND status IN ('pending', 'failed')
+      WHERE id = $1 AND status IN ('pending', 'failed')
+        AND updated_at < now() - interval '2 minutes'
       RETURNING id`,
-    delivery.id, delivery.updated_at,
+    delivery.id,
   );
   if (!claimed) return "skipped";
 
@@ -2431,7 +2431,7 @@ export const retryFailedPresaleEmails = api<void, { sent: number; failed: number
   { method: "POST", path: "/internal/presale/retry-emails", expose: false },
   async () => {
     const deliveries = await presaleDb.rawQueryAll<RetryableEmailDelivery>(
-      `SELECT id, email_type, external_profile_id, order_id, recipient_email, updated_at::text
+      `SELECT id, email_type, external_profile_id, order_id, recipient_email
          FROM presale_email_deliveries
         WHERE status IN ('pending', 'failed') AND attempt_count < 5
           AND updated_at < now() - interval '2 minutes'
