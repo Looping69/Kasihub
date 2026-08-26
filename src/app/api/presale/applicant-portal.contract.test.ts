@@ -61,6 +61,16 @@ describe("isolated KaSiShares applicant portal", () => {
     expect(access).toContain("r.name = 'presale_investor'");
   });
 
+  test("offers password visibility on both login surfaces without changing autocomplete semantics", () => {
+    const account = source("src/app/shares/account/shares-account-client.tsx");
+    const landing = source("src/components/landing.tsx");
+    for (const login of [account, landing]) {
+      expect(login).toContain('type={showPassword ? "text" : "password"}');
+      expect(login).toContain("Show password");
+      expect(login).toContain('autoComplete="current-password"');
+    }
+  });
+
   test("promotes only verified issued shareholders and keeps matrix placement behind payment activation", () => {
     const api = source("encore/domains/presale/api.ts");
     const membership = source("encore/domains/membership/api.ts");

@@ -121,6 +121,7 @@ export function Landing() {
   const [loginOpen, setLoginOpen] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [loginError, setLoginError] = useState("");
   const [signingIn, setSigningIn] = useState(false);
   const [demoLoading, setDemoLoading] = useState(false);
@@ -131,6 +132,7 @@ export function Landing() {
   function openLogin(intent: "member" | "admin") {
     setLoginIntent(intent);
     setLoginError("");
+    setShowPassword(false);
     setLoginOpen(true);
   }
 
@@ -689,7 +691,11 @@ export function Landing() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="login-password">Password</Label>
-              <Input id="login-password" type="password" autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.target.value)} />
+              <Input id="login-password" type={showPassword ? "text" : "password"} autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.target.value)} />
+              <label className="flex w-fit cursor-pointer items-center gap-2 text-sm text-muted-foreground">
+                <input type="checkbox" checked={showPassword} onChange={(event) => setShowPassword(event.target.checked)} className="h-4 w-4 accent-primary" />
+                Show password
+              </label>
             </div>
             {loginError && <p className="text-sm text-destructive">{loginError}</p>}
             <Button type="submit" className="w-full" disabled={signingIn}>
