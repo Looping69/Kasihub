@@ -18,6 +18,11 @@ coverage/
 
 # generated reports
 /output/pdf/KaSiHub_Current_System_Stance_2026-08-24.pdf
+/docs/generated/
+
+# Python tooling caches
+__pycache__/
+*.py[cod]
 
 # next.js
 /.next/

@@ -34,7 +34,11 @@ import { POST as uploadKycDocument } from "./presale/kyc-documents/route";
 import { GET as getKycVerification } from "./presale/kyc-status/route";
 import { POST as createKycSession } from "./presale/kyc-session/route";
 import { GET as getOrder } from "./presale/orders/[reference]/route";
+import { POST as cancelOrder } from "./presale/orders/[reference]/cancel/route";
 import { POST as submitProof } from "./presale/orders/[reference]/payment-proof/route";
+import { POST as startWebPayCheckout } from "./presale/orders/[reference]/webpay-checkout/route";
+import { POST as receiveWebPayNotification } from "./presale/webpay/notify/route";
+import { POST as receiveWebPayProcessNotification } from "./presale/webpay/process/route";
 
 function request(path: string, init: RequestInit = {}) {
   return new NextRequest(`https://kasihub.test${path}`, init as ConstructorParameters<typeof NextRequest>[1]);
@@ -238,6 +242,124 @@ describe("presale BFF contracts", () => {
     expect(response.status).toBe(401);
     await expect(response.json()).resolves.toEqual({ error: "Authentication is required" });
     expect(mocks.encoreRequest).not.toHaveBeenCalled();
+  });
+
+  test("unpaid reservation cancellation is session-bound and pins the route reference", async () => {
+    mocks.encoreSessionToken.mockResolvedValueOnce(undefined);
+    const unauthenticated = await cancelOrder(
+      jsonPost("/api/presale/orders/KSP/cancel", { acknowledgeNoPaymentSent: true }),
+      orderContext,
+    );
+    expect(unauthenticated.status).toBe(401);
+    expect(mocks.encoreRequest).not.toHaveBeenCalled();
+
+    const response = await cancelOrder(
+      jsonPost("/api/presale/orders/KSP/cancel", { acknowledgeNoPaymentSent: true }),
+      orderContext,
+    );
+    expect(response.status).toBe(200);
+    expect(mocks.encoreRequest).toHaveBeenCalledWith(
+      "/presale/orders/KSP%2FORDER%201/cancel",
+      { method: "POST", body: JSON.stringify({ acknowledgeNoPaymentSent: true }) },
+      "admin-token",
+    );
+  });
+
+  test("reservation cancellation safely maps stale and unexpected failures", async () => {
+    const { EncoreRequestError } = await import("@/lib/encore-client");
+    mocks.encoreRequest.mockRejectedValueOnce(new EncoreRequestError("stale", 409, null));
+    const stale = await cancelOrder(request("/api/presale/orders/KSP/cancel", { method: "POST", body: "not-json" }), orderContext);
+    expect(stale.status).toBe(409);
+    expect(await stale.json()).toEqual({
+      error: "This reservation has already expired, changed status, or entered WebPay checkout. Your account status will be refreshed.",
+    });
+
+    mocks.encoreRequest.mockRejectedValueOnce(new Error("network unavailable"));
+    const failed = await cancelOrder(jsonPost("/api/presale/orders/KSP/cancel", {}), orderContext);
+    expect(failed.status).toBe(500);
+    expect(await failed.json()).toEqual({ error: "The unpaid reservation could not be cancelled." });
+  });
+
+  test("WebPay checkout requires the private order token and preserves it in a header", async () => {
+    const missing = await startWebPayCheckout(request("/api/presale/orders/KSP/webpay-checkout", { method: "POST" }), orderContext);
+    expect(missing.status).toBe(401);
+    expect(mocks.encoreRequest).not.toHaveBeenCalled();
+
+    const response = await startWebPayCheckout(request("/api/presale/orders/KSP/webpay-checkout", {
+      method: "POST",
+      headers: { "x-presale-access-token": " private-token " },
+    }), orderContext);
+    expect(response.status).toBe(200);
+    expect(mocks.encoreRequest).toHaveBeenCalledWith(
+      "/presale/orders/KSP%2FORDER%201/webpay-checkout",
+      { method: "POST", headers: { "X-Presale-Access-Token": "private-token" } },
+    );
+  });
+
+  test("WebPay checkout distinguishes unavailable configuration from internal failure", async () => {
+    const { EncoreRequestError } = await import("@/lib/encore-client");
+    const req = () => request("/api/presale/orders/KSP/webpay-checkout", {
+      method: "POST",
+      headers: { "x-presale-access-token": "private-token" },
+    });
+    mocks.encoreRequest.mockRejectedValueOnce(new EncoreRequestError("missing", 503, null));
+    const unavailable = await startWebPayCheckout(req(), orderContext);
+    expect(await unavailable.json()).toEqual({ error: "WebPay checkout is not configured" });
+
+    mocks.encoreRequest.mockRejectedValueOnce(new Error("network unavailable"));
+    const failed = await startWebPayCheckout(req(), orderContext);
+    expect(failed.status).toBe(500);
+    expect(await failed.json()).toEqual({ error: "Unable to start WebPay checkout" });
+  });
+
+  test.each([
+    ["payment", receiveWebPayNotification, "/presale/webhooks/webpay", 32_768],
+    ["process", receiveWebPayProcessNotification, "/presale/webhooks/webpay-process", 16_384],
+  ] as const)("WebPay %s callback accepts JSON and form payloads but rejects invalid bodies", async (_name, handler, backendPath, limit) => {
+    const jsonResponse = await handler(request("/api/presale/webpay/callback", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ reference: "KSP-1", status: "COMPLETE" }),
+    }));
+    expect(jsonResponse.status).toBe(200);
+    expect(mocks.encoreRequest).toHaveBeenLastCalledWith(backendPath, {
+      method: "POST",
+      body: JSON.stringify({ reference: "KSP-1", status: "COMPLETE" }),
+    });
+
+    await handler(request("/api/presale/webpay/callback", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: "reference=KSP-1&status=FAILED",
+    }));
+    expect(mocks.encoreRequest).toHaveBeenLastCalledWith(backendPath, {
+      method: "POST",
+      body: JSON.stringify({ reference: "KSP-1", status: "FAILED" }),
+    });
+
+    const empty = await handler(request("/api/presale/webpay/callback", { method: "POST", body: "" }));
+    expect(empty.status).toBe(400);
+    const oversized = await handler(request("/api/presale/webpay/callback", { method: "POST", body: "x".repeat(limit + 1) }));
+    expect(oversized.status).toBe(400);
+    const unsupported = await handler(request("/api/presale/webpay/callback", {
+      method: "POST",
+      headers: { "content-type": "text/plain" },
+      body: "reference=KSP-1",
+    }));
+    expect(unsupported.status).toBe(400);
+  });
+
+  test("WebPay callbacks preserve bounded upstream status codes", async () => {
+    const { EncoreRequestError } = await import("@/lib/encore-client");
+    mocks.encoreRequest.mockRejectedValueOnce(new EncoreRequestError("invalid checksum", 401, null));
+    const payment = await receiveWebPayNotification(jsonPost("/api/presale/webpay/notify", { reference: "KSP-1" }));
+    expect(payment.status).toBe(401);
+    expect(await payment.json()).toEqual({ error: "WebPay notification rejected" });
+
+    mocks.encoreRequest.mockRejectedValueOnce(new EncoreRequestError("invalid checksum", 403, null));
+    const process = await receiveWebPayProcessNotification(jsonPost("/api/presale/webpay/process", { reference: "KSP-1" }));
+    expect(process.status).toBe(403);
+    expect(await process.json()).toEqual({ error: "WebPay process notification rejected" });
   });
 
   test("all presale routes preserve safe Encore failure statuses", async () => {
