@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "encore.dev": "^1.57.13",
+    "libphonenumber-js": "^1.13.11",
     "zod": "^4.0.2"
   },
   "devDependencies": {

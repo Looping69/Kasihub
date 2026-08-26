@@ -249,6 +249,83 @@ test("private USDT shares page fails closed without an invitation", async ({ pag
   await expect(page.locator('meta[name="referrer"]')).toHaveAttribute("content", "no-referrer");
 });
 
+test("shareholder application enforces Step 1 identity and Step 3 banking requirements", async ({ page }) => {
+  const invite = "private-form-review-token-0000000000000001";
+  let registrationBody: Record<string, unknown> = {};
+  await page.route("**/api/presale/portal", (route) => route.fulfill({
+    status: 401,
+    contentType: "application/json",
+    body: JSON.stringify({ error: "KaSiShares login is required" }),
+  }));
+  await page.route("**/api/presale/offer?invite=*", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ offer: {
+      name: "KaSiShares Private Allocation", issuerName: "Solidus Holdings (Pty) Ltd", shareClass: "Class B",
+      priceUsdt: "25.000000", priceUsd: "25.00", network: "BSC", sharesRemaining: 100,
+      invitationSharesRemaining: 5, invitationEmail: "buyer@example.test", minConfirmations: 20,
+      paymentWindowMinutes: 30, termsVersion: "presale-reservation-v1",
+    } }),
+  }));
+  await page.route("**/api/presale/members", (route) => {
+    registrationBody = route.request().postDataJSON() as Record<string, unknown>;
+    return route.fulfill({
+      status: 201,
+      contentType: "application/json",
+      body: JSON.stringify({ profileId: "profile-1", profileNumber: "KSI-ONE", applicationId: "application-1", created: true, emailStatus: "sent" }),
+    });
+  });
+  await page.route("**/api/presale/progress", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ phaseCompleted: 1, completionPercent: 20 }),
+  }));
+
+  await page.goto(`/presale?invite=${invite}`);
+  await expect(page.getByRole("heading", { name: "KASIHUB SHAREHOLDER PROFILE" })).toBeVisible();
+  await expect(page.getByText("Your secure Shareholder profile links to this application, identity verification, share purchase and certificate.")).toBeVisible();
+  await expect(page.getByLabel("Country code *")).toHaveValue("+27");
+  await expect(page.getByLabel("Street address *")).toBeAttached();
+  await expect(page.getByLabel("Suburb *")).toBeAttached();
+  await expect(page.getByLabel("City *")).toBeAttached();
+  await expect(page.getByLabel("Postal code *")).toBeAttached();
+
+  const password = page.locator('input[name="accountPassword"]');
+  await password.fill("Secure-pass-2026");
+  await expect(page.getByLabel("Password has at least 12 characters")).toBeVisible();
+  await page.getByRole("button", { name: "Show password" }).click();
+  await expect(password).toHaveAttribute("type", "text");
+  await expect(page.getByRole("button", { name: "Show confirm password" })).toBeVisible();
+
+  await page.getByLabel("Full legal name").fill("Test Shareholder");
+  await page.getByLabel("Cellphone number *", { exact: true }).fill("82 123 4567");
+  await page.getByLabel("Confirm cellphone number *", { exact: true }).fill("82 123 4567");
+  await page.locator('input[name="confirmAccountPassword"]').fill("Secure-pass-2026");
+  await page.getByLabel("Nationality *").fill("South African");
+  await page.getByLabel("Country of residence *").fill("South Africa");
+  await page.getByLabel("Occupation *").fill("Engineer");
+  await page.getByLabel("Employer *").fill("Example Company");
+  await page.getByLabel("Tax number *").fill("TAX-123");
+  await page.getByLabel("Street address *").fill("1 Main Road");
+  await page.getByLabel("Suburb *").fill("Sunnyside");
+  await page.getByLabel("City *").fill("Pretoria");
+  await page.getByLabel("Postal code *").fill("0002");
+  await page.getByRole("button", { name: /^Continue$/ }).click();
+  await expect(page.getByRole("dialog", { name: "Shareholder profile created" })).toBeVisible();
+  await expect(page.getByText("An email has been sent to you with your shareholder login details if you need to continue the process.")).toBeVisible();
+  expect(registrationBody).toMatchObject({
+    phone: "+27821234567", streetAddress: "1 Main Road", suburb: "Sunnyside", city: "Pretoria", postalCode: "0002",
+  });
+
+  for (const label of ["Account holder *", "Bank *", "Branch *", "Account number *", "Account type *", "SWIFT/BIC *"]) {
+    await expect(page.getByLabel(label)).toHaveAttribute("required", "");
+  }
+  const sourceDetails = page.getByLabel("Source-of-funds details");
+  await expect(sourceDetails).not.toHaveAttribute("required", "");
+  await page.getByLabel("Primary source *").selectOption("other", { force: true });
+  await expect(page.getByLabel("Source-of-funds details *")).toHaveAttribute("required", "");
+});
+
 test("applicant portal continues signup at the first server-authoritative unfinished step", async ({ page }) => {
   const invite = "private-resume-token-000000000000000001";
   const writes: string[] = [];
@@ -483,16 +560,20 @@ test("invited buyer can reserve shares without exposing the order access token i
   await page.getByLabel("Full legal name").fill("Private Buyer");
   await page.getByLabel("Cellphone number *", { exact: true }).fill("+27820000000");
   await page.getByLabel("Confirm cellphone number *", { exact: true }).fill("+27820000000");
-  await page.getByLabel("Account password *", { exact: true }).fill("correct-horse-battery-staple");
-  await page.getByLabel("Confirm account password *", { exact: true }).fill("correct-horse-battery-staple");
+  await page.getByLabel("Account password *", { exact: true }).fill("correct-horse-battery-staple-1");
+  await page.getByLabel("Confirm account password *", { exact: true }).fill("correct-horse-battery-staple-1");
   await page.getByLabel("Application type *").selectOption("individual");
   await page.getByLabel("Nationality *").fill("South African");
   await page.getByLabel("Country of residence *").fill("South Africa");
   await page.getByLabel("Occupation *").fill("Engineer");
   await page.getByLabel("Employer *").fill("Example Employer");
   await page.getByLabel("Tax number *").fill("TEST-TAX-001");
-  await page.getByLabel("Physical address *").fill("1 Example Street, Johannesburg");
+  await page.getByLabel("Street address *").fill("1 Example Street");
+  await page.getByLabel("Suburb *").fill("Example Suburb");
+  await page.getByLabel("City *").fill("Johannesburg");
+  await page.getByLabel("Postal code *").fill("2000");
   await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: "Continue application" }).click();
 
   await page.getByLabel("Phase 1 shares at $25 each *").fill("2");
   await page.getByRole("button", { name: "Continue" }).click();
@@ -502,7 +583,10 @@ test("invited buyer can reserve shares without exposing the order access token i
   await page.getByLabel("Source-of-funds details").fill("Employment income");
   await page.getByLabel("Account holder").fill("Private Buyer");
   await page.getByLabel("Bank").fill("Test Bank");
+  await page.getByLabel("Branch *").fill("123456");
   await page.getByLabel("Account number").fill("1234567890");
+  await page.getByLabel("Account type").fill("Cheque");
+  await page.getByLabel("SWIFT/BIC *").fill("TESTZAJJ");
   await page.getByRole("button", { name: "Continue" }).click();
 
   await expect(page.getByRole("heading", { name: "Identity evidence" })).toBeVisible();

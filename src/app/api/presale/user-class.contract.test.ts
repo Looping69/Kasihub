@@ -54,7 +54,10 @@ describe("presale user-class boundary", () => {
   test("retains required registration identity fields through Encore request decoding", () => {
     const presaleApi = source("encore/domains/presale/api.ts");
     expect(presaleApi).toContain("countryOfResidence: string;");
-    expect(presaleApi).toContain("physicalAddress: string;");
+    expect(presaleApi).toContain("streetAddress: string;");
+    expect(presaleApi).toContain("suburb: string;");
+    expect(presaleApi).toContain("city: string;");
+    expect(presaleApi).toContain("postalCode: string;");
     expect(presaleApi).toContain("confirmMobileNumber: string;");
   });
 

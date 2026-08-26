@@ -37,6 +37,7 @@ import { deriveApplicantContinuation, type ApplicantContinuationReason } from ".
 import { databaseBinaryToBuffer, type DatabaseBinary } from "./database-binary";
 import { resolveWebPayUnitPrice, WEBPAY_UNIT_PRICE_ZAR, verifyWebPayChecksum, verifyWebPayProcessChecksum, webPayChecksum, webPayMerchantFields, webPayOrderNumber, webPayTotalZar, type PresalePaymentRail } from "./webpay";
 import { buildShareholderPortfolio, type PresaleCertificate, type PresalePaidOrder } from "./shareholder-portfolio";
+import { internationalCellphoneSchema, physicalAddressLine, strongPasswordSchema } from "./applicant-validation";
 
 const PresaleWebhookSecret = secret("PresaleWebhookSecret");
 const InvestorApplicationEncryptionKey = secret("InvestorApplicationEncryptionKey");
@@ -233,7 +234,7 @@ const orderInput = z.object({
   inviteToken: z.string().min(32).max(256),
   buyerName: z.string().trim().min(2).max(160),
   buyerEmail: z.string().email().max(254),
-  buyerPhone: z.string().trim().max(40).optional(),
+  buyerPhone: internationalCellphoneSchema.optional(),
   quantity: z.number().int().positive().max(1_000_000),
   paymentRail: z.enum(["remitano_usdt", "webpay_card"]).default("remitano_usdt"),
   termsAccepted: z.literal(true),
@@ -245,8 +246,11 @@ const orderInput = z.object({
     occupation: z.string().trim().max(160).optional(),
     employer: z.string().trim().max(200).optional(),
     countryOfResidence: z.string().trim().min(2).max(100),
-    physicalAddress: z.string().trim().min(5).max(500),
-    confirmMobileNumber: z.string().trim().min(5).max(40),
+    streetAddress: z.string().trim().min(2).max(200),
+    suburb: z.string().trim().min(2).max(120),
+    city: z.string().trim().min(2).max(120),
+    postalCode: z.string().trim().min(2).max(30),
+    confirmMobileNumber: internationalCellphoneSchema,
     taxNumber: z.string().trim().max(100).optional(),
     taxResidenceCountry: z.string().trim().min(2).max(100).optional(),
     tin: z.string().trim().max(100).optional(),
@@ -257,15 +261,15 @@ const orderInput = z.object({
     authorisedRepresentativePosition: z.string().trim().max(160).optional(),
     beneficialOwnerName: z.string().trim().min(2).max(200).optional(),
     beneficialOwnerRelationship: z.string().trim().max(160).optional(),
-    sourceOfFunds: z.enum(["salary", "business", "investment", "property_sale", "inheritance", "pension", "savings", "company", "trust", "other"]).optional(),
+    sourceOfFunds: z.enum(["salary", "business", "investment", "property_sale", "inheritance", "pension", "savings", "company", "trust", "other"]),
     sourceOfFundsDetails: z.string().trim().min(2).max(1000).optional(),
-    fundsOwnership: z.enum(["own", "company", "trust", "other"]).optional(),
-    bankAccountHolder: z.string().trim().min(2).max(200).optional(),
-    bankName: z.string().trim().min(2).max(160).optional(),
-    bankBranch: z.string().trim().max(160).optional(),
-    bankAccountNumber: z.string().trim().min(4).max(100).optional(),
-    bankAccountType: z.string().trim().max(80).optional(),
-    bankSwift: z.string().trim().max(20).optional(),
+    fundsOwnership: z.enum(["own", "company", "trust", "other"]),
+    bankAccountHolder: z.string().trim().min(2).max(200),
+    bankName: z.string().trim().min(2).max(160),
+    bankBranch: z.string().trim().min(2).max(160),
+    bankAccountNumber: z.string().trim().min(4).max(100),
+    bankAccountType: z.string().trim().min(2).max(80),
+    bankSwift: z.string().trim().min(8).max(20),
     amlDeclarationAccepted: z.literal(true),
     suitabilityDeclarationAccepted: z.literal(true),
     informationDeclarationAccepted: z.literal(true),
@@ -293,6 +297,10 @@ const orderInput = z.object({
       }
     }
   }
+
+  if (value.investorApplication.sourceOfFunds === "other" && !value.investorApplication.sourceOfFundsDetails?.trim()) {
+    context.addIssue({ code: "custom", path: ["investorApplication", "sourceOfFundsDetails"], message: "Describe the other source of funds" });
+  }
 });
 
 const createApplicationInput = z.object({
@@ -303,13 +311,16 @@ const createApplicationInput = z.object({
 const registerPresaleMemberInput = z.object({
   inviteToken: z.string().min(32).max(256),
   email: z.string().email().max(254),
-  password: z.string().min(12).max(128),
+  password: strongPasswordSchema,
   legalName: z.string().trim().min(2).max(300),
-  phone: z.string().trim().min(5).max(40),
+  phone: internationalCellphoneSchema,
   applicantType: z.enum(["individual", "company", "trust"]),
   nationality: z.string().trim().min(2).max(100),
   countryOfResidence: z.string().trim().min(2).max(100),
-  physicalAddress: z.string().trim().min(5).max(500),
+  streetAddress: z.string().trim().min(2).max(200),
+  suburb: z.string().trim().min(2).max(120),
+  city: z.string().trim().min(2).max(120),
+  postalCode: z.string().trim().min(2).max(30),
 });
 
 const saveApplicationPhaseInput = z.object({
@@ -932,7 +943,10 @@ interface RegisterPresaleMemberRequest {
   applicantType: "individual" | "company" | "trust";
   nationality: string;
   countryOfResidence: string;
-  physicalAddress: string;
+  streetAddress: string;
+  suburb: string;
+  city: string;
+  postalCode: string;
 }
 
 interface PresalePortalResponse {
@@ -1031,7 +1045,7 @@ export const registerPresaleMember = api<
           payload.countryOfResidence,
           `PRESALE_${payload.applicantType.toUpperCase()}`,
           payload.applicantType === "trust" ? "PRESALE_TRUST" : "PRESALE_INVESTOR",
-          payload.physicalAddress,
+          physicalAddressLine(payload),
         );
         await tx.rawExec(
           `INSERT INTO user_roles (user_id, role_id)

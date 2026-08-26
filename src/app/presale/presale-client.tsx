@@ -4,7 +4,8 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { CheckCircle2, ChevronLeft, ChevronRight, ClipboardCheck, Clock3, Copy, FileCheck2, Landmark, LockKeyhole, ShieldCheck, UserRound, WalletCards } from "lucide-react";
+import { Check, CheckCircle2, ChevronLeft, ChevronRight, ClipboardCheck, Clock3, Copy, Eye, EyeOff, FileCheck2, Landmark, LockKeyhole, ShieldCheck, UserRound, WalletCards } from "lucide-react";
+import { getCountries, getCountryCallingCode, parsePhoneNumberFromString } from "libphonenumber-js";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -56,7 +57,7 @@ type ResumePortal = {
 };
 
 const APPLICATION_PHASES = [
-  { title: "Member registration", description: "Create your KaSiHub profile and application identity", icon: UserRound },
+  { title: "Shareholder profile", description: "Create your KaSiHub shareholder profile and application identity", icon: UserRound },
   { title: "Choose your investment", description: "Allocation and current USDT price", icon: Landmark },
   { title: "Funding details", description: "Source of funds and investor banking", icon: WalletCards },
   { title: "Identity evidence", description: "Secure ID, selfie and declarations", icon: FileCheck2 },
@@ -68,6 +69,20 @@ const TERMS_PAGE_PATHS = Array.from(
   { length: 10 },
   (_, index) => `/legal/solidus-class-b-investor-terms-2026-08-16/page-${String(index + 1).padStart(2, "0")}.png`,
 );
+
+const COUNTRY_CALLING_CODES = getCountries().map((country) => ({ country, code: `+${getCountryCallingCode(country)}` }));
+
+function internationalCellphone(countryCode: string, nationalNumber: FormDataEntryValue | null): string {
+  const value = String(nationalNumber ?? "").trim();
+  const candidate = value.startsWith("+") ? value : `${countryCode}${value.replace(/\D/g, "")}`;
+  const parsed = parsePhoneNumberFromString(candidate);
+  if (!parsed?.isValid()) throw new Error("Enter a valid cellphone number for the selected country code.");
+  return parsed.number;
+}
+
+function resumeNationalNumber(value?: string): string {
+  return value ? parsePhoneNumberFromString(value)?.nationalNumber ?? value : "";
+}
 
 function statusLabel(status: string) {
   return ({
@@ -100,6 +115,13 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
   const [kycVerification, setKycVerification] = useState<KycVerification | null>(null);
   const [memberProfileNumber, setMemberProfileNumber] = useState("");
   const [accountEmailStatus, setAccountEmailStatus] = useState<"sent" | "failed" | "existing" | "">("");
+  const [accountNotice, setAccountNotice] = useState(false);
+  const [phoneCountryCode, setPhoneCountryCode] = useState("+27");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [sourceOfFunds, setSourceOfFunds] = useState("");
   const [resumeApplicant, setResumeApplicant] = useState<ResumePortal["applicant"] | null>(null);
   const [resumeLoading, setResumeLoading] = useState(!devPreview);
   const [resumeDraft, setResumeDraft] = useState<Record<string, string | boolean> | null>(null);
@@ -127,12 +149,15 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
         if (!response.ok) return;
         const portal = await response.json() as ResumePortal;
         setResumeApplicant(portal.applicant);
+        const restoredPhone = parsePhoneNumberFromString(portal.applicant.phone);
+        if (restoredPhone) setPhoneCountryCode(`+${restoredPhone.countryCallingCode}`);
         setMemberProfileNumber(portal.applicant.profileNumber);
         setKycVerification({ required: true, verified: portal.kyc.verified, status: portal.kyc.status, caseId: null });
         setVerificationStarted(portal.kyc.verified || portal.kyc.status.toLowerCase() !== "pending");
         if (!portal.application) return;
         setApplicantType(portal.application.applicantType);
         setResumeDraft(portal.application.draft);
+        if (typeof portal.application.draft?.sourceOfFunds === "string") setSourceOfFunds(portal.application.draft.sourceOfFunds);
         if (typeof portal.application.draft?.quantity === "string") setQuantity(portal.application.draft.quantity);
         if (portal.application.draft?.paymentRail === "webpay_card" || portal.application.draft?.paymentRail === "remitano_usdt") {
           setPaymentRail(portal.application.draft.paymentRail);
@@ -212,12 +237,23 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
     if (!offer) return;
     const form = event.currentTarget;
     const data = new FormData(form);
+    let cellphone: string;
+    let confirmedCellphone: string;
+    try {
+      cellphone = internationalCellphone(String(data.get("phoneCountryCode") ?? "+27"), data.get("buyerPhone"));
+      confirmedCellphone = internationalCellphone(String(data.get("phoneCountryCode") ?? "+27"), data.get("confirmMobileNumber"));
+    } catch (reason) {
+      setApplicationPhase(1);
+      setError(reason instanceof Error ? reason.message : "Enter a valid cellphone number.");
+      return;
+    }
     const requiredIdentityFields = [
       "buyerName", "buyerEmail", "buyerPhone", "confirmMobileNumber", "applicantType",
-      "nationality", "countryOfResidence", "occupation", "employer", "taxNumber", "physicalAddress",
+      "nationality", "countryOfResidence", "occupation", "employer", "taxNumber",
+      "streetAddress", "suburb", "city", "postalCode",
     ];
     const missingIdentityField = requiredIdentityFields.find((name) => !String(data.get(name) ?? "").trim());
-    if (missingIdentityField || data.get("buyerPhone") !== data.get("confirmMobileNumber")) {
+    if (missingIdentityField || cellphone !== confirmedCellphone) {
       setApplicationPhase(1);
       setError(missingIdentityField
         ? "Review your investor identity details before creating the reservation."
@@ -247,7 +283,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
           inviteToken,
           buyerName: data.get("buyerName"),
           buyerEmail: data.get("buyerEmail"),
-          buyerPhone: data.get("buyerPhone") || undefined,
+          buyerPhone: cellphone,
           quantity,
           paymentRail: data.get("paymentRail"),
           termsAccepted: data.get("termsAccepted") === "on",
@@ -258,8 +294,11 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
             occupation: data.get("occupation") || undefined,
             employer: data.get("employer") || undefined,
             countryOfResidence: data.get("countryOfResidence") || undefined,
-            physicalAddress: data.get("physicalAddress") || undefined,
-            confirmMobileNumber: data.get("confirmMobileNumber") || undefined,
+            streetAddress: data.get("streetAddress"),
+            suburb: data.get("suburb"),
+            city: data.get("city"),
+            postalCode: data.get("postalCode"),
+            confirmMobileNumber: confirmedCellphone,
             taxNumber: data.get("taxNumber") || undefined,
             taxResidenceCountry: data.get("taxResidenceCountry") || undefined,
             tin: data.get("tin") || undefined,
@@ -398,6 +437,12 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
     const password = String(data.get("accountPassword") ?? "");
     const confirmation = String(data.get("confirmAccountPassword") ?? "");
     if (password !== confirmation) throw new Error("Passwords do not match.");
+    if (password.length < 12 || !/\d/.test(password) || !/[^A-Za-z0-9]/.test(password)) {
+      throw new Error("Use at least 12 characters with a number and a special character.");
+    }
+    const cellphone = internationalCellphone(String(data.get("phoneCountryCode") ?? "+27"), data.get("buyerPhone"));
+    const confirmedCellphone = internationalCellphone(String(data.get("phoneCountryCode") ?? "+27"), data.get("confirmMobileNumber"));
+    if (cellphone !== confirmedCellphone) throw new Error("Cellphone numbers must match.");
     const response = await fetch("/api/presale/members", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -406,17 +451,21 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
         email: data.get("buyerEmail"),
         password,
         legalName: data.get("buyerName"),
-        phone: data.get("buyerPhone"),
+        phone: cellphone,
         applicantType: data.get("applicantType"),
         nationality: data.get("nationality"),
         countryOfResidence: data.get("countryOfResidence"),
-        physicalAddress: data.get("physicalAddress"),
+        streetAddress: data.get("streetAddress"),
+        suburb: data.get("suburb"),
+        city: data.get("city"),
+        postalCode: data.get("postalCode"),
       }),
     });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error ?? "Member registration is temporarily unavailable.");
     setMemberProfileNumber(payload.profileNumber);
     setAccountEmailStatus(payload.emailStatus);
+    if (payload.emailStatus === "sent" || payload.emailStatus === "existing") setAccountNotice(true);
   }
 
   function applicationDraft(form: HTMLFormElement): Record<string, string | boolean> {
@@ -536,16 +585,21 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
             <CardContent><form ref={applicationFormRef} key={resumeApplicant?.profileNumber ?? "new-applicant"} className="space-y-5" noValidate onSubmit={createOrder}>
               <ApplicationProgress phase={applicationPhase} />
               <div data-application-phase="1" hidden={applicationPhase !== 1} className="space-y-5">
-              <SectionTitle>KaSiHub member profile</SectionTitle>
-              <p className="text-sm leading-6 text-slate-300">Your secure member profile links this application, identity verification, share purchase and certificate.</p>
+              <SectionTitle>KASIHUB SHAREHOLDER PROFILE</SectionTitle>
+              <p className="text-sm leading-6 text-slate-300">Your secure Shareholder profile links to this application, identity verification, share purchase and certificate.</p>
               <Field label="Full legal name"><Input name="buyerName" required minLength={2} defaultValue={resumeApplicant?.legalName} className="border-white/15 bg-black/20" /></Field>
               <Field label="Email address"><Input name="buyerEmail" type="email" required defaultValue={resumeApplicant?.email ?? offer.invitationEmail} readOnly={Boolean(resumeApplicant?.email || offer.invitationEmail)} className="border-white/15 bg-black/20" /></Field>
-              <Field label="Cellphone number *"><Input name="buyerPhone" required defaultValue={resumeApplicant?.phone} className="border-white/15 bg-black/20" /></Field>
-              <Field label="Confirm cellphone number *"><Input name="confirmMobileNumber" required defaultValue={resumeApplicant?.phone} className="border-white/15 bg-black/20" /></Field>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="Account password *"><Input name="accountPassword" type="password" required minLength={12} autoComplete="new-password" className="border-white/15 bg-black/20" /></Field>
-                <Field label="Confirm account password *"><Input name="confirmAccountPassword" type="password" required minLength={12} autoComplete="new-password" className="border-white/15 bg-black/20" /></Field>
+              <div className="grid gap-4 sm:grid-cols-[9rem_1fr]">
+                <Field label="Country code *"><select name="phoneCountryCode" required value={phoneCountryCode} onChange={(event) => setPhoneCountryCode(event.target.value)} className="h-10 w-full rounded-md border border-white/15 bg-slate-950 px-3 text-sm">{COUNTRY_CALLING_CODES.map(({ country, code }) => <option key={country} value={code}>{country} {code}</option>)}</select></Field>
+                <Field label="Cellphone number *"><Input name="buyerPhone" type="tel" inputMode="tel" required defaultValue={resumeNationalNumber(resumeApplicant?.phone)} placeholder="82 123 4567" className="border-white/15 bg-black/20" /></Field>
               </div>
+              <Field label="Confirm cellphone number *"><Input name="confirmMobileNumber" type="tel" inputMode="tel" required defaultValue={resumeNationalNumber(resumeApplicant?.phone)} placeholder="82 123 4567" className="border-white/15 bg-black/20" /></Field>
+              <p className="text-xs leading-5 text-slate-400">Both cellphone entries must match and must be a valid length for the selected country code.</p>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label="Account password *"><div className="relative"><Input name="accountPassword" type={showPassword ? "text" : "password"} required minLength={12} autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} className="border-white/15 bg-black/20 pr-20" />{password.length >= 12 && <Check className="absolute right-11 top-1/2 h-5 w-5 -translate-y-1/2 text-emerald-400" aria-label="Password has at least 12 characters" />}<button type="button" onClick={() => setShowPassword((shown) => !shown)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-300 hover:text-white" aria-label={showPassword ? "Hide password" : "Show password"}>{showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}</button></div></Field>
+                <Field label="Confirm account password *"><div className="relative"><Input name="confirmAccountPassword" type={showConfirmPassword ? "text" : "password"} required minLength={12} autoComplete="new-password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} className="border-white/15 bg-black/20 pr-12" /><button type="button" onClick={() => setShowConfirmPassword((shown) => !shown)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-300 hover:text-white" aria-label={showConfirmPassword ? "Hide confirm password" : "Show confirm password"}>{showConfirmPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}</button></div></Field>
+              </div>
+              <p className="text-xs leading-5 text-slate-400">Password must contain at least 12 characters, including a number and a special character. Both passwords must match.</p>
               {memberProfileNumber ? <div className="rounded-xl border border-emerald-400/30 bg-emerald-400/10 p-4 text-sm text-emerald-100"><strong className="block text-white">Applicant profile ready</strong>Profile {memberProfileNumber} is securely linked to this application. {accountEmailStatus === "sent" ? "Your account email has been sent." : accountEmailStatus === "failed" ? "Your account exists, but the email provider did not accept the welcome email. Use Applicant login above and contact support if needed." : "Use Applicant login above to return later."}</div> : null}
               <SectionTitle>Investor identity</SectionTitle>
               <Field label="Application type *"><select name="applicantType" required value={applicantType} onChange={(event) => setApplicantType(event.target.value as typeof applicantType)} className="h-10 w-full rounded-md border border-white/15 bg-slate-950 px-3 text-sm"><option value="individual">Individual application</option><option value="company">Company application</option><option value="trust">Trust application</option></select></Field>
@@ -557,7 +611,13 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
                 <Field label="Employer *"><Input name="employer" required className="border-white/15 bg-black/20" /></Field>
                 <Field label="Tax number *"><Input name="taxNumber" required className="border-white/15 bg-black/20" /></Field>
               </div>
-              <Field label="Physical address *"><textarea name="physicalAddress" required rows={2} defaultValue={resumeApplicant?.physicalAddress} className="w-full rounded-md border border-white/15 bg-black/20 px-3 py-2 text-sm" /></Field>
+              <SectionTitle>Physical address</SectionTitle>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label="Street address *"><Input name="streetAddress" required defaultValue={resumeApplicant?.physicalAddress} className="border-white/15 bg-black/20" /></Field>
+                <Field label="Suburb *"><Input name="suburb" required className="border-white/15 bg-black/20" /></Field>
+                <Field label="City *"><Input name="city" required className="border-white/15 bg-black/20" /></Field>
+                <Field label="Postal code *"><Input name="postalCode" required inputMode="text" className="border-white/15 bg-black/20" /></Field>
+              </div>
               {applicantType !== "individual" && <div className="grid gap-4 sm:grid-cols-2"><Field label={`${applicantType === "company" ? "Company" : "Trust"} registration number *`}><Input name="entityRegistrationNumber" required className="border-white/15 bg-black/20" /></Field>{applicantType === "company" && <Field label="VAT number (optional)"><Input name="vatNumber" className="border-white/15 bg-black/20" /></Field>}<Field label="Authorised representative *"><Input name="authorisedRepresentativeName" required className="border-white/15 bg-black/20" /></Field><Field label="Representative position *"><Input name="authorisedRepresentativePosition" required className="border-white/15 bg-black/20" /></Field></div>}
               </div>
               <div data-application-phase="2" hidden={applicationPhase !== 2} className="space-y-5">
@@ -569,18 +629,18 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
               <div data-application-phase="3" hidden={applicationPhase !== 3} className="space-y-5">
               <SectionTitle>Source of funds</SectionTitle>
               <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="Primary source"><Select name="sourceOfFunds" options={SOURCE_OF_FUNDS} /></Field>
-                <Field label="Whose funds?"><Select name="fundsOwnership" options={[["own","Applicant's own"],["company","Company"],["trust","Trust"],["other","Other"]]} /></Field>
+                <Field label="Primary source *"><Select name="sourceOfFunds" options={SOURCE_OF_FUNDS} required value={sourceOfFunds} onChange={setSourceOfFunds} /></Field>
+                <Field label="Whose funds? *"><Select name="fundsOwnership" options={[["own","Applicant's own"],["company","Company"],["trust","Trust"],["other","Other"]]} required /></Field>
               </div>
-              <Field label="Source-of-funds details"><textarea name="sourceOfFundsDetails" rows={3} className="w-full rounded-md border border-white/15 bg-black/20 px-3 py-2 text-sm" /></Field>
+              <Field label={`Source-of-funds details${sourceOfFunds === "other" ? " *" : ""}`}><textarea name="sourceOfFundsDetails" required={sourceOfFunds === "other"} rows={3} className="w-full rounded-md border border-white/15 bg-black/20 px-3 py-2 text-sm" /></Field>
               <SectionTitle>Investor banking</SectionTitle>
               <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="Account holder"><Input name="bankAccountHolder" className="border-white/15 bg-black/20" /></Field>
-                <Field label="Bank"><Input name="bankName" className="border-white/15 bg-black/20" /></Field>
-                <Field label="Branch"><Input name="bankBranch" className="border-white/15 bg-black/20" /></Field>
-                <Field label="Account number"><Input name="bankAccountNumber" className="border-white/15 bg-black/20" /></Field>
-                <Field label="Account type"><Input name="bankAccountType" className="border-white/15 bg-black/20" /></Field>
-                <Field label="SWIFT/BIC"><Input name="bankSwift" className="border-white/15 bg-black/20" /></Field>
+                <Field label="Account holder *"><Input name="bankAccountHolder" required className="border-white/15 bg-black/20" /></Field>
+                <Field label="Bank *"><Input name="bankName" required className="border-white/15 bg-black/20" /></Field>
+                <Field label="Branch *"><Input name="bankBranch" required className="border-white/15 bg-black/20" /></Field>
+                <Field label="Account number *"><Input name="bankAccountNumber" required className="border-white/15 bg-black/20" /></Field>
+                <Field label="Account type *"><Input name="bankAccountType" required className="border-white/15 bg-black/20" /></Field>
+                <Field label="SWIFT/BIC *"><Input name="bankSwift" required minLength={8} className="border-white/15 bg-black/20" /></Field>
               </div>
               </div>
 
@@ -665,6 +725,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
           </Card>
         )}
       </div>
+      {accountNotice && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-5" role="dialog" aria-modal="true" aria-labelledby="account-email-title"><div className="w-full max-w-md rounded-2xl border border-emerald-400/30 bg-slate-950 p-6 text-white shadow-2xl"><CheckCircle2 className="h-9 w-9 text-emerald-400" /><h2 id="account-email-title" className="mt-4 text-xl font-bold">Shareholder profile created</h2><p className="mt-3 text-sm leading-6 text-slate-300">An email has been sent to you with your shareholder login details if you need to continue the process.</p><p className="mt-2 text-xs leading-5 text-slate-500">For your security, the email contains the login link and account identity, never your password.</p><Button type="button" className="mt-6 w-full bg-emerald-400 text-slate-950 hover:bg-emerald-300" onClick={() => setAccountNotice(false)}>Continue application</Button></div></div>}
     </Shell>
   );
 }
@@ -696,8 +757,8 @@ const SOURCE_OF_FUNDS: Array<[string, string]> = [
   ["savings", "Savings"], ["company", "Company funds"], ["trust", "Trust funds"], ["other", "Other"],
 ];
 
-function Select({ name, options, required }: { name: string; options: Array<[string, string]>; required?: boolean }) {
-  return <select name={name} required={required} defaultValue="" className="h-10 w-full rounded-md border border-white/15 bg-[#111a18] px-3 text-sm text-white"><option value="" disabled>Select…</option>{options.map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select>;
+function Select({ name, options, required, value, onChange }: { name: string; options: Array<[string, string]>; required?: boolean; value?: string; onChange?: (value: string) => void }) {
+  return <select name={name} required={required} value={value} defaultValue={value === undefined ? "" : undefined} onChange={onChange ? (event) => onChange(event.target.value) : undefined} className="h-10 w-full rounded-md border border-white/15 bg-[#111a18] px-3 text-sm text-white"><option value="" disabled>Select…</option>{options.map(([optionValue,label]) => <option key={optionValue} value={optionValue}>{label}</option>)}</select>;
 }
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
