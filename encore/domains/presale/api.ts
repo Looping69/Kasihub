@@ -5,11 +5,12 @@ import { CronJob } from "encore.dev/cron";
 import * as log from "encore.dev/log";
 import { createCipheriv, createDecipheriv, createHash as createNodeHash, randomBytes } from "node:crypto";
 import { z } from "zod";
-import { identityDb, kycDb, presaleDb, sharesDb } from "../../resources";
+import { identityDb, kycDb, membershipDb, presaleDb, sharesDb } from "../../resources";
 import { hashSessionToken, requestHeader, requirePresaleSession } from "../auth/access";
 import { requireAdminAccess } from "../auth/access";
 import { hashPassword, verifyPassword } from "../auth/password";
 import { requireInternationalKycVerified } from "../kyc/policy";
+import { ensureMembershipPlan } from "../membership/plans";
 import { submitPaymentAttempt } from "../payments/attempts";
 import { createPaymentIntent, type PaymentIntentResponse } from "../payments/intents";
 import { cancelPaymentObligation, createPaymentObligation } from "../payments/obligations";
@@ -951,6 +952,13 @@ interface PresalePortalResponse {
       certificate?: { certificateNumber: string; totalShares: number; status: string; issuedAt: string; revokedAt?: string };
     }>;
   };
+  ecosystemMembership: {
+    enabled: boolean;
+    subscriptionStatus: string | null;
+    planName: string | null;
+    amount: number | null;
+    currency: string | null;
+  };
   continuation: { nextStep: number | null; reason: ApplicantContinuationReason; resumeUrl: string | null };
 }
 
@@ -1188,6 +1196,17 @@ export const presaleApplicantPortal = api<void, PresalePortalResponse>(
       `SELECT status FROM kyc_cases WHERE profile_id = $1 AND provider = 'kasihub_international'
        ORDER BY submitted_at DESC NULLS LAST LIMIT 1`, session.profile.id,
     );
+    const ecosystemRole = await identityDb.rawQueryRow<{ enabled: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1 FROM user_roles ur JOIN roles r ON r.id = ur.role_id
+         WHERE ur.user_id = $1 AND r.name IN ('member','admin')
+       ) AS enabled`, session.user.id,
+    );
+    const ecosystemSubscription = await membershipDb.rawQueryRow<{
+      status: string; plan_name: string; amount: string; currency: string;
+    }>(`SELECT s.status,mp.name AS plan_name,mp.amount::text AS amount,mp.currency
+        FROM subscriptions s JOIN membership_plans mp ON mp.id=s.plan_id
+        WHERE s.profile_id=$1 ORDER BY s.starts_at DESC LIMIT 1`, session.profile.id);
     const order = await presaleDb.rawQueryRow<{
       order_reference: string; status: string; incorporation_status: string;
       buyer_name: string; buyer_email: string; buyer_phone: string | null; quantity: number; payment_rail: PresalePaymentRail;
@@ -1274,7 +1293,125 @@ export const presaleApplicantPortal = api<void, PresalePortalResponse>(
         paymentRail: order.payment_rail, webPayProcessStatus: order.webpay_process_status ?? undefined,
         webPayProcessStage: order.webpay_process_stage ?? undefined } : null,
       shareholder,
+      ecosystemMembership: {
+        enabled: ecosystemRole?.enabled ?? false,
+        subscriptionStatus: ecosystemSubscription?.status ?? null,
+        planName: ecosystemSubscription?.plan_name ?? null,
+        amount: ecosystemSubscription ? Number(ecosystemSubscription.amount) : null,
+        currency: ecosystemSubscription?.currency ?? null,
+      },
       continuation: { ...continuation, resumeUrl },
+    };
+  },
+);
+
+interface OpenEcosystemAccountResponse {
+  token: string;
+  profileId: string;
+  profileNumber: string;
+  subscription: { id: string; paymentId: string; status: string; planName: string; amount: number; currency: string };
+}
+
+function isSouthAfricanCountry(country: string | null): boolean {
+  const normalized = country?.trim().toLowerCase().replace(/[^a-z]/g, "") ?? "";
+  return normalized === "za" || normalized === "southafrica" || normalized === "republicofsouthafrica";
+}
+
+/**
+ * Promotes an issued shareholder's existing identity into the ecosystem. The
+ * subscription remains pending until its payment is independently confirmed;
+ * matrix placement continues to occur only in subscription activation.
+ */
+export const openShareholderEcosystemAccount = api<void, OpenEcosystemAccountResponse>(
+  { method: "POST", path: "/presale/shareholder/ecosystem-account", expose: true },
+  async () => {
+    const session = await requirePresaleSession();
+    const [profile, approvedKyc, issuedHolding] = await Promise.all([
+      identityDb.rawQueryRow<{ profile_type: string; country: string | null }>(
+        "SELECT profile_type,country FROM profiles WHERE id=$1", session.profile.id),
+      kycDb.rawQueryRow<{ approved: boolean }>(
+        `SELECT EXISTS (SELECT 1 FROM kyc_cases WHERE profile_id=$1 AND status='approved') AS approved`, session.profile.id),
+      sharesDb.rawQueryRow<{ total_shares: string }>(
+        `SELECT COALESCE(SUM(total_shares),0)::text AS total_shares FROM share_certificates
+         WHERE profile_id=$1 AND status='issued'`, session.profile.id),
+    ]);
+    if (!profile) throw APIError.notFound("Shareholder profile not found");
+    if (!approvedKyc?.approved) throw APIError.failedPrecondition("Verified shareholder identity is required");
+    if (Number(issuedHolding?.total_shares ?? 0) <= 0) {
+      throw APIError.failedPrecondition("An issued share allocation is required");
+    }
+
+    const company = profile.profile_type === "company";
+    const local = isSouthAfricanCountry(profile.country);
+    const planCode = `${company ? "COMPANY" : "INDIVIDUAL"}_${local ? "LOCAL" : "INTERNATIONAL"}`;
+    const plan = await ensureMembershipPlan(planCode);
+    const membershipTx = await membershipDb.begin();
+    let subscription: { id: string; status: string; payment_id: string; plan_name: string; amount: string; currency: string } | null = null;
+    try {
+      await membershipTx.rawExec("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", session.profile.id);
+      subscription = await membershipTx.rawQueryRow<{
+        id: string; status: string; payment_id: string; plan_name: string; amount: string; currency: string;
+      }>(`SELECT s.id,s.status,p.id AS payment_id,mp.name AS plan_name,mp.amount::text AS amount,mp.currency
+          FROM subscriptions s JOIN membership_plans mp ON mp.id=s.plan_id
+          JOIN payments p ON p.subscription_id=s.id
+          WHERE s.profile_id=$1 AND s.status IN ('pending','active','paid')
+          ORDER BY s.starts_at DESC LIMIT 1 FOR UPDATE OF s`, session.profile.id);
+      if (!subscription) {
+        const subscriptionId = crypto.randomUUID();
+        const paymentId = crypto.randomUUID();
+        await membershipTx.rawExec(
+          `INSERT INTO subscriptions (id,profile_id,plan_id,status,starts_at) VALUES ($1,$2,$3,'pending',now())`,
+          subscriptionId, session.profile.id, plan.id,
+        );
+        await membershipTx.rawExec(
+          `INSERT INTO payments (id,profile_id,subscription_id,provider,provider_reference,amount,currency,status,metadata)
+           VALUES ($1,$2,$3,'pending_rail',$4,$5::numeric,$6,'pending',$7::jsonb)`,
+          paymentId, session.profile.id, subscriptionId, `shareholder-conversion-${session.profile.id}`,
+          plan.amount, plan.currency, JSON.stringify({ source: "shareholder_conversion", planCode }),
+        );
+        subscription = {
+          id: subscriptionId, status: "pending", payment_id: paymentId,
+          plan_name: company ? (local ? "Company Local" : "Company International") : (local ? "Individual Local" : "Individual International"),
+          amount: plan.amount, currency: plan.currency,
+        };
+      }
+      await membershipTx.commit();
+    } catch (error) {
+      await membershipTx.rollback();
+      throw error;
+    }
+    if (!subscription) throw APIError.internal("The membership subscription could not be created");
+
+    const identityTx = await identityDb.begin();
+    const ecosystemToken = crypto.randomUUID();
+    try {
+      await identityTx.rawExec(
+        `INSERT INTO user_roles (user_id,role_id)
+         SELECT $1,id FROM roles WHERE name='member'
+         ON CONFLICT (user_id,role_id) DO NOTHING`, session.user.id,
+      );
+      await identityTx.rawExec(
+        `UPDATE profiles SET status='active',membership_type=$2 WHERE id=$1`,
+        session.profile.id, company ? "COMPANY" : "INDIVIDUAL_ADULT",
+      );
+      await identityTx.rawExec(
+        `INSERT INTO sessions (user_id,token,session_scope,created_at,expires_at)
+         VALUES ($1,$2,'ecosystem',now(),now() + interval '7 days')`,
+        session.user.id, hashSessionToken(ecosystemToken),
+      );
+      await identityTx.commit();
+    } catch (error) {
+      await identityTx.rollback();
+      throw error;
+    }
+    return {
+      token: ecosystemToken,
+      profileId: session.profile.id,
+      profileNumber: session.profile.unique_profile_number,
+      subscription: {
+        id: subscription.id, paymentId: subscription.payment_id, status: subscription.status,
+        planName: subscription.plan_name, amount: Number(subscription.amount), currency: subscription.currency,
+      },
     };
   },
 );

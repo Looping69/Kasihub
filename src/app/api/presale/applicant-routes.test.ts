@@ -9,6 +9,7 @@ vi.mock("@/lib/encore-client", () => {
     constructor(message: string, public status: number, public details: unknown = null) { super(message); }
   }
   return {
+    ENCORE_SESSION_COOKIE: "kasihub_session",
     PRESALE_SESSION_COOKIE: "kasishares_session",
     EncoreRequestError,
     encoreRequest: mocks.encoreRequest,
@@ -20,6 +21,7 @@ import { POST as login } from "./auth/login/route";
 import { POST as logout } from "./auth/logout/route";
 import { GET as portal } from "./portal/route";
 import { POST as progress } from "./progress/route";
+import { POST as openEcosystemAccount } from "./ecosystem-account/route";
 
 function request(path: string, body: unknown) {
   return new NextRequest(`https://shares.kasihub.net${path}`, {
@@ -102,6 +104,37 @@ describe("KaSiShares applicant BFF routes", () => {
       method: "POST",
       body: JSON.stringify({ phaseCompleted: 2 }),
     }, "presale-token");
+  });
+
+  test("opens an ecosystem session for an issued shareholder without exposing its token", async () => {
+    mocks.encoreRequest.mockResolvedValue({
+      token: "ecosystem-secret",
+      profileId: "profile-1",
+      profileNumber: "KSI-ONE",
+      subscription: { id: "sub-1", paymentId: "pay-1", status: "pending", planName: "Individual Local", amount: 140, currency: "ZAR" },
+    });
+    const response = await openEcosystemAccount();
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      profileId: "profile-1",
+      profileNumber: "KSI-ONE",
+      subscription: { id: "sub-1", paymentId: "pay-1", status: "pending", planName: "Individual Local", amount: 140, currency: "ZAR" },
+      redirectTo: "/",
+    });
+    expect(response.headers.get("set-cookie")).toContain("kasihub_session=ecosystem-secret");
+    expect(response.headers.get("set-cookie")).toContain("HttpOnly");
+    expect(mocks.encoreRequest).toHaveBeenCalledWith(
+      "/presale/shareholder/ecosystem-account",
+      { method: "POST" },
+      "presale-token",
+    );
+  });
+
+  test("fails closed when ecosystem conversion has no presale session", async () => {
+    mocks.presaleSessionToken.mockResolvedValueOnce(undefined);
+    const response = await openEcosystemAccount();
+    expect(response.status).toBe(401);
+    expect(mocks.encoreRequest).not.toHaveBeenCalled();
   });
 
   test("logout revokes the backend session and always clears the browser cookie", async () => {

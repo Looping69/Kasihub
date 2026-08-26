@@ -4,7 +4,7 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { CheckCircle2, Clock3, Download, FileCheck2, Layers3, LogOut, ShieldCheck } from "lucide-react";
+import { ArrowRight, CheckCircle2, Clock3, Download, FileCheck2, Layers3, LogOut, ShieldCheck, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -20,6 +20,10 @@ type Portal = {
       status: "awaiting_issuance" | "issued" | "revoked" | "issuance_error"; incorporationStatus: string;
       certificate?: { certificateNumber: string; totalShares: number; status: string; issuedAt: string; revokedAt?: string };
     }>;
+  };
+  ecosystemMembership?: {
+    enabled: boolean; subscriptionStatus: string | null; planName: string | null;
+    amount: number | null; currency: string | null;
   };
   testInviteUrl?: string;
   continuation?: {
@@ -42,6 +46,7 @@ export function SharesAccountClient() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [confirmingPayment, setConfirmingPayment] = useState(false);
+  const [openingMemberAccount, setOpeningMemberAccount] = useState(false);
 
   const loadPortal = useCallback(async () => {
     const response = await fetch("/api/presale/portal", { cache: "no-store" });
@@ -114,13 +119,26 @@ export function SharesAccountClient() {
     await loadPortal();
   }
 
+  async function openMemberAccount() {
+    setError("");
+    setOpeningMemberAccount(true);
+    try {
+      const response = await fetch("/api/presale/ecosystem-account", { method: "POST" });
+      const body = await response.json();
+      if (!response.ok) { setError(body.error ?? "The KaSiHub member account could not be opened."); return; }
+      window.location.assign(body.redirectTo ?? "/");
+    } finally {
+      setOpeningMemberAccount(false);
+    }
+  }
+
   return <main className="presale-shell min-h-screen px-5 py-8 text-white">
     <div className="mx-auto w-full max-w-5xl">
       <header className="mb-10 flex items-center justify-between gap-4">
         <Link href="/" className="relative h-[76px] w-[134px]"><Image src="/kasishares-logo.png" alt="KaSiShares home" fill sizes="134px" className="object-contain object-left" priority /></Link>
         {portal ? <Button variant="outline" onClick={() => void logout()} className="border-white/20 bg-transparent text-white"><LogOut className="mr-2 h-4 w-4" />Sign out</Button> : null}
       </header>
-      {loading ? <p className="text-slate-300">Loading applicant account…</p> : portal ? <PortalView portal={portal} error={error} confirmingPayment={confirmingPayment} onCancel={cancelReservation} /> : <LoginForm error={error} onSubmit={login} />}
+      {loading ? <p className="text-slate-300">Loading applicant account…</p> : portal ? <PortalView portal={portal} error={error} confirmingPayment={confirmingPayment} openingMemberAccount={openingMemberAccount} onCancel={cancelReservation} onOpenMemberAccount={openMemberAccount} /> : <LoginForm error={error} onSubmit={login} />}
     </div>
   </main>;
 }
@@ -139,7 +157,7 @@ function LoginForm({ error, onSubmit }: { error: string; onSubmit: (event: FormE
   </section>;
 }
 
-function PortalView({ portal, error, confirmingPayment, onCancel }: { portal: Portal; error: string; confirmingPayment: boolean; onCancel: (orderReference: string) => Promise<void> }) {
+function PortalView({ portal, error, confirmingPayment, openingMemberAccount, onCancel, onOpenMemberAccount }: { portal: Portal; error: string; confirmingPayment: boolean; openingMemberAccount: boolean; onCancel: (orderReference: string) => Promise<void>; onOpenMemberAccount: () => Promise<void> }) {
   const shareholder = portal.shareholder ?? { totalIssuedShares: 0, holdings: [] };
   const isShareholder = shareholder.totalIssuedShares > 0;
   return <div className="space-y-6">
@@ -152,8 +170,9 @@ function PortalView({ portal, error, confirmingPayment, onCancel }: { portal: Po
     {portal.order?.webPayProcessStatus && ["FAILED", "REJECTED", "EXPIRED", "REVERSED"].includes(portal.order.webPayProcessStatus) ? <p role="status" className="rounded-xl border border-rose-300/30 bg-rose-400/10 p-4 text-sm text-rose-100">The last WebPay attempt was {portal.order.webPayProcessStatus.toLowerCase()}. No successful card payment was recorded and no shares were allocated.</p> : null}
     {confirmingPayment ? <p role="status" className="rounded-xl border border-sky-300/30 bg-sky-400/10 p-4 text-sm text-sky-100">WebPay returned successfully. We are waiting for the signed payment notification before confirming your shares.</p> : null}
     {shareholder.holdings.length > 0 ? <ShareholderPortfolio shareholder={shareholder} /> : null}
+    {isShareholder ? <EcosystemAccountPanel membership={portal.ecosystemMembership} opening={openingMemberAccount} onOpen={onOpenMemberAccount} /> : null}
     <ContinuationPanel portal={portal} error={error} onCancel={onCancel} />
-    <p className="flex items-center gap-2 text-xs text-slate-400"><ShieldCheck className="h-4 w-4" />This account cannot enter the normal KaSiHub member dashboard.</p>
+    <p className="flex items-center gap-2 text-xs text-slate-400"><ShieldCheck className="h-4 w-4" />KaSiShares access remains separate. Normal dashboard and matrix access require an activated membership subscription.</p>
   </div>;
 }
 
@@ -181,6 +200,26 @@ function ShareholderPortfolio({ shareholder }: { shareholder: Shareholder }) {
           <Button asChild className="bg-amber-400 font-bold text-slate-950 hover:bg-amber-300"><a href={`/api/presale/certificates/${encodeURIComponent(holding.certificate.certificateNumber)}`}><Download className="mr-2 h-4 w-4" />Download certificate</a></Button>
         </div> : <p className={`mt-5 rounded-lg border p-3 text-sm ${holding.status === "issuance_error" ? "border-rose-300/30 bg-rose-400/10 text-rose-100" : "border-sky-300/30 bg-sky-400/10 text-sky-100"}`}>{holding.status === "issuance_error" ? "The order is marked incorporated but its certificate record is missing. Support has to reconcile this issuance." : "Payment is confirmed. Certificate issuance is pending the controlled incorporation of this campaign allocation."}</p>}
       </article>)}
+    </div>
+  </section>;
+}
+
+function EcosystemAccountPanel({ membership, opening, onOpen }: {
+  membership: Portal["ecosystemMembership"];
+  opening: boolean;
+  onOpen: () => Promise<void>;
+}) {
+  const enabled = membership?.enabled ?? false;
+  return <section className="rounded-2xl border border-sky-300/20 bg-[#0f2744] p-7">
+    <div className="flex flex-wrap items-center justify-between gap-5">
+      <div className="max-w-2xl">
+        <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-[.18em] text-sky-300"><Users className="h-4 w-4" />KaSiHub membership</p>
+        <h2 className="mt-2 text-2xl font-black">{enabled ? "Your member account is ready" : "Open your normal KaSiHub account"}</h2>
+        <p className="mt-2 text-sm leading-6 text-slate-300">Your existing identity and share certificates stay intact. A membership subscription is created for the same profile. Matrix placement happens only after the subscription payment is confirmed.</p>
+        {membership?.subscriptionStatus ? <p className="mt-3 text-sm text-sky-100">Subscription: <span className="font-bold capitalize">{membership.subscriptionStatus}</span>{membership.planName ? ` · ${membership.planName}` : ""}{membership.amount != null && membership.currency ? ` · ${membership.currency} ${membership.amount.toFixed(2)}/month` : ""}</p> : null}
+      </div>
+      {enabled ? <Button asChild className="bg-sky-300 font-bold text-slate-950 hover:bg-sky-200"><Link href="/"><span>Open member dashboard</span><ArrowRight className="ml-2 h-4 w-4" /></Link></Button>
+        : <Button type="button" disabled={opening} onClick={() => void onOpen()} className="bg-sky-300 font-bold text-slate-950 hover:bg-sky-200">{opening ? "Opening account…" : "Open member account"}<ArrowRight className="ml-2 h-4 w-4" /></Button>}
     </div>
   </section>;
 }

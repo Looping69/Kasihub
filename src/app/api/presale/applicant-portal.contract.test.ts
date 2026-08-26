@@ -61,6 +61,22 @@ describe("isolated KaSiShares applicant portal", () => {
     expect(access).toContain("r.name = 'presale_investor'");
   });
 
+  test("promotes only verified issued shareholders and keeps matrix placement behind payment activation", () => {
+    const api = source("encore/domains/presale/api.ts");
+    const membership = source("encore/domains/membership/api.ts");
+    const account = source("src/app/shares/account/shares-account-client.tsx");
+    const route = source("src/app/api/presale/ecosystem-account/route.ts");
+    expect(api).toContain('path: "/presale/shareholder/ecosystem-account"');
+    expect(api).toContain("Verified shareholder identity is required");
+    expect(api).toContain("An issued share allocation is required");
+    expect(api).toContain("shareholder-conversion-${session.profile.id}");
+    expect(api).toContain("'ecosystem',now(),now() + interval '7 days'");
+    expect(membership).toContain("const node = await placeMatrixNode(payment.profile_id");
+    expect(account).toContain("Matrix placement happens only after the subscription payment is confirmed.");
+    expect(route).toContain("ENCORE_SESSION_COOKIE");
+    expect(route).not.toContain("PRESALE_SESSION_COOKIE");
+  });
+
   test("derives continuation from backend state without accepting a browser-selected step", () => {
     const api = source("encore/domains/presale/api.ts");
     const continuation = source("encore/domains/presale/applicant-continuation.ts");
