@@ -4,6 +4,24 @@ import { createHash, timingSafeEqual } from "node:crypto";
 export const WEBPAY_UNIT_PRICE_ZAR = "450.00";
 export type PresalePaymentRail = "remitano_usdt" | "webpay_card";
 
+export function resolveWebPayUnitPrice(input: {
+  paymentRail: PresalePaymentRail;
+  invitationOverride: string | null;
+  campaignTestPrice: string | null;
+  campaignTestOrdersRemaining: number;
+}): { unitPriceZar: string; campaignTestPriceApplied: boolean } {
+  const campaignTestPriceApplied = input.paymentRail === "webpay_card"
+    && !input.invitationOverride
+    && input.campaignTestOrdersRemaining > 0
+    && Boolean(input.campaignTestPrice);
+  return {
+    unitPriceZar: input.invitationOverride
+      ?? (campaignTestPriceApplied ? input.campaignTestPrice : null)
+      ?? WEBPAY_UNIT_PRICE_ZAR,
+    campaignTestPriceApplied,
+  };
+}
+
 export function webPayMerchantFields(input: {
   merchantUuid: string;
   accountUuid: string;
