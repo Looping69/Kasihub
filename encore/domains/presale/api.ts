@@ -195,6 +195,82 @@ async function safelyEnsurePresaleReservationCreatedEmail(order: OrderRow, campa
   }
 }
 
+type RetryableEmailDelivery = {
+  id: string;
+  email_type: "account_created" | "reservation_created";
+  external_profile_id: string;
+  order_id: string | null;
+  recipient_email: string;
+  updated_at: string;
+};
+
+async function retryPresaleEmailDelivery(delivery: RetryableEmailDelivery): Promise<"sent" | "failed" | "skipped"> {
+  const claimed = await presaleDb.rawQueryRow<{ id: string }>(
+    `UPDATE presale_email_deliveries
+        SET status = 'pending', updated_at = now()
+      WHERE id = $1 AND updated_at = $2 AND status IN ('pending', 'failed')
+      RETURNING id`,
+    delivery.id, delivery.updated_at,
+  );
+  if (!claimed) return "skipped";
+
+  if (delivery.email_type === "account_created") {
+    const profile = await identityDb.rawQueryRow<{ first_name: string | null; surname: string | null; company_name: string | null }>(
+      `SELECT first_name, surname, company_name FROM profiles WHERE id = $1`,
+      delivery.external_profile_id,
+    );
+    const legalName = profile?.company_name?.trim()
+      || [profile?.first_name, profile?.surname].filter(Boolean).join(" ").trim()
+      || "Shareholder";
+    return sendPresaleAccountCreatedEmail({
+      deliveryId: delivery.id,
+      applicationId: "retry",
+      profileId: delivery.external_profile_id,
+      recipient: delivery.recipient_email,
+      legalName,
+    });
+  }
+
+  if (!delivery.order_id) {
+    await presaleDb.rawExec(
+      `UPDATE presale_email_deliveries SET status = 'failed', last_error_code = 'order_not_found', updated_at = now() WHERE id = $1`,
+      delivery.id,
+    );
+    return "failed";
+  }
+  const row = await presaleDb.rawQueryRow<{
+    id: string; order_reference: string; buyer_name: string; buyer_email: string; quantity: number;
+    payment_rail: PresalePaymentRail; total_zar: string | null; total_usdt: string;
+    payment_deadline: string; campaign_name: string; network: string;
+  }>(
+    `SELECT o.id, o.order_reference, o.buyer_name, o.buyer_email, o.quantity, o.payment_rail,
+            o.total_zar::text AS total_zar, o.total_usdt::text AS total_usdt, o.payment_deadline::text,
+            c.name AS campaign_name, c.network
+       FROM presale_orders o JOIN presale_campaigns c ON c.id = o.campaign_id
+      WHERE o.id = $1`,
+    delivery.order_id,
+  );
+  if (!row) {
+    await presaleDb.rawExec(
+      `UPDATE presale_email_deliveries SET status = 'failed', last_error_code = 'order_not_found', updated_at = now() WHERE id = $1`,
+      delivery.id,
+    );
+    return "failed";
+  }
+  return sendPresaleReservationCreatedEmail({
+    deliveryId: delivery.id,
+    orderId: row.id,
+    recipient: row.buyer_email,
+    buyerName: row.buyer_name,
+    orderReference: row.order_reference,
+    campaignName: row.campaign_name,
+    quantity: row.quantity,
+    amountLabel: row.payment_rail === "webpay_card" ? `R${row.total_zar}` : `${row.total_usdt} USDT`,
+    paymentMethod: row.payment_rail === "webpay_card" ? "WebPay debit or credit card" : `Remitano / USDT on ${row.network}`,
+    paymentDeadline: row.payment_deadline,
+  });
+}
+
 function encryptInvestorApplication(value: unknown): { ciphertext: Buffer; nonce: Buffer; authTag: Buffer } {
   const key = createNodeHash("sha256").update(InvestorApplicationEncryptionKey()).digest();
   const nonce = randomBytes(12);
@@ -2351,6 +2427,35 @@ export const reconcileConfirmedPresaleOrders = api<void, { incorporated: number;
   },
 );
 
+export const retryFailedPresaleEmails = api<void, { sent: number; failed: number; skipped: number }>(
+  { method: "POST", path: "/internal/presale/retry-emails", expose: false },
+  async () => {
+    const deliveries = await presaleDb.rawQueryAll<RetryableEmailDelivery>(
+      `SELECT id, email_type, external_profile_id, order_id, recipient_email, updated_at::text
+         FROM presale_email_deliveries
+        WHERE status IN ('pending', 'failed') AND attempt_count < 5
+          AND updated_at < now() - interval '2 minutes'
+        ORDER BY updated_at
+        LIMIT 25`,
+    );
+    let sent = 0;
+    let failed = 0;
+    let skipped = 0;
+    for (const delivery of deliveries) {
+      try {
+        const result = await retryPresaleEmailDelivery(delivery);
+        if (result === "sent") sent += 1;
+        else if (result === "failed") failed += 1;
+        else skipped += 1;
+      } catch (error) {
+        failed += 1;
+        log.error(error, "presale email retry failed", { deliveryId: delivery.id, emailType: delivery.email_type });
+      }
+    }
+    return { sent, failed, skipped };
+  },
+);
+
 const presaleExpiryJob = new CronJob("presale-order-expiry", {
   title: "Release expired presale reservations",
   every: "5m",
@@ -2364,3 +2469,10 @@ const presaleIncorporationJob = new CronJob("presale-incorporation-reconciliatio
   endpoint: reconcileConfirmedPresaleOrders,
 });
 void presaleIncorporationJob;
+
+const presaleEmailRetryJob = new CronJob("presale-email-retry", {
+  title: "Retry failed presale transactional emails",
+  every: "15m",
+  endpoint: retryFailedPresaleEmails,
+});
+void presaleEmailRetryJob;
