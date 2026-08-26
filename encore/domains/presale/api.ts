@@ -698,6 +698,7 @@ export async function fulfilSettledPresalePayment(
     if (order.payment_intent_id !== paymentIntentId) throw APIError.failedPrecondition("Settled payment does not belong to this presale order");
     if (["confirmed", "incorporated"].includes(order.status)) {
       await tx.commit();
+      if (order.status === "confirmed") await incorporateConfirmedPresaleOrder(orderReference);
       return;
     }
     if (!["awaiting_payment", "payment_submitted", "payment_detected"].includes(order.status)) {
@@ -713,6 +714,7 @@ export async function fulfilSettledPresalePayment(
       payment_confirmations = GREATEST(COALESCE(payment_confirmations, 0), $3),
       payment_settled_at = COALESCE(payment_settled_at, now()), updated_at = now() WHERE id = $1`, order.id, transactionHash, confirmations);
     await tx.commit();
+    await incorporateConfirmedPresaleOrder(orderReference);
   } catch (error) {
     try { await tx.rollback(); } catch { /* transaction may already be closed */ }
     throw error;
@@ -728,7 +730,11 @@ async function fulfilWebPayPresalePayment(orderReference: string, providerRefere
         WHERE o.order_reference = $1 FOR UPDATE OF o`, orderReference);
     if (!order) throw APIError.notFound("Presale order not found");
     if (order.payment_rail !== "webpay_card") throw APIError.failedPrecondition("WebPay payment does not belong to this order");
-    if (["confirmed", "incorporated"].includes(order.status)) { await tx.commit(); return; }
+    if (["confirmed", "incorporated"].includes(order.status)) {
+      await tx.commit();
+      if (order.status === "confirmed") await incorporateConfirmedPresaleOrder(orderReference);
+      return;
+    }
     if (!["awaiting_payment", "payment_submitted", "payment_detected"].includes(order.status)) {
       throw APIError.failedPrecondition(`Presale order cannot be fulfilled while ${order.status}`);
     }
@@ -742,10 +748,75 @@ async function fulfilWebPayPresalePayment(orderReference: string, providerRefere
       payment_settled_at = COALESCE(payment_settled_at, now()), updated_at = now() WHERE id = $1`,
     order.id, providerReference, paymentMethod);
     await tx.commit();
+    await incorporateConfirmedPresaleOrder(orderReference);
   } catch (error) {
     try { await tx.rollback(); } catch { /* transaction may already be closed */ }
     throw error;
   }
+}
+
+/**
+ * Issues one independently settled presale order into the authoritative share
+ * ledger. Unique presale order references make provider retries safe across the
+ * separate database commits.
+ * Author: Klaasvaakie ( |╲ )
+ */
+export async function incorporateConfirmedPresaleOrder(orderReference: string): Promise<{ incorporated: boolean; purchaseId: string }> {
+  const order = await presaleDb.rawQueryRow<{
+    id: string; order_reference: string; external_profile_id: string | null; quantity: number; total_usd: string;
+    status: string; incorporation_status: string; bonus_buy_one_get_one: boolean; share_phase_number: number;
+    target_purchase_id: string | null;
+  }>(`SELECT o.id,o.order_reference,o.external_profile_id,o.quantity,o.total_usd::text AS total_usd,
+             o.status,o.incorporation_status,o.target_purchase_id,c.bonus_buy_one_get_one,c.share_phase_number
+        FROM presale_orders o JOIN presale_campaigns c ON c.id=o.campaign_id
+       WHERE o.order_reference=$1`, orderReference);
+  if (!order) throw APIError.notFound("Presale order not found");
+  if (order.status === "incorporated" && order.incorporation_status === "incorporated" && order.target_purchase_id) {
+    return { incorporated: false, purchaseId: order.target_purchase_id };
+  }
+  if (order.status !== "confirmed" || order.incorporation_status !== "pending") {
+    throw APIError.failedPrecondition(`Presale order cannot be incorporated while ${order.status}/${order.incorporation_status}`);
+  }
+  if (!order.external_profile_id) throw APIError.failedPrecondition(`Order ${order.order_reference} has no authenticated member profile`);
+
+  const issuedQuantity = issuedSharesForPresale(order.quantity, order.bonus_buy_one_get_one);
+  const shareTx = await sharesDb.begin();
+  let purchaseId: string;
+  let incorporated = false;
+  try {
+    await shareTx.rawExec("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", order.order_reference);
+    const existing = await shareTx.rawQueryRow<{ id: string }>(
+      "SELECT id FROM share_purchases WHERE presale_order_reference=$1 FOR UPDATE", order.order_reference);
+    if (existing) {
+      const certificate = await shareTx.rawQueryRow<{ id: string }>(
+        "SELECT id FROM share_certificates WHERE presale_order_reference=$1", order.order_reference);
+      if (!certificate) throw APIError.failedPrecondition(`Order ${order.order_reference} has a purchase without a certificate`);
+      purchaseId = existing.id;
+    } else {
+      const phase = await shareTx.rawQueryRow<{ id: string }>(`UPDATE share_phases SET quantity_available=quantity_available-$2
+        WHERE phase_number=$1 AND status IN ('active','paused') AND quantity_available >= $2 RETURNING id`,
+      order.share_phase_number, issuedQuantity);
+      if (!phase) throw APIError.failedPrecondition(`Share phase ${order.share_phase_number} cannot fulfil ${issuedQuantity} shares`);
+      purchaseId = crypto.randomUUID();
+      const certificateId = crypto.randomUUID();
+      await shareTx.rawExec(`INSERT INTO share_certificates
+        (id,profile_id,certificate_number,total_shares,status,issued_at,presale_order_reference,source)
+        VALUES ($1,$2,$3,$4,'issued',now(),$5,'presale')`, certificateId, order.external_profile_id,
+      `CERT-PRESALE-${order.order_reference}`, issuedQuantity, order.order_reference);
+      await shareTx.rawExec(`INSERT INTO share_purchases
+        (id,profile_id,phase_id,quantity,bonus_quantity,total_amount,status,certificate_id,presale_order_reference,source)
+        VALUES ($1,$2,$3,$4,$5,$6::numeric,'paid',$7,$8,'presale')`, purchaseId, order.external_profile_id, phase.id,
+      order.quantity, issuedQuantity - order.quantity, order.total_usd, certificateId, order.order_reference);
+      incorporated = true;
+    }
+    await shareTx.commit();
+  } catch (error) {
+    await shareTx.rollback();
+    throw error;
+  }
+  await presaleDb.rawExec(`UPDATE presale_orders SET incorporation_status='incorporated',target_purchase_id=$2,
+    status='incorporated',updated_at=now() WHERE id=$1 AND incorporation_status='pending'`, order.id, purchaseId);
+  return { incorporated, purchaseId };
 }
 
 interface WebPayNotificationRequest {
@@ -2110,9 +2181,39 @@ export const expirePresaleOrders = api<void, { expired: number }>(
   },
 );
 
+export const reconcileConfirmedPresaleOrders = api<void, { incorporated: number; alreadyIncorporated: number; failed: number }>(
+  { method: "POST", path: "/internal/presale/reconcile-incorporation", expose: false },
+  async () => {
+    const rows = await presaleDb.rawQueryAll<{ order_reference: string }>(`SELECT order_reference FROM presale_orders
+      WHERE status='confirmed' AND incorporation_status='pending' AND payment_settled_at IS NOT NULL
+      ORDER BY confirmed_at,created_at LIMIT 100`);
+    let incorporated = 0;
+    let alreadyIncorporated = 0;
+    let failed = 0;
+    for (const row of rows) {
+      try {
+        const result = await incorporateConfirmedPresaleOrder(row.order_reference);
+        if (result.incorporated) incorporated += 1;
+        else alreadyIncorporated += 1;
+      } catch (error) {
+        failed += 1;
+        log.error(error, "confirmed presale incorporation reconciliation failed", { orderReference: row.order_reference });
+      }
+    }
+    return { incorporated, alreadyIncorporated, failed };
+  },
+);
+
 const presaleExpiryJob = new CronJob("presale-order-expiry", {
   title: "Release expired presale reservations",
   every: "5m",
   endpoint: expirePresaleOrders,
 });
 void presaleExpiryJob;
+
+const presaleIncorporationJob = new CronJob("presale-incorporation-reconciliation", {
+  title: "Issue confirmed presale allocations",
+  every: "5m",
+  endpoint: reconcileConfirmedPresaleOrders,
+});
+void presaleIncorporationJob;

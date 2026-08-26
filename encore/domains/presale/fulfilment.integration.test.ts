@@ -1,6 +1,6 @@
 // Author: Klaasvaakie ( |╲ )
 import { describe, expect, it } from "vitest";
-import { presaleDb } from "../../resources";
+import { presaleDb, sharesDb } from "../../resources";
 import { fulfilSettledPresalePayment, rejectPresalePayment } from "./api";
 
 async function seedOrders() {
@@ -47,8 +47,11 @@ describe("presale settlement consumption", () => {
       "SELECT status FROM presale_orders WHERE campaign_id=$1 ORDER BY status", seeded.campaignId);
     const invite = await presaleDb.rawQueryRow<{ used_shares: number; status: string }>(
       "SELECT used_shares,status FROM presale_invitations WHERE id=$1", seeded.invitationId);
+    const certificate = await sharesDb.rawQueryRow<{ total_shares: number; source: string }>(
+      "SELECT total_shares,source FROM share_certificates WHERE presale_order_reference=$1", seeded.fulfilledReference);
     expect(campaign).toEqual({ reserved_shares: 0, sold_shares: 2 });
-    expect(orders.map((row) => row.status)).toEqual(["cancelled", "confirmed"]);
+    expect(orders.map((row) => row.status)).toEqual(["cancelled", "incorporated"]);
     expect(invite).toEqual({ used_shares: 1, status: "active" });
+    expect(certificate).toEqual({ total_shares: 2, source: "presale" });
   });
 });
