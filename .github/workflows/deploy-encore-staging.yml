@@ -44,11 +44,10 @@ jobs:
         run: |
           git remote add encore encore://kasihub-ygb2
           git fetch encore main
-          subtree_sha=$(git subtree split --prefix encore HEAD)
-          subtree_tree=$(git rev-parse "${subtree_sha}^{tree}")
+          repository_tree=$(git rev-parse "HEAD^{tree}")
           git config user.name "KaSiHUB Deployment"
           git config user.email "deploy@kasihub.invalid"
-          deploy_sha=$(printf 'Deploy KaSiHUB backend %s\n' "${GITHUB_SHA}" | git commit-tree "$subtree_tree" -p refs/remotes/encore/main)
+          deploy_sha=$(printf 'Deploy KaSiHUB full repository %s\n' "${GITHUB_SHA}" | git commit-tree "$repository_tree" -p refs/remotes/encore/main)
           echo "sha=$deploy_sha" >> "$GITHUB_OUTPUT"
       - name: Deploy to Encore staging
         run: git push encore "${{ steps.deploy.outputs.sha }}:refs/heads/main"
