@@ -8,7 +8,12 @@ $ErrorActionPreference = "Stop"
 $PSNativeCommandUseErrorActionPreference = $false
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $backendPath = Join-Path $repoRoot "encore"
-$imageName = "kasihub-encore-cli:1.57.11"
+$packageLock = Get-Content -LiteralPath (Join-Path $backendPath "package-lock.json") -Raw | ConvertFrom-Json
+$encoreVersion = $packageLock.packages."node_modules/encore.dev".version
+if ($encoreVersion -notmatch '^\d+\.\d+\.\d+$') {
+    throw "Could not determine the installed encore.dev version from encore/package-lock.json."
+}
+$imageName = "kasihub-encore-cli:$encoreVersion"
 $dindName = "kasihub-encore-dind"
 $devName = "kasihub-encore-dev"
 $dockerDataVolume = "kasihub-encore-docker-data"
@@ -19,9 +24,9 @@ if ($LASTEXITCODE -ne 0) {
     throw "Docker Desktop is not running."
 }
 
-$imageExists = docker image inspect $imageName 2>$null
-if ($BuildImage -or $LASTEXITCODE -ne 0) {
-    docker build --build-arg ENCORE_VERSION=1.57.11 -f (Join-Path $backendPath "Dockerfile.cli") -t $imageName $backendPath
+$imageExists = docker image ls --quiet $imageName
+if ($BuildImage -or -not $imageExists) {
+    docker build --build-arg "ENCORE_VERSION=$encoreVersion" -f (Join-Path $backendPath "Dockerfile.cli") -t $imageName $backendPath
     if ($LASTEXITCODE -ne 0) { throw "Encore CLI image build failed." }
 }
 
@@ -48,7 +53,10 @@ do {
 } while ((Get-Date) -lt $deadline)
 if ($dockerInfoExitCode -ne 0) { throw "Encore database engine did not become ready." }
 
-docker rm -f $devName 2>$null *> $null
+$existingDevContainer = docker container ls --all --quiet --filter "name=^${devName}$"
+if ($existingDevContainer) {
+    docker rm -f $devName *> $null
+}
 docker volume create $encoreConfigVolume *> $null
 
 $runArgs = @(
@@ -57,7 +65,7 @@ $runArgs = @(
     "--network", "container:$dindName",
     "--entrypoint", "bash",
     "-e", "DOCKER_HOST=tcp://127.0.0.1:2375",
-    "-v", "${backendPath}:/app",
+    "-v", "${repoRoot}:/workspace",
     "-v", "${encoreConfigVolume}:/root/.config/encore"
 )
 

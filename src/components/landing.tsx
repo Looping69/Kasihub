@@ -8,7 +8,7 @@ import {
   Users, Network, ShoppingBag, Building2, Landmark,
   Sparkles, Wallet, TrendingUp, Coins,
   CheckCircle2, Phone, Mail, MapPin, Menu, X, ChevronRight,
-  ShieldCheck, LoaderCircle, Play, PiggyBank, Gift,
+  ShieldCheck, PiggyBank, Gift,
   HeartHandshake, Store, Zap, BriefcaseBusiness, MousePointer2, Pointer, Search,
   type LucideIcon,
 } from "lucide-react";
@@ -124,7 +124,6 @@ export function Landing() {
   const [showPassword, setShowPassword] = useState(false);
   const [loginError, setLoginError] = useState("");
   const [signingIn, setSigningIn] = useState(false);
-  const [demoLoading, setDemoLoading] = useState(false);
   const [loginIntent, setLoginIntent] = useState<"member" | "admin">("member");
 
   // Author: Klaasvaakie ( |╲ )
@@ -134,28 +133,6 @@ export function Landing() {
     setLoginError("");
     setShowPassword(false);
     setLoginOpen(true);
-  }
-
-  async function handleEnter() {
-    setDemoLoading(true);
-    setLoginError("");
-    try {
-      const res = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ demoRole: "member" }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.member) {
-        setLoginError(data.error || "The demo is temporarily unavailable.");
-        return;
-      }
-      login(data.member.id, data.member);
-    } catch {
-      setLoginError("The demo could not connect to KaSiHUB. Please try again.");
-    } finally {
-      setDemoLoading(false);
-    }
   }
 
   async function handleAccountLogin(event: React.FormEvent<HTMLFormElement>) {
@@ -222,7 +199,6 @@ export function Landing() {
               <a href="#flow" onClick={() => setMobileMenu(false)} className="px-3 py-2 text-sm font-medium hover:bg-muted rounded-md">How it works</a>
               <Link href="/kasipay" onClick={() => setMobileMenu(false)} className="px-3 py-2 text-sm font-semibold text-orange-200 hover:bg-muted rounded-md">KaSiPay</Link>
               <a href="#contact" onClick={() => setMobileMenu(false)} className="px-3 py-2 text-sm font-medium hover:bg-muted rounded-md">Contact</a>
-              <button onClick={() => { setMobileMenu(false); void handleEnter(); }} className="rounded-md px-3 py-2 text-left text-sm font-bold text-orange-200 hover:bg-white/10">Explore demo</button>
               <button onClick={() => { setMobileMenu(false); openRegistration(); }} className="rounded-md bg-gradient-to-r from-[#ff9d13] to-[#ff641e] px-3 py-3 text-left text-sm font-black text-white shadow-lg sm:hidden">Join KaSiHUB</button>
               <button onClick={() => { setMobileMenu(false); openLogin("member"); }} className="rounded-md px-3 py-2 text-left text-sm font-medium hover:bg-white/10">Sign in</button>
               <button onClick={() => { setMobileMenu(false); openLogin("admin"); }} className="rounded-md px-3 py-2 text-left text-sm font-bold text-orange-200 hover:bg-white/10">Admin login</button>
@@ -260,10 +236,6 @@ export function Landing() {
             <div className="mt-8 flex flex-col sm:flex-row gap-3 justify-center">
               <Button size="lg" brandTone="orange" onClick={openRegistration} className="bg-gradient-to-r from-[#ff9d13] to-[#ff641e] text-white shadow-xl shadow-orange-950/30 hover:from-[#ffad32] hover:to-[#ff7435]">
               Become a member <Wallet className="h-5 w-5" />
-              </Button>
-              <Button size="lg" variant="outline" brandTone="blue" onClick={handleEnter} disabled={demoLoading} className="font-bold shadow-xl">
-                {demoLoading ? <LoaderCircle className="h-5 w-5 animate-spin" /> : <Play className="h-5 w-5" />}
-                {demoLoading ? "Opening demo…" : "Explore the demo"}
               </Button>
             </div>
             {loginError && <p role="alert" className="mx-auto mt-4 max-w-xl rounded-xl border border-orange-300/50 bg-[#2a1208]/80 px-4 py-3 text-sm font-semibold text-orange-100 backdrop-blur">{loginError}</p>}

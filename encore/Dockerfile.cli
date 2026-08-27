@@ -1,20 +1,20 @@
 # Author: Klaasvaakie ( |╲ )
 FROM ubuntu:24.04
 
-ARG ENCORE_VERSION=1.57.11
+ARG ENCORE_VERSION=1.57.13
 
 COPY --from=docker:29-cli /usr/local/bin/docker /usr/local/bin/docker
 COPY --from=node:22-bookworm-slim /usr/local /usr/local
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends bash ca-certificates curl git \
-    && curl -fsSL https://encore.dev/install.sh | bash \
+    && curl -fsSL https://encore.dev/install.sh | bash -s -- "${ENCORE_VERSION}" \
     && test "$(/root/.encore/bin/encore version | sed -n 's/^encore version v\([^ ]*\).*/\1/p')" = "${ENCORE_VERSION}" \
-    && mkdir -p /opt/encore/bin \
-    && cp -a /root/.encore/bin/. /opt/encore/bin/ \
+    && mkdir -p /opt/encore \
+    && cp -a /root/.encore/. /opt/encore/ \
     && rm -rf /var/lib/apt/lists/* /root/.encore
 
 ENV ENCORE_INSTALL=/opt/encore
 ENV PATH="/opt/encore/bin:${PATH}"
-WORKDIR /app
+WORKDIR /workspace/encore
 ENTRYPOINT ["bash"]
