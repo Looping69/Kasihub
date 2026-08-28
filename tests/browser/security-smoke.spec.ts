@@ -325,6 +325,10 @@ test("shareholder application enforces required banking details while keeping SW
   expect(registrationBody).toMatchObject({
     phone: "+27821234567", streetAddress: "1 Main Road", suburb: "Sunnyside", city: "Pretoria", postalCode: "0002",
   });
+  await page.getByRole("button", { name: "Continue application" }).click();
+  await expect(page.getByRole("heading", { name: "Choose your investment" })).toBeVisible();
+  await page.getByRole("button", { name: /^Continue$/ }).click();
+  await expect(page.getByRole("heading", { name: "Funding details" })).toBeVisible();
 
   for (const label of ["Account holder *", "Bank *", "Branch *", "Account number *", "Account type *"]) {
     await expect(page.getByLabel(label)).toHaveAttribute("required", "");
@@ -334,6 +338,20 @@ test("shareholder application enforces required banking details while keeping SW
   await expect(sourceDetails).not.toHaveAttribute("required", "");
   await page.getByLabel("Primary source *").selectOption("other", { force: true });
   await expect(page.getByLabel("Source-of-funds details *")).toHaveAttribute("required", "");
+  await page.getByLabel("Whose funds? *").selectOption("own");
+  await page.getByLabel("Source-of-funds details *").fill("Employment and savings");
+  await page.getByLabel("Account holder *").fill("Test Shareholder");
+  await page.getByLabel("Bank *").fill("Test Bank");
+  await page.getByLabel("Branch *").fill("123456");
+  await page.getByLabel("Account number *").fill("1234567890");
+  await page.getByLabel("Account type *").fill("Cheque");
+  await page.getByLabel("SWIFT/BIC (optional)").fill("SHORT");
+  await page.getByRole("button", { name: /^Continue$/ }).click();
+  await expect(page.getByRole("heading", { name: "Funding details" })).toBeVisible();
+  await expect(page.getByLabel("SWIFT/BIC (optional)")).toBeFocused();
+  await page.getByLabel("SWIFT/BIC (optional)").fill("");
+  await page.getByRole("button", { name: /^Continue$/ }).click();
+  await expect(page.getByRole("heading", { name: "Identity evidence" })).toBeVisible();
 });
 
 test("applicant portal continues signup at the first server-authoritative unfinished step", async ({ page }) => {

@@ -92,6 +92,23 @@ function validAccountPassword(value: string): boolean {
   return value.length >= 12 && /\d/.test(value) && /[^A-Za-z0-9]/.test(value);
 }
 
+type ApplicationControl = HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement;
+
+function firstInvalidApplicationControl(form: HTMLFormElement, phase?: number): ApplicationControl | null {
+  const scope = phase ? `[data-application-phase="${phase}"]` : "[data-application-phase]";
+  return Array.from(form.querySelectorAll<ApplicationControl>(`${scope} input, ${scope} select, ${scope} textarea`))
+    .find((control) => !control.checkValidity()) ?? null;
+}
+
+function revealInvalidApplicationControl(control: ApplicationControl, setPhase: (phase: number) => void): void {
+  const phase = Number(control.closest<HTMLElement>("[data-application-phase]")?.dataset.applicationPhase);
+  if (Number.isInteger(phase) && phase >= 1 && phase <= 5) setPhase(phase);
+  window.requestAnimationFrame(() => {
+    control.reportValidity();
+    control.focus();
+  });
+}
+
 function resumeNationalNumber(value?: string): string {
   return value ? parsePhoneNumberFromString(value)?.nationalNumber ?? value : "";
 }
@@ -268,6 +285,12 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
     if (devPreview) return;
     if (!offer) return;
     const form = event.currentTarget;
+    const invalidControl = firstInvalidApplicationControl(form);
+    if (invalidControl) {
+      revealInvalidApplicationControl(invalidControl, setApplicationPhase);
+      setError("Complete the highlighted application field before creating the reservation.");
+      return;
+    }
     const data = new FormData(form);
     let cellphone: string;
     let confirmedCellphone: string;
@@ -502,11 +525,9 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
   async function advanceApplication(event: React.MouseEvent<HTMLButtonElement>) {
     const form = event.currentTarget.form;
     if (!form) return;
-    const invalid = Array.from(form.querySelectorAll<HTMLElement>(`[data-application-phase="${applicationPhase}"] [required]`))
-      .find((field) => field instanceof HTMLInputElement || field instanceof HTMLSelectElement || field instanceof HTMLTextAreaElement ? !field.checkValidity() : false);
-    if (invalid instanceof HTMLInputElement || invalid instanceof HTMLSelectElement || invalid instanceof HTMLTextAreaElement) {
-      invalid.reportValidity();
-      invalid.focus();
+    const invalid = firstInvalidApplicationControl(form, applicationPhase);
+    if (invalid) {
+      revealInvalidApplicationControl(invalid, setApplicationPhase);
       return;
     }
     if (applicationPhase === 1 && !devPreview && !memberProfileNumber) {
