@@ -1079,11 +1079,19 @@ export const registerPresaleMember = api<
     let created = false;
 
     if (existing) {
-      if (!existing.is_presale_investor) {
-        throw APIError.failedPrecondition("Use a different email address for the separate KaSiShares applicant account");
-      }
       if (!existing.password_hash || !verifyPassword(payload.password, existing.password_hash)) {
         throw APIError.unauthenticated("The email or password is incorrect");
+      }
+      if (!existing.is_presale_investor) {
+        // Existing ecosystem members keep their member role and profile. The
+        // invitation plus password proves authority to add the isolated
+        // shareholder capability without creating a duplicate identity.
+        await identityDb.rawExec(
+          `INSERT INTO user_roles (user_id, role_id)
+           SELECT $1, id FROM roles WHERE name = 'presale_investor'
+           ON CONFLICT (user_id, role_id) DO NOTHING`,
+          existing.user_id,
+        );
       }
       userId = existing.user_id;
       profileId = existing.profile_id;
@@ -1169,7 +1177,9 @@ export const registerPresaleMember = api<
       `INSERT INTO presale_email_deliveries
          (id, external_profile_id, application_id, email_type, recipient_email, status)
        VALUES ($1,$2,$3,'account_created',$4,'pending')
-       ON CONFLICT (external_profile_id, email_type) DO UPDATE
+       ON CONFLICT (external_profile_id, email_type)
+         WHERE application_id IS NOT NULL AND order_id IS NULL
+       DO UPDATE
          SET application_id = EXCLUDED.application_id
        RETURNING id, status`,
       deliveryId, profileId, application.id, email,

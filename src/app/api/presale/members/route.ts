@@ -41,6 +41,10 @@ export async function POST(request: NextRequest) {
         ? "This invitation cannot be used for that email address."
         : status === 400
           ? "Please check the registration details."
+          : status === 409
+            ? "An account already exists for this email. Use the existing account password."
+            : status === 412
+              ? "This account cannot currently be used for shareholder registration."
           : "Member registration is temporarily unavailable.";
     return NextResponse.json({ error: message }, { status });
   }

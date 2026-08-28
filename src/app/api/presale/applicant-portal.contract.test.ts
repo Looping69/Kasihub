@@ -52,10 +52,12 @@ describe("isolated KaSiShares applicant portal", () => {
     expect(verifier).toContain('decision: "confirmed"');
   });
 
-  test("requires the presale role and rejects ecosystem-only account reuse", () => {
+  test("requires scoped presale sessions while allowing authenticated member reuse", () => {
     const api = source("encore/domains/presale/api.ts");
     const access = source("encore/domains/auth/access.ts");
-    expect(api).toContain("Use a different email address for the separate KaSiShares applicant account");
+    expect(api).not.toContain("Use a different email address for the separate KaSiShares applicant account");
+    expect(api).toContain("verifyPassword(payload.password, existing.password_hash)");
+    expect(api).toContain("WHERE name = 'presale_investor'");
     expect(api).toContain("requirePresaleSession()");
     expect(access).toContain("session.scope !== \"presale\"");
     expect(access).toContain("r.name = 'presale_investor'");

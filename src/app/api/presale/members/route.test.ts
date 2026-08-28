@@ -57,4 +57,15 @@ describe("presale member registration bridge", () => {
     expect(response.status).toBe(403);
     expect(await response.json()).toEqual({ error: "This invitation cannot be used for that email address." });
   });
+
+  test.each([
+    [409, "An account already exists for this email. Use the existing account password."],
+    [412, "This account cannot currently be used for shareholder registration."],
+  ])("does not disguise an upstream %i account conflict as an outage", async (status, message) => {
+    const { EncoreRequestError } = await import("@/lib/encore-client");
+    mocks.encoreRequest.mockRejectedValue(new EncoreRequestError("upstream detail", status, null));
+    const response = await POST(request({}));
+    expect(response.status).toBe(status);
+    expect(await response.json()).toEqual({ error: message });
+  });
 });
