@@ -339,7 +339,7 @@ const orderInput = z.object({
     bankBranch: z.string().trim().min(2).max(160),
     bankAccountNumber: z.string().trim().min(4).max(100),
     bankAccountType: z.string().trim().min(2).max(80),
-    bankSwift: z.string().trim().min(8).max(20),
+    bankSwift: z.string().trim().min(8).max(20).optional(),
     amlDeclarationAccepted: z.literal(true),
     suitabilityDeclarationAccepted: z.literal(true),
     informationDeclarationAccepted: z.literal(true),

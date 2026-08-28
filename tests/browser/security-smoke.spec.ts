@@ -249,7 +249,7 @@ test("private USDT shares page fails closed without an invitation", async ({ pag
   await expect(page.locator('meta[name="referrer"]')).toHaveAttribute("content", "no-referrer");
 });
 
-test("shareholder application enforces Step 1 identity and Step 3 banking requirements", async ({ page }) => {
+test("shareholder application enforces required banking details while keeping SWIFT/BIC optional", async ({ page }) => {
   const invite = "private-form-review-token-0000000000000001";
   let registrationBody: Record<string, unknown> = {};
   await page.route("**/api/presale/portal", (route) => route.fulfill({
@@ -326,9 +326,10 @@ test("shareholder application enforces Step 1 identity and Step 3 banking requir
     phone: "+27821234567", streetAddress: "1 Main Road", suburb: "Sunnyside", city: "Pretoria", postalCode: "0002",
   });
 
-  for (const label of ["Account holder *", "Bank *", "Branch *", "Account number *", "Account type *", "SWIFT/BIC *"]) {
+  for (const label of ["Account holder *", "Bank *", "Branch *", "Account number *", "Account type *"]) {
     await expect(page.getByLabel(label)).toHaveAttribute("required", "");
   }
+  await expect(page.getByLabel("SWIFT/BIC (optional)")).not.toHaveAttribute("required", "");
   const sourceDetails = page.getByLabel("Source-of-funds details");
   await expect(sourceDetails).not.toHaveAttribute("required", "");
   await page.getByLabel("Primary source *").selectOption("other", { force: true });
@@ -595,7 +596,6 @@ test("invited buyer can reserve shares without exposing the order access token i
   await page.getByLabel("Branch *").fill("123456");
   await page.getByLabel("Account number").fill("1234567890");
   await page.getByLabel("Account type").fill("Cheque");
-  await page.getByLabel("SWIFT/BIC *").fill("TESTZAJJ");
   await page.getByRole("button", { name: "Continue" }).click();
 
   await expect(page.getByRole("heading", { name: "Identity evidence" })).toBeVisible();

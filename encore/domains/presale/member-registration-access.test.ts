@@ -30,4 +30,9 @@ describe("existing member shareholder registration", () => {
     expect(registration).toContain(`ON CONFLICT (external_profile_id, email_type)
          WHERE application_id IS NOT NULL AND order_id IS NULL`);
   });
+
+  test("keeps SWIFT/BIC optional while validating a supplied code", () => {
+    const source = readFileSync(apiPath, "utf8");
+    expect(source).toContain("bankSwift: z.string().trim().min(8).max(20).optional()");
+  });
 });

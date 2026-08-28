@@ -646,7 +646,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
                 <Field label="Branch *"><Input name="bankBranch" required className="border-white/15 bg-black/20" /></Field>
                 <Field label="Account number *"><Input name="bankAccountNumber" required className="border-white/15 bg-black/20" /></Field>
                 <Field label="Account type *"><Input name="bankAccountType" required className="border-white/15 bg-black/20" /></Field>
-                <Field label="SWIFT/BIC *"><Input name="bankSwift" required minLength={8} className="border-white/15 bg-black/20" /></Field>
+                <Field label="SWIFT/BIC (optional)"><Input name="bankSwift" minLength={8} className="border-white/15 bg-black/20" /></Field>
               </div>
               </div>
 
