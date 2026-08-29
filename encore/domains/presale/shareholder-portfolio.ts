@@ -9,6 +9,8 @@ export type PresalePaidOrder = {
 export type PresaleCertificate = {
   certificate_number: string; total_shares: number; status: string; issued_at: string;
   revoked_at: string | null; presale_order_reference: string;
+  phase_number: number | null; distinctive_from: number | null; distinctive_to: number | null;
+  paid_shares: number | null; bonus_shares: number | null;
 };
 
 export function buildShareholderPortfolio(paidOrders: PresalePaidOrder[], certificates: PresaleCertificate[]) {
@@ -33,6 +35,11 @@ export function buildShareholderPortfolio(paidOrders: PresalePaidOrder[], certif
         status: certificate.status,
         issuedAt: certificate.issued_at,
         revokedAt: certificate.revoked_at ?? undefined,
+        phaseNumber: certificate.phase_number ?? undefined,
+        distinctiveFrom: certificate.distinctive_from ?? undefined,
+        distinctiveTo: certificate.distinctive_to ?? undefined,
+        paidShares: certificate.paid_shares ?? undefined,
+        bonusShares: certificate.bonus_shares ?? undefined,
       } : undefined,
     };
   });

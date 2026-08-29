@@ -56,7 +56,8 @@ const sharePurchaseRequest = z.object({
 
 export const myShares = api<
   { profileId: string },
-  { certificates: { certificateNumber: string; totalShares: number; status: string; issuedAt: string; revokedAt: string | null }[] }
+  { certificates: { certificateNumber: string; totalShares: number; status: string; issuedAt: string; revokedAt: string | null;
+    distinctiveFrom?: number; distinctiveTo?: number; paidShares?: number; bonusShares?: number }[] }
 >(
   { method: "GET", path: "/shares/me/:profileId", expose: true },
   async (req) => {
@@ -67,7 +68,13 @@ export const myShares = api<
       status: string;
       issued_at: string;
       revoked_at: string | null;
-    }>("SELECT certificate_number, total_shares, status, issued_at, revoked_at FROM share_certificates WHERE profile_id = $1 ORDER BY issued_at DESC",
+      distinctive_from: number | null;
+      distinctive_to: number | null;
+      paid_shares: number | null;
+      bonus_shares: number | null;
+    }>(`SELECT certificate_number, total_shares, status, issued_at, revoked_at,
+              distinctive_from, distinctive_to, paid_shares, bonus_shares
+         FROM share_certificates WHERE profile_id = $1 ORDER BY issued_at DESC`,
       req.profileId,
     );
     return {
@@ -77,6 +84,10 @@ export const myShares = api<
         status: row.status,
         issuedAt: row.issued_at,
         revokedAt: row.revoked_at,
+        distinctiveFrom: row.distinctive_from ?? undefined,
+        distinctiveTo: row.distinctive_to ?? undefined,
+        paidShares: row.paid_shares ?? undefined,
+        bonusShares: row.bonus_shares ?? undefined,
       })),
     };
   },

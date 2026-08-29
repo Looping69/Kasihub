@@ -13,6 +13,8 @@ describe("Solidus shareholder certificate", () => {
       totalShares: 10,
       paidShares: 5,
       bonusShares: 5,
+      distinctiveFrom: 1,
+      distinctiveTo: 10,
       issuedAt: "2026-08-29T08:00:00.000Z",
       status: "issued",
     });
@@ -24,6 +26,19 @@ describe("Solidus shareholder certificate", () => {
     const { width, height } = document.getPage(0).getSize();
     expect(width).toBeCloseTo(841.89, 1);
     expect(height).toBeCloseTo(595.28, 1);
+  });
+
+  test("rejects a distinctive range that does not equal the issued total", async () => {
+    await expect(generateShareCertificatePdf({
+      certificateNumber: "SOL-P1-001",
+      holderName: "Test Shareholder",
+      profileNumber: "KSI-TEST",
+      totalShares: 20,
+      distinctiveFrom: 1,
+      distinctiveTo: 10,
+      issuedAt: "2026-08-29T08:00:00.000Z",
+      status: "issued",
+    })).rejects.toThrow("invalid_distinctive_range");
   });
 
   test("rejects a paid and bonus allocation that does not match the issued total", async () => {

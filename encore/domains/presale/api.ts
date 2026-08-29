@@ -32,6 +32,7 @@ import { databaseBinaryToBuffer, type DatabaseBinary } from "./database-binary";
 import { resolveWebPayUnitPrice, WEBPAY_UNIT_PRICE_ZAR, verifyWebPayChecksum, verifyWebPayProcessChecksum, webPayChecksum, webPayMerchantFields, webPayOrderNumber, webPayTotalZar, type PresalePaymentRail } from "./webpay";
 import { buildShareholderPortfolio, type PresaleCertificate, type PresalePaidOrder } from "./shareholder-portfolio";
 import { internationalCellphoneSchema, physicalAddressLine, strongPasswordSchema } from "./applicant-validation";
+import { solidusCertificateNumber } from "../shares/certificate-numbering";
 
 const PresaleWebhookSecret = secret("PresaleWebhookSecret");
 const InvestorApplicationEncryptionKey = secret("InvestorApplicationEncryptionKey");
@@ -883,10 +884,24 @@ export async function incorporateConfirmedPresaleOrder(orderReference: string): 
       if (!phase) throw APIError.failedPrecondition(`Share phase ${order.share_phase_number} cannot fulfil ${issuedQuantity} shares`);
       purchaseId = crypto.randomUUID();
       const certificateId = crypto.randomUUID();
+      const lot = await shareTx.rawQueryRow<{ distinctive_from: number; distinctive_to: number }>(`UPDATE share_lot_sequence
+        SET next_share_number = next_share_number + $1
+        WHERE singleton = TRUE AND next_share_number + $1 - 1 <= 1200000
+        RETURNING next_share_number - $1 AS distinctive_from, next_share_number - 1 AS distinctive_to`, issuedQuantity);
+      if (!lot) throw APIError.failedPrecondition("The authorised Solidus share register is exhausted");
+      const certificateSequence = await shareTx.rawQueryRow<{ sequence: number }>(`INSERT INTO share_certificate_phase_sequences
+        (phase_number, next_certificate_number) VALUES ($1, 2)
+        ON CONFLICT (phase_number) DO UPDATE
+          SET next_certificate_number = share_certificate_phase_sequences.next_certificate_number + 1
+        RETURNING next_certificate_number - 1 AS sequence`, order.share_phase_number);
+      if (!certificateSequence) throw new Error("share_certificate_sequence_not_created");
+      const certificateNumber = solidusCertificateNumber(order.share_phase_number, certificateSequence.sequence);
       await shareTx.rawExec(`INSERT INTO share_certificates
-        (id,profile_id,certificate_number,total_shares,status,issued_at,presale_order_reference,source)
-        VALUES ($1,$2,$3,$4,'issued',now(),$5,'presale')`, certificateId, order.external_profile_id,
-      `CERT-PRESALE-${order.order_reference}`, issuedQuantity, order.order_reference);
+        (id,profile_id,certificate_number,total_shares,status,issued_at,presale_order_reference,source,
+         phase_number,distinctive_from,distinctive_to,paid_shares,bonus_shares)
+        VALUES ($1,$2,$3,$4,'issued',now(),$5,'presale',$6,$7,$8,$9,$10)`, certificateId, order.external_profile_id,
+      certificateNumber, issuedQuantity, order.order_reference, order.share_phase_number, lot.distinctive_from,
+      lot.distinctive_to, order.quantity, issuedQuantity - order.quantity);
       await shareTx.rawExec(`INSERT INTO share_purchases
         (id,profile_id,phase_id,quantity,bonus_quantity,total_amount,status,certificate_id,presale_order_reference,source)
         VALUES ($1,$2,$3,$4,$5,$6::numeric,'paid',$7,$8,'presale')`, purchaseId, order.external_profile_id, phase.id,
@@ -1035,7 +1050,8 @@ interface PresalePortalResponse {
     holdings: Array<{
       orderReference: string; campaignName: string; paidShares: number; bonusShares: number; allocatedShares: number;
       status: "awaiting_issuance" | "issued" | "revoked" | "issuance_error"; incorporationStatus: string;
-      certificate?: { certificateNumber: string; totalShares: number; status: string; issuedAt: string; revokedAt?: string };
+      certificate?: { certificateNumber: string; totalShares: number; status: string; issuedAt: string; revokedAt?: string;
+        phaseNumber?: number; distinctiveFrom?: number; distinctiveTo?: number; paidShares?: number; bonusShares?: number };
     }>;
   };
   ecosystemMembership: {
@@ -1326,7 +1342,8 @@ export const presaleApplicantPortal = api<void, PresalePortalResponse>(
       session.profile.id,
     );
     const certificates = await sharesDb.rawQueryAll<PresaleCertificate>(
-      `SELECT certificate_number, total_shares, status, issued_at, revoked_at, presale_order_reference
+      `SELECT certificate_number, total_shares, status, issued_at, revoked_at, presale_order_reference,
+              phase_number, distinctive_from, distinctive_to, paid_shares, bonus_shares
        FROM share_certificates
        WHERE profile_id = $1 AND source = 'presale' AND presale_order_reference IS NOT NULL
        ORDER BY issued_at DESC`,
@@ -2374,10 +2391,24 @@ export const applyPresaleIncorporation = api<
           (id, profile_id, phase_id, quantity, bonus_quantity, total_amount, status, presale_order_reference, source)
           VALUES ($1,$2,$3,$4,$5,$6::numeric,'paid',$7,'presale')`, purchaseId, order.external_profile_id, phase.id, order.quantity,
           issuedQuantity - order.quantity, order.total_usd, order.order_reference);
+        const lot = await shareTx.rawQueryRow<{ distinctive_from: number; distinctive_to: number }>(`UPDATE share_lot_sequence
+          SET next_share_number = next_share_number + $1
+          WHERE singleton = TRUE AND next_share_number + $1 - 1 <= 1200000
+          RETURNING next_share_number - $1 AS distinctive_from, next_share_number - 1 AS distinctive_to`, issuedQuantity);
+        if (!lot) throw APIError.failedPrecondition("The authorised Solidus share register is exhausted");
+        const certificateSequence = await shareTx.rawQueryRow<{ sequence: number }>(`INSERT INTO share_certificate_phase_sequences
+          (phase_number, next_certificate_number) VALUES ($1, 2)
+          ON CONFLICT (phase_number) DO UPDATE
+            SET next_certificate_number = share_certificate_phase_sequences.next_certificate_number + 1
+          RETURNING next_certificate_number - 1 AS sequence`, order.share_phase_number);
+        if (!certificateSequence) throw new Error("share_certificate_sequence_not_created");
+        const certificateNumber = solidusCertificateNumber(order.share_phase_number, certificateSequence.sequence);
         await shareTx.rawExec(`INSERT INTO share_certificates
-          (profile_id, certificate_number, total_shares, status, issued_at, presale_order_reference, source)
-          VALUES ($1,$2,$3,'issued',now(),$4,'presale')`, order.external_profile_id,
-          `CERT-PRESALE-${order.order_reference}`, issuedQuantity, order.order_reference);
+          (profile_id, certificate_number, total_shares, status, issued_at, presale_order_reference, source,
+           phase_number,distinctive_from,distinctive_to,paid_shares,bonus_shares)
+          VALUES ($1,$2,$3,'issued',now(),$4,'presale',$5,$6,$7,$8,$9)`, order.external_profile_id,
+          certificateNumber, issuedQuantity, order.order_reference, order.share_phase_number, lot.distinctive_from,
+          lot.distinctive_to, order.quantity, issuedQuantity - order.quantity);
         incorporated += 1;
       }
       await shareTx.commit();

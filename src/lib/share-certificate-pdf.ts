@@ -15,6 +15,8 @@ export type ShareCertificatePdfData = {
   campaignName?: string;
   paidShares?: number;
   bonusShares?: number;
+  distinctiveFrom?: number;
+  distinctiveTo?: number;
 };
 
 const TEMPLATE_PATH = path.join(process.cwd(), "public", "certificate-templates", "solidus-shareholder-certificate.pdf");
@@ -68,6 +70,14 @@ export async function generateShareCertificatePdf(data: ShareCertificatePdfData)
     }
     if (data.paidShares! + data.bonusShares! !== data.totalShares) throw new Error("share_allocation_mismatch");
   }
+  if ((data.distinctiveFrom === undefined) !== (data.distinctiveTo === undefined)) throw new Error("incomplete_distinctive_range");
+  if (data.distinctiveFrom !== undefined && data.distinctiveTo !== undefined) {
+    if (!Number.isInteger(data.distinctiveFrom) || !Number.isInteger(data.distinctiveTo)
+      || data.distinctiveFrom <= 0 || data.distinctiveTo < data.distinctiveFrom
+      || data.distinctiveTo - data.distinctiveFrom + 1 !== data.totalShares) {
+      throw new Error("invalid_distinctive_range");
+    }
+  }
   const issuedDate = new Date(data.issuedAt);
   if (Number.isNaN(issuedDate.getTime())) throw new Error("invalid_issue_date");
 
@@ -85,10 +95,8 @@ export async function generateShareCertificatePdf(data: ShareCertificatePdfData)
     .toUpperCase();
   const revoked = data.status.toLowerCase() === "revoked";
 
-  // Distinctive share-number ranges are not stored in the authoritative register.
-  // Preserve the legal distinction by marking them N/A instead of inventing serial ranges.
-  centeredInBox(page, "N/A", 617, 53, 470, bold, 8);
-  centeredInBox(page, "N/A", 670, 54, 470, bold, 8);
+  centeredInBox(page, data.distinctiveFrom?.toLocaleString("en-ZA") ?? "N/A", 617, 53, 470, bold, 8);
+  centeredInBox(page, data.distinctiveTo?.toLocaleString("en-ZA") ?? "N/A", 670, 54, 470, bold, 8);
   centeredInBox(page, data.totalShares.toLocaleString("en-ZA"), 724, 53, 470, bold, 8);
 
   const owner = fitText(data.holderName.trim().toUpperCase(), bold, 9, 158);
