@@ -195,6 +195,17 @@ describe("isolated KaSiShares applicant portal", () => {
     expect(account).toContain("no card payment or crypto transfer has been sent");
   });
 
+  test("treats an initial confirmation-email failure as delayed and retryable", () => {
+    const api = source("encore/domains/presale/api.ts");
+    const presale = source("src/app/presale/presale-client.tsx");
+    expect(api).toContain('every: "15m"');
+    expect(api).toContain("attempt_count < 5");
+    expect(api).toContain("result?.message");
+    expect(presale).toContain('setReservationEmailDelayed(payload.emailStatus === "failed")');
+    expect(presale).toContain("Reservation confirmed — email delayed");
+    expect(presale).not.toContain("confirmation email could not be sent");
+  });
+
   test("keeps the public reservation decoder aligned with the split address form", () => {
     const api = source("encore/domains/presale/api.ts");
     const start = api.indexOf("interface CreatePresaleOrderRequest");

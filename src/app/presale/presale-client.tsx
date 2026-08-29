@@ -145,6 +145,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
   const [memberProfileNumber, setMemberProfileNumber] = useState("");
   const [accountEmailStatus, setAccountEmailStatus] = useState<"sent" | "failed" | "existing" | "">("");
   const [accountNotice, setAccountNotice] = useState(false);
+  const [reservationEmailDelayed, setReservationEmailDelayed] = useState(false);
   const [phoneCountryCode, setPhoneCountryCode] = useState("+27");
   const [confirmPhoneCountryCode, setConfirmPhoneCountryCode] = useState("+27");
   const [phoneNumber, setPhoneNumber] = useState("");
@@ -383,9 +384,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
       if (!response.ok) throw new Error(payload.error ?? "Order could not be created");
       setOrder(payload.order);
       setAccessToken(payload.accessToken);
-      if (payload.emailStatus === "failed") {
-        setError("Your reservation was created, but the confirmation email could not be sent. Use the payment instructions shown here and keep your order reference.");
-      }
+      setReservationEmailDelayed(payload.emailStatus === "failed");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Order could not be created");
     } finally {
@@ -721,6 +720,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
             <CardHeader><div className="flex items-start justify-between gap-4"><div><h2 className="font-semibold leading-none">{statusLabel(order.status)}</h2><CardDescription className="mt-2 text-slate-400">{order.orderReference}</CardDescription></div>
               {order.status === "confirmed" ? <CheckCircle2 className="h-8 w-8 text-emerald-400" /> : <Clock3 className="h-8 w-8 text-amber-400" />}</div></CardHeader>
             <CardContent className="space-y-5">
+              {reservationEmailDelayed ? <div role="status" className="rounded-xl border border-amber-400/30 bg-amber-400/10 p-4 text-sm leading-6 text-amber-100"><strong className="block text-white">Reservation confirmed — email delayed</strong>Your confirmation email is queued for automatic retry. You can continue securely with the payment instructions below; your reservation and order reference are already saved.</div> : null}
               {order.paymentRail === "webpay_card" ? <div className="rounded-xl border border-sky-400/30 bg-sky-400/10 p-4">
                 <p className="text-xs uppercase tracking-wider text-sky-200">WebPay card amount</p><p className="mt-1 text-3xl font-black text-white">R{order.totalZar}</p>
                 <p className="mt-1 text-sm text-sky-100/80">R{order.unitPriceZar} per paid share · bonus shares are free</p>

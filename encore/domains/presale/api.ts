@@ -71,12 +71,13 @@ async function attemptPresaleAccountCreatedEmail(input: {
       tags: [{ name: "email_type", value: "presale_account_created" }],
     }),
   });
-  const result = await response.json().catch(() => null) as { id?: string; name?: string } | null;
+  const result = await response.json().catch(() => null) as { id?: string; name?: string; message?: string } | null;
   if (!response.ok || !result?.id) {
+    const failure = [String(response.status), result?.name, result?.message].filter(Boolean).join(":");
     await presaleDb.rawExec(
       `UPDATE presale_email_deliveries SET status = 'failed', attempt_count = attempt_count + 1,
          last_error_code = $2, updated_at = now() WHERE id = $1`,
-      input.deliveryId, result?.name ?? `http_${response.status}`,
+      input.deliveryId, failure || `http_${response.status}`,
     );
     return "failed";
   }
@@ -134,12 +135,13 @@ async function sendPresaleReservationCreatedEmail(input: {
         tags: [{ name: "email_type", value: "presale_reservation_created" }],
       }),
     });
-    const result = await response.json().catch(() => null) as { id?: string; name?: string } | null;
+    const result = await response.json().catch(() => null) as { id?: string; name?: string; message?: string } | null;
     if (!response.ok || !result?.id) {
+      const failure = [String(response.status), result?.name, result?.message].filter(Boolean).join(":");
       await presaleDb.rawExec(
         `UPDATE presale_email_deliveries SET status = 'failed', attempt_count = attempt_count + 1,
            last_error_code = $2, updated_at = now() WHERE id = $1`,
-        input.deliveryId, result?.name ?? `http_${response.status}`,
+        input.deliveryId, failure || `http_${response.status}`,
       );
       return "failed";
     }
