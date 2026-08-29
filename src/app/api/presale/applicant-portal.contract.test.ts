@@ -217,4 +217,14 @@ describe("isolated KaSiShares applicant portal", () => {
     expect(request).toContain("postalCode: string");
     expect(request).not.toContain("physicalAddress: string");
   });
+
+  test("uses the approved Solidus certificate with named signature attestations", () => {
+    const certificate = source("src/lib/share-certificate-pdf.ts");
+    expect(certificate).toContain("solidus-shareholder-certificate.pdf");
+    expect(certificate).toContain('const directorSignature = "/s/ Lelanie Retief"');
+    expect(certificate).toContain('const cfoSignature = "/s/ Tertius du Plessis"');
+    expect(certificate).toContain("LELANIE RETIEF - DIRECTOR");
+    expect(certificate).toContain("TERTIUS DU PLESSIS - CFO");
+    expect(certificate).toContain('centeredInBox(page, "N/A"');
+  });
 });

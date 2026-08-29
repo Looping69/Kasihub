@@ -36,6 +36,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ certifi
     const pdf = await generateShareCertificatePdf({
       certificateNumber: certificate.certificateNumber,
       holderName,
+      holderAddress: [member.addressLine, member.city, member.postalCode, member.country].filter(Boolean).join(", "),
       profileNumber: member.profileNumber,
       totalShares: certificate.totalShares,
       issuedAt: certificate.issuedAt,

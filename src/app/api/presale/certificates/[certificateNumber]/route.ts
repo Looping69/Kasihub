@@ -6,10 +6,10 @@ import { generateShareCertificatePdf } from "../../../../../lib/share-certificat
 export const runtime = "nodejs";
 
 type Portal = {
-  applicant: { profileNumber: string; legalName: string };
+  applicant: { profileNumber: string; legalName: string; physicalAddress: string };
   shareholder: {
     holdings: Array<{
-      campaignName: string; paidShares: number; bonusShares: number;
+      orderReference: string; campaignName: string; paidShares: number; bonusShares: number;
       certificate?: { certificateNumber: string; totalShares: number; status: string; issuedAt: string };
     }>;
   };
@@ -27,7 +27,9 @@ export async function GET(_req: Request, { params }: { params: Promise<{ certifi
     const pdf = await generateShareCertificatePdf({
       certificateNumber: certificate.certificateNumber,
       holderName: portal.applicant.legalName || portal.applicant.profileNumber,
+      holderAddress: portal.applicant.physicalAddress,
       profileNumber: portal.applicant.profileNumber,
+      orderReference: holding.orderReference,
       totalShares: certificate.totalShares,
       issuedAt: certificate.issuedAt,
       status: certificate.status,

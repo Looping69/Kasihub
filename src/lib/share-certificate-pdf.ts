@@ -1,10 +1,14 @@
 import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import { degrees, PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
 
 export type ShareCertificatePdfData = {
   certificateNumber: string;
   holderName: string;
+  holderAddress?: string;
   profileNumber: string;
+  orderReference?: string;
   totalShares: number;
   issuedAt: string;
   status: string;
@@ -13,20 +17,45 @@ export type ShareCertificatePdfData = {
   bonusShares?: number;
 };
 
-const PAGE_WIDTH = 841.89;
-const PAGE_HEIGHT = 595.28;
+const TEMPLATE_PATH = path.join(process.cwd(), "public", "certificate-templates", "solidus-shareholder-certificate.pdf");
+const NAVY = rgb(0.035, 0.105, 0.2);
+const WHITE = rgb(1, 1, 1);
 
-function fitText(value: string, font: PDFFont, initialSize: number, maxWidth: number) {
+function fitText(value: string, font: PDFFont, initialSize: number, maxWidth: number, minimumSize = 6) {
   let size = initialSize;
-  while (size > 10 && font.widthOfTextAtSize(value, size) > maxWidth) size -= 0.5;
+  while (size > minimumSize && font.widthOfTextAtSize(value, size) > maxWidth) size -= 0.5;
   if (font.widthOfTextAtSize(value, size) <= maxWidth) return { value, size };
   let shortened = value;
   while (shortened.length > 1 && font.widthOfTextAtSize(`${shortened}...`, size) > maxWidth) shortened = shortened.slice(0, -1);
   return { value: `${shortened}...`, size };
 }
 
-function centeredText(page: PDFPage, value: string, y: number, size: number, font: PDFFont, color: ReturnType<typeof rgb>) {
-  page.drawText(value, { x: (PAGE_WIDTH - font.widthOfTextAtSize(value, size)) / 2, y, size, font, color });
+function centeredInBox(page: PDFPage, value: string, x: number, width: number, y: number, font: PDFFont, initialSize = 9) {
+  const fitted = fitText(value, font, initialSize, width - 10);
+  page.drawText(fitted.value, {
+    x: x + (width - font.widthOfTextAtSize(fitted.value, fitted.size)) / 2,
+    y,
+    size: fitted.size,
+    font,
+    color: NAVY,
+  });
+}
+
+function wrappedLines(value: string, font: PDFFont, size: number, maxWidth: number, maxLines: number) {
+  const words = value.split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  for (const word of words) {
+    const current = lines.at(-1);
+    const candidate = current ? `${current} ${word}` : word;
+    if (!current || font.widthOfTextAtSize(candidate, size) <= maxWidth) {
+      if (current) lines[lines.length - 1] = candidate;
+      else lines.push(candidate);
+    } else if (lines.length < maxLines) {
+      lines.push(word);
+    }
+  }
+  if (lines.length > maxLines) lines.length = maxLines;
+  return lines;
 }
 
 export async function generateShareCertificatePdf(data: ShareCertificatePdfData): Promise<Uint8Array> {
@@ -42,90 +71,59 @@ export async function generateShareCertificatePdf(data: ShareCertificatePdfData)
   const issuedDate = new Date(data.issuedAt);
   if (Number.isNaN(issuedDate.getTime())) throw new Error("invalid_issue_date");
 
-  const pdf = await PDFDocument.create();
-  const page = pdf.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
+  const pdf = await PDFDocument.load(await readFile(TEMPLATE_PATH));
+  const page = pdf.getPage(0);
   const regular = await pdf.embedFont(StandardFonts.Helvetica);
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
-  const serif = await pdf.embedFont(StandardFonts.TimesRoman);
-  const serifBold = await pdf.embedFont(StandardFonts.TimesRomanBold);
-  const green = rgb(0.035, 0.35, 0.23);
-  const deepGreen = rgb(0.025, 0.22, 0.15);
-  const gold = rgb(0.82, 0.55, 0.09);
-  const paleGold = rgb(0.99, 0.97, 0.88);
-  const ink = rgb(0.09, 0.11, 0.1);
-  const muted = rgb(0.37, 0.4, 0.38);
-  const white = rgb(1, 1, 1);
-  const revoked = data.status.toLowerCase() === "revoked";
-  const issueLabel = new Intl.DateTimeFormat("en-ZA", { day: "2-digit", month: "long", year: "numeric", timeZone: "UTC" }).format(issuedDate);
+  const italic = await pdf.embedFont(StandardFonts.HelveticaOblique);
+  const issueLabel = new Intl.DateTimeFormat("en-ZA", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "UTC" }).format(issuedDate);
+  const issueLongLabel = new Intl.DateTimeFormat("en-ZA", { day: "2-digit", month: "long", year: "numeric", timeZone: "UTC" }).format(issuedDate);
   const validationCode = createHash("sha256")
     .update([data.certificateNumber, data.profileNumber, data.totalShares, issuedDate.toISOString()].join("|"))
     .digest("hex")
     .slice(0, 16)
     .toUpperCase();
+  const revoked = data.status.toLowerCase() === "revoked";
 
-  page.drawRectangle({ x: 0, y: 0, width: PAGE_WIDTH, height: PAGE_HEIGHT, color: rgb(0.975, 0.978, 0.96) });
-  page.drawRectangle({ x: 22, y: 22, width: PAGE_WIDTH - 44, height: PAGE_HEIGHT - 44, borderColor: green, borderWidth: 5 });
-  page.drawRectangle({ x: 31, y: 31, width: PAGE_WIDTH - 62, height: PAGE_HEIGHT - 62, borderColor: gold, borderWidth: 1.5 });
-  page.drawRectangle({ x: 42, y: 42, width: PAGE_WIDTH - 84, height: PAGE_HEIGHT - 84, borderColor: green, borderWidth: 0.6 });
+  // Distinctive share-number ranges are not stored in the authoritative register.
+  // Preserve the legal distinction by marking them N/A instead of inventing serial ranges.
+  centeredInBox(page, "N/A", 617, 53, 470, bold, 8);
+  centeredInBox(page, "N/A", 670, 54, 470, bold, 8);
+  centeredInBox(page, data.totalShares.toLocaleString("en-ZA"), 724, 53, 470, bold, 8);
 
-  page.drawRectangle({ x: 43, y: 477, width: PAGE_WIDTH - 86, height: 74, color: green });
-  centeredText(page, "SOLIDUS HOLDINGS (PTY) LTD", 532, 10, bold, rgb(0.93, 0.82, 0.46));
-  centeredText(page, "KaSiShares Certificate", 503, 29, serifBold, white);
-  centeredText(page, "CLASS B PRIVATE SHARES", 487, 8.5, bold, rgb(0.8, 0.91, 0.85));
+  const owner = fitText(data.holderName.trim().toUpperCase(), bold, 9, 158);
+  page.drawText(owner.value, { x: 82, y: 178, size: owner.size, font: bold, color: NAVY });
+  const addressLines = wrappedLines((data.holderAddress?.trim() || "ADDRESS HELD ON REGISTER").toUpperCase(), regular, 6.5, 158, 2);
+  addressLines.forEach((line, index) => page.drawText(line, { x: 82, y: 147 - (index * 10), size: 6.5, font: regular, color: NAVY }));
 
-  centeredText(page, "THIS CERTIFIES THAT", 439, 8.5, bold, gold);
-  const holder = fitText(data.holderName.trim(), serifBold, 24, 610);
-  centeredText(page, holder.value, 403, holder.size, serifBold, ink);
-  page.drawLine({ start: { x: 150, y: 394 }, end: { x: PAGE_WIDTH - 150, y: 394 }, thickness: 0.8, color: gold });
-  centeredText(page, "is recorded in the share register as the holder of", 372, 11, serif, muted);
-  centeredText(page, `${data.totalShares.toLocaleString("en-ZA")} Class B KaSiShare${data.totalShares === 1 ? "" : "s"}`, 335, 24, serifBold, deepGreen);
-  if (data.campaignName) {
-    const campaign = fitText(`Campaign: ${data.campaignName}`, bold, 9, 620);
-    centeredText(page, campaign.value, 318, campaign.size, bold, muted);
-  }
-  if (data.paidShares !== undefined && data.bonusShares !== undefined) {
-    centeredText(page, `Paid allocation: ${data.paidShares.toLocaleString("en-ZA")}  |  Bonus allocation: ${data.bonusShares.toLocaleString("en-ZA")}`, 304, 8.5, regular, muted);
-  }
+  centeredInBox(page, "CLASS B", 244, 101, 165, bold, 9);
+  centeredInBox(page, "SEE REGISTER", 345, 86, 165, bold, 7.5);
+  centeredInBox(page, data.orderReference?.trim() || data.profileNumber, 431, 86, 165, bold, 7.5);
+  centeredInBox(page, issueLabel, 517, 86, 165, bold, 7.5);
+  centeredInBox(page, data.certificateNumber, 603, 86, 165, bold, 7);
+  centeredInBox(page, data.totalShares.toLocaleString("en-ZA"), 689, 87, 165, bold, 10);
 
-  const fieldY = 245;
-  const fieldWidth = 224;
-  const fieldX = [68, 309, 550];
-  const field = (x: number, label: string, value: string) => {
-    page.drawRectangle({ x, y: fieldY, width: fieldWidth, height: 54, color: paleGold, borderColor: rgb(0.88, 0.82, 0.62), borderWidth: 0.7 });
-    page.drawText(label, { x: x + 12, y: fieldY + 36, size: 7.5, font: bold, color: gold });
-    const fitted = fitText(value, bold, 11, fieldWidth - 24);
-    page.drawText(fitted.value, { x: x + 12, y: fieldY + 15, size: fitted.size, font: bold, color: ink });
-  };
-  field(fieldX[0], "CERTIFICATE NUMBER", data.certificateNumber);
-  field(fieldX[1], "PROFILE NUMBER", data.profileNumber);
-  field(fieldX[2], "DATE ISSUED", issueLabel);
+  page.drawRectangle({ x: 95, y: 91, width: 550, height: 24, color: WHITE });
+  page.drawText(`Given on behalf of the company electronically on ${issueLongLabel}.`, { x: 105, y: 100, size: 8.5, font: regular, color: NAVY });
 
-  page.drawRectangle({ x: 68, y: 147, width: 116, height: 90, color: gold, opacity: 0.12, borderColor: gold, borderWidth: 1.5 });
-  page.drawCircle({ x: 126, y: 192, size: 36, color: gold, borderColor: green, borderWidth: 2 });
-  page.drawText("KSH", { x: 101, y: 185, size: 17, font: bold, color: white });
-
-  page.drawText("Certificate status", { x: 218, y: 216, size: 8, font: bold, color: muted });
-  page.drawText(data.status.toUpperCase(), { x: 218, y: 195, size: 13, font: bold, color: revoked ? rgb(0.7, 0.12, 0.12) : green });
-  page.drawText("Validation code", { x: 390, y: 216, size: 8, font: bold, color: muted });
-  page.drawText(validationCode, { x: 390, y: 195, size: 11, font: bold, color: ink });
-
-  page.drawText("This certificate reflects the authoritative KaSiHUB share register entry at the date of issue.", { x: 218, y: 167, size: 8.5, font: regular, color: muted });
-  page.drawText("Share rights remain governed by the issuer's MOI, applicable law and the approved subscription terms.", { x: 218, y: 152, size: 8.5, font: regular, color: muted });
-
+  const directorSignature = "/s/ Lelanie Retief";
+  const cfoSignature = "/s/ Tertius du Plessis";
+  page.drawText(directorSignature, { x: 106, y: 64, size: 10, font: italic, color: NAVY });
+  page.drawText(cfoSignature, { x: 393, y: 64, size: 10, font: italic, color: NAVY });
+  page.drawRectangle({ x: 102, y: 37, width: 150, height: 16, color: WHITE });
+  page.drawRectangle({ x: 397, y: 37, width: 145, height: 16, color: WHITE });
+  page.drawText("LELANIE RETIEF - DIRECTOR", { x: 113, y: 43, size: 7.5, font: bold, color: NAVY });
+  page.drawText("TERTIUS DU PLESSIS - CFO", { x: 402, y: 43, size: 7.5, font: bold, color: NAVY });
   if (revoked) {
-    page.drawText("REVOKED", { x: 285, y: 278, size: 68, font: bold, color: rgb(0.72, 0.12, 0.12), opacity: 0.15, rotate: degrees(18) });
+    page.drawText("REVOKED", { x: 272, y: 260, size: 70, font: bold, color: rgb(0.72, 0.12, 0.12), opacity: 0.2, rotate: degrees(18) });
   }
 
-  page.drawLine({ start: { x: 68, y: 116 }, end: { x: PAGE_WIDTH - 68, y: 116 }, thickness: 0.7, color: rgb(0.78, 0.8, 0.77) });
-  page.drawText("Generated electronically from the KaSiHUB share register. No handwritten signature is required.", { x: 68, y: 94, size: 7.5, font: regular, color: muted });
-  page.drawText(`Certificate ${data.certificateNumber}`, { x: 68, y: 77, size: 7.5, font: bold, color: deepGreen });
-  const footer = "Solidus Holdings (Pty) Ltd | KaSiHUB";
-  page.drawText(footer, { x: PAGE_WIDTH - 68 - bold.widthOfTextAtSize(footer, 7.5), y: 77, size: 7.5, font: bold, color: deepGreen });
-
-  pdf.setTitle(`${data.certificateNumber} - KaSiShares Certificate`);
+  pdf.setTitle(`${data.certificateNumber} - Solidus Holdings Share Certificate`);
   pdf.setAuthor("Solidus Holdings (Pty) Ltd");
-  pdf.setSubject(`Class B KaSiShares certificate for profile ${data.profileNumber}`);
+  pdf.setSubject(`Class B non-voting share certificate for profile ${data.profileNumber}`);
   pdf.setCreator("KaSiHUB Share Register");
+  pdf.setProducer("KaSiHUB Share Register using approved Solidus certificate template");
+  pdf.setKeywords(["Solidus Holdings", "Class B", "non-voting share", `validation:${validationCode}`]);
   pdf.setCreationDate(issuedDate);
   pdf.setModificationDate(issuedDate);
   return pdf.save();
