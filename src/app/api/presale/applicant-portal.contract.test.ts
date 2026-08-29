@@ -148,6 +148,20 @@ describe("isolated KaSiShares applicant portal", () => {
     expect(migration).toContain("uq_presale_account_created_email_delivery");
   });
 
+  test("shows presale application and reservation state in the admin member record", () => {
+    const adminApi = source("encore/domains/admin/api.ts");
+    const adminMembers = source("src/components/admin/admin-members.tsx");
+    expect(adminApi).toContain("presaleApplicationByProfile");
+    expect(adminApi).toContain("presaleOrderByProfile");
+    expect(adminApi).toContain("FROM presale_applications");
+    expect(adminApi).toContain("FROM presale_orders");
+    expect(adminApi).toContain("presaleReservationStatus");
+    expect(adminApi).not.toContain("row.nfc_tag_id ?? `NFC-");
+    expect(adminMembers).toContain("KaSiShares application &amp; reservation");
+    expect(adminMembers).toContain("selected.presaleOrderReference");
+    expect(adminMembers).toContain("selected.presalePhaseCompleted + 1");
+  });
+
   test("lets the applicant cancel only an unpaid reservation before changing payment method", () => {
     const api = source("encore/domains/presale/api.ts");
     const account = source("src/app/shares/account/shares-account-client.tsx");

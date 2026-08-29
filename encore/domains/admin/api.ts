@@ -238,9 +238,13 @@ type AdminMemberResponse = {
   firstName: string | null; lastName: string | null; companyName: string | null; email: string;
   country: string; mobile: string; kycStatus: string; kycVerifiedAt: string | null;
   subscriptionStatus: string; subscriptionAmount: number; subscriptionCurrency: string;
-  monthlyEarnings: number; taxThreshold: boolean; nfcTagId: string; instapayStatus: string;
+  monthlyEarnings: number; taxThreshold: boolean; nfcTagId: string | null; instapayStatus: string;
   instapayVerifiedAt: string | null; instapayAccountRef: string | null; uplineProfileNumber: string | null;
   uplineConfirmed: boolean; createdAt: string; shareCount: number; transactionCount: number; orderCount: number;
+  presaleApplicationStatus: string | null; presalePhaseCompleted: number | null;
+  presaleCompletionPercent: number | null; presaleApplicationNumber: string | null;
+  presaleReservationStatus: string | null; presaleOrderReference: string | null;
+  presaleReservationQuantity: number | null; presaleIncorporationStatus: string | null;
 };
 
 export const adminMemberProfiles = api<
@@ -268,8 +272,8 @@ export const adminMemberProfiles = api<
     // Batch cross-database enrichment once per domain instead of five queries per member.
     // Author: Klaasvaakie ( |╲ )
     const profileIds = rows.map((row) => row.id);
-    const [subscriptions, kycCases, shareTotals, transactionCounts, orderCounts] = profileIds.length === 0
-      ? [[], [], [], [], []] as const
+    const [subscriptions, kycCases, shareTotals, transactionCounts, orderCounts, presaleApplications, presaleOrders] = profileIds.length === 0
+      ? [[], [], [], [], [], [], []] as const
       : await Promise.all([
         membershipDb.rawQueryAll<{ profile_id: string; status: string; amount: string; currency: string }>(
           `SELECT DISTINCT ON (s.profile_id) s.profile_id, s.status, mp.amount::text AS amount, mp.currency
@@ -294,12 +298,34 @@ export const adminMemberProfiles = api<
           `SELECT profile_id, COUNT(*)::text AS count FROM marketplace_orders
            WHERE profile_id = ANY($1::uuid[]) GROUP BY profile_id`, profileIds,
         ),
+        presaleDb.rawQueryAll<{
+          external_profile_id: string; application_number: string; status: string;
+          phase_completed: number; completion_percent: number;
+        }>(
+          `SELECT DISTINCT ON (external_profile_id) external_profile_id, application_number, status,
+                  phase_completed, completion_percent
+           FROM presale_applications
+           WHERE external_profile_id = ANY($1::text[])
+           ORDER BY external_profile_id, updated_at DESC`, profileIds,
+        ),
+        presaleDb.rawQueryAll<{
+          external_profile_id: string; order_reference: string; status: string; quantity: number;
+          incorporation_status: string;
+        }>(
+          `SELECT DISTINCT ON (external_profile_id) external_profile_id::text AS external_profile_id,
+                  order_reference, status, quantity, incorporation_status
+           FROM presale_orders
+           WHERE external_profile_id = ANY($1::uuid[])
+           ORDER BY external_profile_id, created_at DESC`, profileIds,
+        ),
       ]);
     const subscriptionByProfile = new Map(subscriptions.map((item) => [item.profile_id, item]));
     const kycByProfile = new Map(kycCases.map((item) => [item.profile_id, item]));
     const sharesByProfile = new Map(shareTotals.map((item) => [item.profile_id, item.total]));
     const transactionsByProfile = new Map(transactionCounts.map((item) => [item.profile_id, item.count]));
     const ordersByProfile = new Map(orderCounts.map((item) => [item.profile_id, item.count]));
+    const presaleApplicationByProfile = new Map(presaleApplications.map((item) => [item.external_profile_id, item]));
+    const presaleOrderByProfile = new Map(presaleOrders.map((item) => [item.external_profile_id, item]));
     const enriched: AdminMemberResponse[] = rows.map((row) => {
       const subscription = subscriptionByProfile.get(row.id);
       const kyc = kycByProfile.get(row.id);
@@ -307,6 +333,8 @@ export const adminMemberProfiles = api<
         ? (kyc.status === "approved" ? "VERIFIED" : kyc.status.toUpperCase())
         : (row.status === "active" ? "VERIFIED" : row.status === "rejected" ? "REJECTED" : "PENDING");
       const subscriptionStatus = subscription?.status.toLowerCase();
+      const presaleApplication = presaleApplicationByProfile.get(row.id);
+      const presaleOrder = presaleOrderByProfile.get(row.id);
       return {
         id: row.id, profileNumber: row.profile_number, membershipType: row.membership_type ?? row.profile_type.toUpperCase(), citizenshipType: row.citizenship_type,
         firstName: row.first_name, lastName: row.surname, companyName: row.company_name, email: row.email,
@@ -314,10 +342,18 @@ export const adminMemberProfiles = api<
         subscriptionStatus: subscriptionStatus === "active" || subscriptionStatus === "paid" ? "ACTIVE" : subscriptionStatus?.toUpperCase() ?? "PENDING",
         subscriptionAmount: Number(subscription?.amount ?? 0), subscriptionCurrency: subscription?.currency ?? "ZAR",
         monthlyEarnings: Number(row.monthly_earnings), taxThreshold: row.tax_threshold,
-        nfcTagId: row.nfc_tag_id ?? `NFC-${row.id.slice(0, 12).toUpperCase()}`, instapayStatus: row.instapay_status,
+        nfcTagId: row.nfc_tag_id, instapayStatus: row.instapay_status,
         instapayVerifiedAt: row.instapay_verified_at, instapayAccountRef: row.instapay_account_ref,
         uplineProfileNumber: row.upline_profile_number, uplineConfirmed: row.upline_confirmed, createdAt: row.created_at,
         shareCount: Number(sharesByProfile.get(row.id) ?? 0), transactionCount: Number(transactionsByProfile.get(row.id) ?? 0), orderCount: Number(ordersByProfile.get(row.id) ?? 0),
+        presaleApplicationStatus: presaleApplication?.status ?? null,
+        presalePhaseCompleted: presaleApplication?.phase_completed ?? null,
+        presaleCompletionPercent: presaleApplication?.completion_percent ?? null,
+        presaleApplicationNumber: presaleApplication?.application_number ?? null,
+        presaleReservationStatus: presaleOrder?.status ?? null,
+        presaleOrderReference: presaleOrder?.order_reference ?? null,
+        presaleReservationQuantity: presaleOrder?.quantity ?? null,
+        presaleIncorporationStatus: presaleOrder?.incorporation_status ?? null,
       };
     });
     const search = (req.search ?? "").toLowerCase();

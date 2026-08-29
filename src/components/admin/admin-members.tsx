@@ -31,6 +31,10 @@ interface AdminMember {
   instapayStatus: string; instapayVerifiedAt: string | null; instapayAccountRef: string | null;
   uplineProfileNumber: string | null; uplineConfirmed: boolean;
   createdAt: string; shareCount: number; transactionCount: number; orderCount: number;
+  presaleApplicationStatus: string | null; presalePhaseCompleted: number | null;
+  presaleCompletionPercent: number | null; presaleApplicationNumber: string | null;
+  presaleReservationStatus: string | null; presaleOrderReference: string | null;
+  presaleReservationQuantity: number | null; presaleIncorporationStatus: string | null;
 }
 
 interface KycDocument {
@@ -238,7 +242,7 @@ export function AdminMembers() {
               </thead>
               <tbody>
                 {members.map((m) => {
-                  const name = m.companyName || `${m.firstName || ""} ${m.lastName || ""}`.trim();
+                  const name = memberName(m);
                   const Icon = m.membershipType === "COMPANY" ? Building2 : m.membershipType === "INDIVIDUAL_KIDS" ? UserCheck : User;
                   return (
                     <motion.tr
@@ -306,11 +310,11 @@ export function AdminMembers() {
                 <DialogTitle className="flex items-center gap-3">
                   <Avatar className="h-10 w-10">
                     <AvatarFallback className={`text-sm font-bold ${selected.membershipType === "COMPANY" ? "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-400" : "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400"}`}>
-                      {(selected.companyName || `${selected.firstName} ${selected.lastName}`)[0]?.toUpperCase()}
+                      {memberName(selected)[0]?.toUpperCase()}
                     </AvatarFallback>
                   </Avatar>
                   <div>
-                    <p>{selected.companyName || `${selected.firstName} ${selected.lastName}`}</p>
+                    <p>{memberName(selected)}</p>
                     <p className="text-xs text-muted-foreground font-mono font-normal">{selected.profileNumber}</p>
                   </div>
                 </DialogTitle>
@@ -329,6 +333,36 @@ export function AdminMembers() {
                   <Badge variant="outline" className={selected.subscriptionStatus === "ACTIVE" ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-rose-50 text-rose-700 border-rose-200"}>Subscription: {selected.subscriptionStatus}</Badge>
                   {selected.taxThreshold && <Badge variant="outline" className="bg-rose-50 text-rose-700 border-rose-200">Tax eligible ({">"}R7k/mo)</Badge>}
                 </div>
+
+                {(selected.presaleApplicationStatus || selected.presaleReservationStatus) && (
+                  <div className="space-y-3 rounded-xl border border-sky-200 bg-sky-50 p-4 dark:border-sky-900 dark:bg-sky-950/30">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-semibold text-sky-900 dark:text-sky-200">KaSiShares application &amp; reservation</p>
+                        <p className="text-xs text-sky-700 dark:text-sky-400">Presale state from the authoritative application and order records.</p>
+                      </div>
+                      {selected.presalePhaseCompleted !== null && (
+                        <Badge variant="outline" className="border-sky-300 bg-white text-sky-800 dark:bg-sky-950 dark:text-sky-200">
+                          Stage {Math.min(selected.presalePhaseCompleted + 1, 5)} of 5
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <Detail icon={FileCheck2} label="Application" value={formatStatus(selected.presaleApplicationStatus)} />
+                      <Detail icon={FileCheck2} label="Application number" value={selected.presaleApplicationNumber || "—"} mono />
+                      <Detail icon={CreditCard} label="Reservation" value={formatStatus(selected.presaleReservationStatus)} />
+                      <Detail icon={Coins} label="Reserved allocation" value={selected.presaleReservationQuantity === null ? "—" : `${selected.presaleReservationQuantity} shares`} />
+                      <Detail icon={CreditCard} label="Order reference" value={selected.presaleOrderReference || "—"} mono />
+                      <Detail icon={ShieldCheck} label="Incorporation" value={formatStatus(selected.presaleIncorporationStatus)} />
+                    </div>
+                    {selected.presaleCompletionPercent !== null && (
+                      <div>
+                        <div className="mb-1 flex justify-between text-[10px] text-sky-700 dark:text-sky-400"><span>Application progress</span><span>{selected.presaleCompletionPercent}%</span></div>
+                        <div className="h-2 overflow-hidden rounded-full bg-sky-100 dark:bg-sky-900"><div className="h-full bg-sky-500" style={{ width: `${selected.presaleCompletionPercent}%` }} /></div>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* KYC action buttons */}
                 {selected.kycStatus === "PENDING" && (
@@ -397,6 +431,14 @@ export function AdminMembers() {
 
 function hasApprovedIdentityEvidence(documents: KycDocument[]) {
   return ["identity_document", "identity_selfie"].every((type) => documents.some((document) => document.documentType === type && document.status === "approved"));
+}
+
+function memberName(member: AdminMember) {
+  return member.companyName || [member.firstName, member.lastName].filter(Boolean).join(" ") || member.email || member.profileNumber;
+}
+
+function formatStatus(status: string | null) {
+  return status ? status.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase()) : "—";
 }
 
 function Detail({ icon: Icon, label, value, mono }: { icon: typeof Mail; label: string; value: string; mono?: boolean }) {
