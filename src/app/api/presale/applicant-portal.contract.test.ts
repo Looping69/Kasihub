@@ -84,7 +84,8 @@ describe("isolated KaSiShares applicant portal", () => {
     expect(api).toContain("shareholder-conversion-${session.profile.id}");
     expect(api).toContain("'ecosystem',now(),now() + interval '7 days'");
     expect(membership).toContain("const node = await placeMatrixNode(payment.profile_id");
-    expect(account).toContain("Matrix placement happens only after the subscription payment is confirmed.");
+    expect(account).not.toContain("Open your normal KaSiHub account");
+    expect(account).not.toContain("Open member account");
     expect(route).toContain("ENCORE_SESSION_COOKIE");
     expect(route).not.toContain("PRESALE_SESSION_COOKIE");
   });
