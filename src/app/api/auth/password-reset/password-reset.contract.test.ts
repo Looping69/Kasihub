@@ -28,4 +28,11 @@ describe("password reset gateway contract", () => {
     expect(source("src/components/landing.tsx")).toContain('href="/reset-password"');
     expect(source("src/app/shares/account/shares-account-client.tsx")).toContain('href="/reset-password"');
   });
+
+  test("serializes both Next.js bridge request bodies", () => {
+    for (const route of [
+      "src/app/api/auth/password-reset/request/route.ts",
+      "src/app/api/auth/password-reset/complete/route.ts",
+    ]) expect(source(route)).toContain("body: JSON.stringify(body)");
+  });
 });
