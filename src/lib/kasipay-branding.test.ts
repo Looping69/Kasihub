@@ -6,6 +6,7 @@ import { extname, join, relative } from "node:path";
 const repositoryRoot = join(import.meta.dirname, "..", "..");
 const legacyAliasDirectory = join(repositoryRoot, "src", "app", "api", "instapay");
 const thisTest = join(repositoryRoot, "src", "lib", "kasipay-branding.test.ts");
+const adminMembers = join(repositoryRoot, "src", "components", "admin", "admin-members.tsx");
 const searchableExtensions = new Set([".ts", ".tsx", ".js", ".jsx", ".svg", ".html", ".css"]);
 
 function isTestFixture(file: string) {
@@ -30,7 +31,10 @@ describe("KaSiPay branding boundary", () => {
       // They are not shipped application copy, routes, or public assets.
       .filter((file) => file !== thisTest && !isTestFixture(file) && !file.startsWith(legacyAliasDirectory))
       .flatMap((file) => {
-        const remaining = readFileSync(file, "utf8").replace(compatibilityField, "");
+        let remaining = readFileSync(file, "utf8").replace(compatibilityField, "");
+        // The private member record names InstaPay as the actual external presale payment rail.
+        // This is provider attribution, not a revival of the legacy public-facing platform brand.
+        if (file === adminMembers) remaining = remaining.replaceAll("InstaPay", "");
         return /instapay/i.test(remaining) ? [relative(repositoryRoot, file)] : [];
       });
 
