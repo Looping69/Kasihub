@@ -178,4 +178,15 @@ describe("isolated KaSiShares applicant portal", () => {
     expect(account).toContain("Cancel unpaid reservation &amp; change payment method");
     expect(account).toContain("no card payment or crypto transfer has been sent");
   });
+
+  test("keeps the public reservation decoder aligned with the split address form", () => {
+    const api = source("encore/domains/presale/api.ts");
+    const start = api.indexOf("interface CreatePresaleOrderRequest");
+    const request = api.slice(start, start + 2500);
+    expect(request).toContain("streetAddress: string");
+    expect(request).toContain("suburb: string");
+    expect(request).toContain("city: string");
+    expect(request).toContain("postalCode: string");
+    expect(request).not.toContain("physicalAddress: string");
+  });
 });

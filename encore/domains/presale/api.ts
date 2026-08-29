@@ -545,7 +545,10 @@ interface CreatePresaleOrderRequest {
     occupation?: string;
     employer?: string;
     countryOfResidence: string;
-    physicalAddress: string;
+    streetAddress: string;
+    suburb: string;
+    city: string;
+    postalCode: string;
     confirmMobileNumber: string;
     alternativePhone?: string;
     postalAddress?: string;
@@ -560,13 +563,13 @@ interface CreatePresaleOrderRequest {
     beneficialOwnerName?: string;
     beneficialOwnerRelationship?: string;
     sourceOfFunds: "salary" | "business" | "investment" | "property_sale" | "inheritance" | "pension" | "savings" | "company" | "trust" | "other";
-    sourceOfFundsDetails: string;
+    sourceOfFundsDetails?: string;
     fundsOwnership: "own" | "company" | "trust" | "other";
     bankAccountHolder: string;
     bankName: string;
-    bankBranch?: string;
+    bankBranch: string;
     bankAccountNumber: string;
-    bankAccountType?: string;
+    bankAccountType: string;
     bankSwift?: string;
     amlDeclarationAccepted: boolean;
     suitabilityDeclarationAccepted: boolean;
