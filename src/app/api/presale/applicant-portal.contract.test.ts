@@ -151,6 +151,7 @@ describe("isolated KaSiShares applicant portal", () => {
   test("shows presale application and reservation state in the admin member record", () => {
     const adminApi = source("encore/domains/admin/api.ts");
     const adminMembers = source("src/components/admin/admin-members.tsx");
+    expect(adminApi).toContain("networkDb, presaleDb, sharesDb");
     expect(adminApi).toContain("presaleApplicationByProfile");
     expect(adminApi).toContain("presaleOrderByProfile");
     expect(adminApi).toContain("FROM presale_applications");

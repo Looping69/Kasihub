@@ -3,7 +3,7 @@ import { api } from "encore.dev/api";
 import * as log from "encore.dev/log";
 import { StructKeyspace, expireInMinutes } from "encore.dev/storage/cache";
 import { z } from "zod";
-import { applicationCache, auditDb, commerceDb, financeDb, identityDb, kycDb, membershipDb, networkDb, sharesDb } from "../../resources";
+import { applicationCache, auditDb, commerceDb, financeDb, identityDb, kycDb, membershipDb, networkDb, presaleDb, sharesDb } from "../../resources";
 import { requireAdminAccess } from "../auth/access";
 import { decodeStoredConfig } from "./theme-storage";
 import { cacheDelete, cacheRead, cacheWrite } from "../shared/cache";
