@@ -178,6 +178,9 @@ describe("isolated KaSiShares applicant portal", () => {
     expect(adminMembers).toContain("KaSiShares application &amp; reservation");
     expect(adminMembers).toContain("selected.presaleOrderReference");
     expect(adminMembers).toContain("selected.presalePhaseCompleted + 1");
+    expect(adminMembers).toContain('member.citizenshipType === "PRESALE_INVESTOR"');
+    expect(adminMembers).toContain('return "InstaPay"');
+    expect(adminMembers).toContain("paymentMethodLabel(selected)");
   });
 
   test("lets the applicant cancel only an unpaid reservation before changing payment method", () => {

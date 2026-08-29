@@ -42,6 +42,17 @@ interface KycDocument {
   sizeBytes: number; status: string; uploadedAt: string; rejectionReason: string | null;
 }
 
+function paymentMethodLabel(member: AdminMember): string {
+  // Presale reservations are processed through the InstaPay/WebPay rail.
+  // Do not present the legacy international membership provider for these records.
+  if (member.citizenshipType === "PRESALE_INVESTOR" || member.presaleApplicationStatus || member.presaleReservationStatus) {
+    return "InstaPay";
+  }
+  if (member.instapayStatus === "VERIFIED") return "KaSiPay Gini";
+  if (member.instapayStatus === "PENDING") return "KaSiPay (pending)";
+  return "Bankus";
+}
+
 export function AdminMembers() {
   const [members, setMembers] = useState<AdminMember[]>([]);
   const [total, setTotal] = useState(0);
@@ -398,7 +409,7 @@ export function AdminMembers() {
                   <Detail icon={Calendar} label="Member since" value={new Date(selected.createdAt).toLocaleDateString("en-ZA")} />
                   <Detail icon={Coins} label="Monthly earnings" value={fmt(selected.monthlyEarnings)} />
                   <Detail icon={CreditCard} label="Subscription" value={`${selected.subscriptionCurrency} ${selected.subscriptionAmount}/mo`} />
-                  <Detail icon={CreditCard} label="Payment method" value={selected.instapayStatus === "VERIFIED" ? "KaSiPay Gini" : selected.instapayStatus === "PENDING" ? "KaSiPay (pending)" : "Bankus"} />
+                  <Detail icon={CreditCard} label="Payment method" value={paymentMethodLabel(selected)} />
                   <Detail icon={ShieldCheck} label="KaSiPay status" value={selected.instapayStatus === "VERIFIED" ? `Verified (${selected.instapayAccountRef || "—"})` : selected.instapayStatus === "PENDING" ? "Pending" : "Not connected"} />
                   <Detail icon={User} label="Upline" value={selected.uplineProfileNumber ? `${selected.uplineProfileNumber} ${selected.uplineConfirmed ? "✓" : "(unconfirmed)"}` : "Bulk registration"} />
                   <Detail icon={CreditCard} label="NFC Tag" value={selected.nfcTagId || "—"} mono />
