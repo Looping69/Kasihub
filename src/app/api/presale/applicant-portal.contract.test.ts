@@ -124,6 +124,22 @@ describe("isolated KaSiShares applicant portal", () => {
     expect(api).toContain("payload_ciphertext,payload_nonce,payload_auth_tag");
   });
 
+  test("does not reapply a stale draft or require passwords from a resumed applicant", () => {
+    const presale = source("src/app/presale/presale-client.tsx");
+    expect(presale).toContain("}, [resumeDraft]);");
+    expect(presale).not.toContain("[resumeDraft, applicationPhase]");
+    expect(presale).toContain("{!memberProfileNumber ? <>");
+    expect(presale).toContain('name="accountPassword"');
+    expect(presale).toContain('name="confirmAccountPassword"');
+  });
+
+  test("persists declarations before handing off to identity verification", () => {
+    const presale = source("src/app/presale/presale-client.tsx");
+    const phaseFour = presale.slice(presale.indexOf("if (applicationPhase === 4)"), presale.indexOf("if (applicationPhase === 2 || applicationPhase === 3)"));
+    expect(phaseFour.indexOf("await saveProgress(form, 3);")).toBeGreaterThan(-1);
+    expect(phaseFour.indexOf("await saveProgress(form, 3);")).toBeLessThan(phaseFour.indexOf("await startIdentityVerification();"));
+  });
+
   test("restores authoritative KYC and legacy structured application data", () => {
     const presale = source("src/app/presale/presale-client.tsx");
     const account = source("src/app/shares/account/shares-account-client.tsx");
