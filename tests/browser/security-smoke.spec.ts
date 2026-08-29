@@ -625,7 +625,7 @@ test("invited buyer can reserve shares without exposing the order access token i
   await page.getByLabel("Investor terms").evaluate((node) => { node.scrollTop = node.scrollHeight; node.dispatchEvent(new Event("scroll", { bubbles: true })); });
   await page.getByLabel(/I accept the presale reservation acknowledgement/).check();
   expect(await page.locator("form :invalid").evaluateAll((fields) => fields.map((field) => field.getAttribute("name")))).toEqual([]);
-  await page.getByRole("button", { name: "Reserve and view payment" }).click();
+  await page.getByRole("button", { name: "PAY NOW" }).click();
 
   await expect(page.getByText("50.000000 USDT", { exact: true })).toBeVisible();
   await expect(page.getByText("TControlledReceiverAddress")).toBeVisible();
