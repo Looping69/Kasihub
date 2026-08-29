@@ -156,6 +156,7 @@ function LoginForm({ error, onSubmit }: { error: string; onSubmit: (event: FormE
         <input type="checkbox" checked={showPassword} onChange={(event) => setShowPassword(event.target.checked)} className="h-4 w-4 accent-amber-400" />
         Show password
       </label>
+      <Link href="/reset-password" className="inline-block text-sm font-semibold text-amber-200 hover:text-amber-100">Forgot password?</Link>
       {error ? <p role="alert" className="text-sm text-red-300">{error}</p> : null}
       <Button className="w-full bg-amber-400 font-bold text-slate-950 hover:bg-amber-300">Sign in to KaSiShares</Button>
     </form>

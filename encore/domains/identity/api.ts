@@ -1,6 +1,8 @@
 // Author: Klaasvaakie ( |╲ )
 import { appMeta } from "encore.dev";
 import { api, APIError } from "encore.dev/api";
+import { secret } from "encore.dev/config";
+import { createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
 import { auditDb, documentsBucket, identityDb, kycDb, membershipDb, networkDb } from "../../resources";
 import { bearerToken, hashSessionToken, sessionFromBearer } from "../auth/access";
@@ -83,6 +85,29 @@ const loginRequest = z.object({
   email: z.string().email(),
   password: z.string().min(1).max(128),
 });
+
+const passwordResetRequest = z.object({ email: z.string().email().max(320) });
+const passwordResetCompleteRequest = z.object({
+  token: z.string().min(32).max(256),
+  password: z.string().min(12).max(128),
+});
+
+const ResendApiKey = secret("RESEND_API_KEY");
+const ResendFromEmail = secret("RESEND_FROM_EMAIL");
+
+function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+function hashResetToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>'"]/g, (character) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;",
+  })[character] ?? character);
+}
 
 type LoginResponse = {
   token: string;
@@ -282,6 +307,103 @@ export const login = api<{ email: string; password: string }, LoginResponse>(
     };
   },
 );
+
+export const requestPasswordReset = api<
+  { email: string },
+  { accepted: true }
+>({ method: "POST", path: "/auth/password-reset/request", expose: true }, async (req) => {
+  const payload = passwordResetRequest.parse(req);
+  const email = normalizeEmail(payload.email);
+  const user = await identityDb.rawQueryRow<{ id: string; email: string }>(
+    "SELECT id, email FROM users WHERE lower(email) = $1 AND status = 'active'",
+    email,
+  );
+
+  // Account recovery must never reveal whether an address is registered.
+  if (!user) return { accepted: true };
+
+  const recent = await identityDb.rawQueryRow<{ latest: string | null; count: number }>(
+    `SELECT max(requested_at)::text AS latest, count(*)::int AS count
+       FROM password_reset_tokens
+      WHERE user_id = $1 AND requested_at > now() - interval '1 hour'`,
+    user.id,
+  );
+  if ((recent?.count ?? 0) >= 5 || (recent?.latest && Date.now() - new Date(recent.latest).getTime() < 60_000)) {
+    return { accepted: true };
+  }
+
+  const token = randomBytes(32).toString("base64url");
+  const resetId = crypto.randomUUID();
+  await identityDb.rawExec(
+    `UPDATE password_reset_tokens SET used_at = now()
+      WHERE user_id = $1 AND used_at IS NULL`,
+    user.id,
+  );
+  await identityDb.rawExec(
+    `INSERT INTO password_reset_tokens (id, user_id, token_hash, expires_at)
+     VALUES ($1, $2, $3, now() + interval '30 minutes')`,
+    resetId, user.id, hashResetToken(token),
+  );
+
+  const resetUrl = `https://www.kasihub.net/reset-password?token=${encodeURIComponent(token)}`;
+  try {
+    const response = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${ResendApiKey()}`,
+        "Content-Type": "application/json",
+        "Idempotency-Key": `password-reset/${resetId}`,
+      },
+      body: JSON.stringify({
+        from: ResendFromEmail(),
+        to: [user.email],
+        subject: "Reset your KaSiHub password",
+        html: `<!doctype html><html lang="en"><body style="margin:0;background:#071a2f;font-family:Arial,sans-serif;color:#f8fafc"><div style="max-width:600px;margin:0 auto;padding:32px 20px"><div style="border:1px solid #334155;border-radius:18px;background:#0f2744;padding:32px"><h1 style="margin:0 0 18px;color:#fbbf24;font-size:26px">Reset your password</h1><p style="font-size:16px;line-height:1.6">We received a password-reset request for ${escapeHtml(user.email)}.</p><p style="margin:28px 0"><a href="${resetUrl}" style="display:inline-block;border-radius:10px;background:#fbbf24;color:#071a2f;padding:14px 22px;font-weight:700;text-decoration:none">Choose a new password</a></p><p style="font-size:13px;line-height:1.6;color:#cbd5e1">This one-use link expires in 30 minutes. If you did not request it, ignore this email. KaSiHub will never ask you to send us your password.</p></div></div></body></html>`,
+        text: `Reset your KaSiHub password: ${resetUrl}\n\nThis one-use link expires in 30 minutes. If you did not request it, ignore this email.`,
+        tags: [{ name: "email_type", value: "password_reset" }],
+      }),
+    });
+    const result = await response.json().catch(() => null) as { id?: string; name?: string } | null;
+    await identityDb.rawExec(
+      `UPDATE password_reset_tokens
+          SET delivery_status = $2, provider_message_id = $3, last_error_code = $4
+        WHERE id = $1`,
+      resetId, response.ok && result?.id ? "sent" : "failed", result?.id ?? null,
+      response.ok && result?.id ? null : result?.name ?? `http_${response.status}`,
+    );
+  } catch {
+    await identityDb.rawExec(
+      "UPDATE password_reset_tokens SET delivery_status = 'failed', last_error_code = 'provider_unavailable' WHERE id = $1",
+      resetId,
+    );
+  }
+  return { accepted: true };
+});
+
+export const completePasswordReset = api<
+  { token: string; password: string },
+  { reset: true }
+>({ method: "POST", path: "/auth/password-reset/complete", expose: true }, async (req) => {
+  const payload = passwordResetCompleteRequest.parse(req);
+  const tx = await identityDb.begin();
+  try {
+    const reset = await tx.rawQueryRow<{ id: string; user_id: string }>(
+      `SELECT id, user_id FROM password_reset_tokens
+        WHERE token_hash = $1 AND used_at IS NULL AND expires_at > now()
+        FOR UPDATE`,
+      hashResetToken(payload.token),
+    );
+    if (!reset) throw APIError.invalidArgument("This password-reset link is invalid or has expired");
+    await tx.rawExec("UPDATE users SET password_hash = $2, updated_at = now() WHERE id = $1", reset.user_id, hashPassword(payload.password));
+    await tx.rawExec("UPDATE password_reset_tokens SET used_at = now() WHERE user_id = $1 AND used_at IS NULL", reset.user_id);
+    await tx.rawExec("UPDATE sessions SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL", reset.user_id);
+    await tx.commit();
+    return { reset: true };
+  } catch (error) {
+    await tx.rollback();
+    throw error;
+  }
+});
 
 export const me = api<void, { user: { id: string; email: string; profileId: string; profileNumber: string } | null }>(
   { method: "GET", path: "/auth/me", expose: true },

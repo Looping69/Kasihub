@@ -668,6 +668,7 @@ export function Landing() {
                 <input type="checkbox" checked={showPassword} onChange={(event) => setShowPassword(event.target.checked)} className="h-4 w-4 accent-primary" />
                 Show password
               </label>
+              <Link href="/reset-password" onClick={() => setLoginOpen(false)} className="inline-block text-sm font-semibold text-primary hover:underline">Forgot password?</Link>
             </div>
             {loginError && <p className="text-sm text-destructive">{loginError}</p>}
             <Button type="submit" className="w-full" disabled={signingIn}>
