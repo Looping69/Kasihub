@@ -31,7 +31,7 @@ describe("member share certificate PDF", () => {
     mocks.encoreSessionToken.mockResolvedValue("member-token");
     mocks.encoreRequest
       .mockResolvedValueOnce({ member: { id: "profile-1", profileNumber: "KSH-0001", firstName: "Wimpie", lastName: "van Loggerenberg", companyName: null } })
-      .mockResolvedValueOnce({ certificates: [{ certificateNumber: "CERT-PRESALE-ORDER-1", totalShares: 20, status: "issued", issuedAt: "2026-08-21T00:00:00.000Z", revokedAt: null }] });
+      .mockResolvedValueOnce({ certificates: [{ certificateNumber: "CERT-PRESALE-ORDER-1", totalShares: 20, status: "issued", issuedAt: "2026-08-21T00:00:00.000Z", revokedAt: null, issuePricePerShare: 25, issuePriceCurrency: "USD" }] });
 
     const response = await GET(new Request("http://localhost/api/shares/certificates/CERT-PRESALE-ORDER-1"), context("CERT-PRESALE-ORDER-1"));
     expect(response.status).toBe(200);

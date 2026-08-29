@@ -17,6 +17,8 @@ export type ShareCertificatePdfData = {
   bonusShares?: number;
   distinctiveFrom?: number;
   distinctiveTo?: number;
+  issuePricePerShare?: number;
+  issuePriceCurrency?: string;
 };
 
 const TEMPLATE_PATH = path.join(process.cwd(), "public", "certificate-templates", "solidus-shareholder-certificate.pdf");
@@ -78,6 +80,10 @@ export async function generateShareCertificatePdf(data: ShareCertificatePdfData)
       throw new Error("invalid_distinctive_range");
     }
   }
+  if ((data.issuePricePerShare === undefined) !== (data.issuePriceCurrency === undefined)) throw new Error("incomplete_issue_price");
+  if (data.issuePricePerShare !== undefined && (!Number.isFinite(data.issuePricePerShare) || data.issuePricePerShare < 0)) {
+    throw new Error("invalid_issue_price");
+  }
   const issuedDate = new Date(data.issuedAt);
   if (Number.isNaN(issuedDate.getTime())) throw new Error("invalid_issue_date");
 
@@ -105,7 +111,10 @@ export async function generateShareCertificatePdf(data: ShareCertificatePdfData)
   addressLines.forEach((line, index) => page.drawText(line, { x: 82, y: 147 - (index * 10), size: 6.5, font: regular, color: NAVY }));
 
   centeredInBox(page, "CLASS B", 244, 101, 165, bold, 9);
-  centeredInBox(page, "SEE REGISTER", 345, 86, 165, bold, 7.5);
+  const issuePriceLabel = data.issuePricePerShare === undefined
+    ? "SEE REGISTER"
+    : `${data.issuePriceCurrency!.trim().toUpperCase()} ${data.issuePricePerShare.toLocaleString("en-ZA", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  centeredInBox(page, issuePriceLabel, 345, 86, 165, bold, 7.5);
   centeredInBox(page, data.orderReference?.trim() || data.profileNumber, 431, 86, 165, bold, 7.5);
   centeredInBox(page, issueLabel, 517, 86, 165, bold, 7.5);
   centeredInBox(page, data.certificateNumber, 603, 86, 165, bold, 7);

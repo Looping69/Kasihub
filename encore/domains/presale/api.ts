@@ -1049,6 +1049,7 @@ interface PresalePortalResponse {
     totalIssuedShares: number;
     holdings: Array<{
       orderReference: string; campaignName: string; paidShares: number; bonusShares: number; allocatedShares: number;
+      issuePricePerShare?: number; issuePriceCurrency?: string;
       status: "awaiting_issuance" | "issued" | "revoked" | "issuance_error"; incorporationStatus: string;
       certificate?: { certificateNumber: string; totalShares: number; status: string; issuedAt: string; revokedAt?: string;
         phaseNumber?: number; distinctiveFrom?: number; distinctiveTo?: number; paidShares?: number; bonusShares?: number };
@@ -1334,7 +1335,7 @@ export const presaleApplicantPortal = api<void, PresalePortalResponse>(
       session.profile.id,
     );
     const paidOrders = await presaleDb.rawQueryAll<PresalePaidOrder>(
-      `SELECT o.order_reference, c.name AS campaign_name, o.quantity, c.bonus_buy_one_get_one,
+      `SELECT o.order_reference, c.name AS campaign_name, o.quantity, o.total_usd::text AS total_usd, c.bonus_buy_one_get_one,
               o.status, o.incorporation_status
        FROM presale_orders o JOIN presale_campaigns c ON c.id = o.campaign_id
        WHERE o.external_profile_id = $1 AND o.status IN ('confirmed', 'incorporated')

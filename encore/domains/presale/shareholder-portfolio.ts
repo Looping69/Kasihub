@@ -4,6 +4,7 @@ import { issuedSharesForPresale } from "./settlement";
 export type PresalePaidOrder = {
   order_reference: string; campaign_name: string; quantity: number; bonus_buy_one_get_one: boolean;
   status: string; incorporation_status: string;
+  total_usd?: string;
 };
 
 export type PresaleCertificate = {
@@ -27,6 +28,8 @@ export function buildShareholderPortfolio(paidOrders: PresalePaidOrder[], certif
       paidShares: paidOrder.quantity,
       bonusShares: allocatedShares - paidOrder.quantity,
       allocatedShares,
+      issuePricePerShare: paidOrder.total_usd === undefined ? undefined : Number(paidOrder.total_usd) / paidOrder.quantity,
+      issuePriceCurrency: paidOrder.total_usd === undefined ? undefined : "USD",
       status,
       incorporationStatus: paidOrder.incorporation_status,
       certificate: certificate ? {

@@ -230,5 +230,7 @@ describe("isolated KaSiShares applicant portal", () => {
     expect(certificate).toContain("TERTIUS DU PLESSIS - CFO");
     expect(certificate).toContain('data.distinctiveFrom?.toLocaleString("en-ZA") ?? "N/A"');
     expect(certificate).toContain('data.distinctiveTo?.toLocaleString("en-ZA") ?? "N/A"');
+    expect(certificate).toContain("data.issuePricePerShare.toLocaleString");
+    expect(certificate).toContain("data.issuePriceCurrency!.trim().toUpperCase()");
   });
 });

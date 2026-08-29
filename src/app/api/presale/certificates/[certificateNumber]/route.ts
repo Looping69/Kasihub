@@ -10,6 +10,7 @@ type Portal = {
   shareholder: {
     holdings: Array<{
       orderReference: string; campaignName: string; paidShares: number; bonusShares: number;
+      issuePricePerShare?: number; issuePriceCurrency?: string;
       certificate?: { certificateNumber: string; totalShares: number; status: string; issuedAt: string;
         distinctiveFrom?: number; distinctiveTo?: number };
     }>;
@@ -39,6 +40,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ certifi
       bonusShares: holding.bonusShares,
       distinctiveFrom: certificate.distinctiveFrom,
       distinctiveTo: certificate.distinctiveTo,
+      issuePricePerShare: holding.issuePricePerShare,
+      issuePriceCurrency: holding.issuePriceCurrency,
     });
     const safeFilename = certificate.certificateNumber.replace(/[^A-Za-z0-9._-]/g, "_");
     return new NextResponse(Buffer.from(pdf), {

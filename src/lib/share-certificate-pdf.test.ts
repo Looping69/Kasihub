@@ -15,6 +15,8 @@ describe("Solidus shareholder certificate", () => {
       bonusShares: 5,
       distinctiveFrom: 1,
       distinctiveTo: 10,
+      issuePricePerShare: 25,
+      issuePriceCurrency: "USD",
       issuedAt: "2026-08-29T08:00:00.000Z",
       status: "issued",
     });
@@ -26,6 +28,18 @@ describe("Solidus shareholder certificate", () => {
     const { width, height } = document.getPage(0).getSize();
     expect(width).toBeCloseTo(841.89, 1);
     expect(height).toBeCloseTo(595.28, 1);
+  });
+
+  test("rejects an issue price without its currency", async () => {
+    await expect(generateShareCertificatePdf({
+      certificateNumber: "SOL-P1-001",
+      holderName: "Test Shareholder",
+      profileNumber: "KSI-TEST",
+      totalShares: 20,
+      issuePricePerShare: 25,
+      issuedAt: "2026-08-29T08:00:00.000Z",
+      status: "issued",
+    })).rejects.toThrow("incomplete_issue_price");
   });
 
   test("rejects a distinctive range that does not equal the issued total", async () => {

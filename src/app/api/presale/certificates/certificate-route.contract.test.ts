@@ -32,6 +32,7 @@ describe("presale shareholder certificate PDF", () => {
       applicant: { profileNumber: "KSI-1", legalName: "Test Holder" },
       shareholder: { holdings: [{
         campaignName: "Test Campaign", paidShares: 2, bonusShares: 2,
+        issuePricePerShare: 25, issuePriceCurrency: "USD",
         certificate: { certificateNumber: "CERT-1", totalShares: 4, status: "issued", issuedAt: "2026-08-26T00:00:00Z" },
       }] },
     });

@@ -57,7 +57,8 @@ const sharePurchaseRequest = z.object({
 export const myShares = api<
   { profileId: string },
   { certificates: { certificateNumber: string; totalShares: number; status: string; issuedAt: string; revokedAt: string | null;
-    distinctiveFrom?: number; distinctiveTo?: number; paidShares?: number; bonusShares?: number }[] }
+    distinctiveFrom?: number; distinctiveTo?: number; paidShares?: number; bonusShares?: number;
+    issuePricePerShare?: number; issuePriceCurrency?: string }[] }
 >(
   { method: "GET", path: "/shares/me/:profileId", expose: true },
   async (req) => {
@@ -72,9 +73,17 @@ export const myShares = api<
       distinctive_to: number | null;
       paid_shares: number | null;
       bonus_shares: number | null;
+      issue_price_per_share: string | null;
+      issue_price_currency: string | null;
     }>(`SELECT certificate_number, total_shares, status, issued_at, revoked_at,
-              distinctive_from, distinctive_to, paid_shares, bonus_shares
-         FROM share_certificates WHERE profile_id = $1 ORDER BY issued_at DESC`,
+              distinctive_from, distinctive_to, paid_shares, bonus_shares,
+              CASE WHEN sp.quantity > 0 THEN sp.total_amount / sp.quantity ELSE NULL END::text AS issue_price_per_share,
+              phase.currency AS issue_price_currency
+         FROM share_certificates certificate
+         LEFT JOIN share_purchases sp ON sp.certificate_id = certificate.id
+           OR (sp.certificate_id IS NULL AND sp.presale_order_reference = certificate.presale_order_reference)
+         LEFT JOIN share_phases phase ON phase.id = sp.phase_id
+         WHERE certificate.profile_id = $1 ORDER BY certificate.issued_at DESC`,
       req.profileId,
     );
     return {
@@ -88,6 +97,8 @@ export const myShares = api<
         distinctiveTo: row.distinctive_to ?? undefined,
         paidShares: row.paid_shares ?? undefined,
         bonusShares: row.bonus_shares ?? undefined,
+        issuePricePerShare: row.issue_price_per_share === null ? undefined : Number(row.issue_price_per_share),
+        issuePriceCurrency: row.issue_price_currency ?? undefined,
       })),
     };
   },

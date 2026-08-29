@@ -16,6 +16,8 @@ type Certificate = {
   distinctiveTo?: number;
   paidShares?: number;
   bonusShares?: number;
+  issuePricePerShare?: number;
+  issuePriceCurrency?: string;
 };
 
 export async function GET(_req: Request, { params }: { params: Promise<{ certificateNumber: string }> }) {
@@ -49,6 +51,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ certifi
       distinctiveTo: certificate.distinctiveTo,
       paidShares: certificate.paidShares,
       bonusShares: certificate.bonusShares,
+      issuePricePerShare: certificate.issuePricePerShare,
+      issuePriceCurrency: certificate.issuePriceCurrency,
     });
     const safeFilename = certificate.certificateNumber.replace(/[^A-Za-z0-9._-]/g, "_");
     return new NextResponse(Buffer.from(pdf), {
