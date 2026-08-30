@@ -275,7 +275,7 @@ async function retryPresaleEmailDelivery(delivery: RetryableEmailDelivery): Prom
   });
 }
 
-function encryptInvestorApplication(value: unknown): { ciphertext: Buffer; nonce: Buffer; authTag: Buffer } {
+export function encryptInvestorApplication(value: unknown): { ciphertext: Buffer; nonce: Buffer; authTag: Buffer } {
   const key = createNodeHash("sha256").update(InvestorApplicationEncryptionKey()).digest();
   const nonce = randomBytes(12);
   const cipher = createCipheriv("aes-256-gcm", key, nonce);

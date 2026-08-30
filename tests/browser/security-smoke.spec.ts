@@ -632,7 +632,7 @@ test("invited buyer can reserve shares without exposing the order access token i
   await expect(page.getByText(/transaction hash is not accepted as settled/i)).toBeVisible();
 
   await page.getByLabel("Transaction hash").fill("abcdef0123456789");
-  await page.getByRole("button", { name: "Submit transaction for confirmation" }).click();
+  await page.getByRole("button", { name: "Submit hash" }).click();
   await expect(page.getByRole("heading", { name: "Transaction submitted" })).toBeVisible();
   expect(refreshUrl).not.toContain(accessToken);
   expect(refreshUrl).not.toContain("accessToken=");
