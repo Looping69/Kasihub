@@ -4,7 +4,7 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { CheckCircle2, Clock3, Download, FileCheck2, Layers3, LogOut, ShieldCheck } from "lucide-react";
+import { CheckCircle2, Clock3, Download, FileCheck2, Layers3, LoaderCircle, LogOut, RefreshCw, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -12,7 +12,13 @@ type Portal = {
   applicant: { profileNumber: string; email: string };
   application: null | { applicationNumber: string; campaignName: string; status: string; phaseCompleted: number; completionPercent: number; nextStep: number; resumeUrl: string | null };
   kyc: { status: string; verified: boolean };
-  order: null | { orderReference: string; status: string; incorporationStatus: string; paymentRail: "remitano_usdt" | "webpay_card"; webPayProcessStatus?: string; webPayProcessStage?: string };
+  order: null | {
+    orderReference: string; status: string; incorporationStatus: string; paymentRail: "remitano_usdt" | "webpay_card";
+    quantity: number; totalUsdt: string; paymentNetwork?: string; paymentMinConfirmations?: number;
+    transactionHash?: string; paymentVerificationStatus?: string; paymentVerificationReason?: string;
+    paymentVerificationCheckedAt?: string; paymentConfirmations?: number;
+    webPayProcessStatus?: string; webPayProcessStage?: string;
+  };
   shareholder?: {
     totalIssuedShares: number;
     holdings: Array<{
@@ -42,6 +48,8 @@ export function SharesAccountClient() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [confirmingPayment, setConfirmingPayment] = useState(false);
+  const [recheckingPayment, setRecheckingPayment] = useState(false);
+  const [paymentNotice, setPaymentNotice] = useState("");
 
   const loadPortal = useCallback(async () => {
     const response = await fetch("/api/presale/portal", { cache: "no-store" });
@@ -114,13 +122,33 @@ export function SharesAccountClient() {
     await loadPortal();
   }
 
+  async function recheckPayment(orderReference: string) {
+    setError("");
+    setPaymentNotice("");
+    setRecheckingPayment(true);
+    try {
+      const response = await fetch(`/api/presale/orders/${encodeURIComponent(orderReference)}/payment-recheck`, { method: "POST" });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error ?? "Payment verification is temporarily unavailable");
+      setPaymentNotice(body.status === "settled"
+        ? "Payment verified. Your share allocation and certificate have been issued."
+        : paymentStatusMessage(body.status, body.reason));
+      await loadPortal();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Payment verification is temporarily unavailable");
+      await loadPortal().catch(() => undefined);
+    } finally {
+      setRecheckingPayment(false);
+    }
+  }
+
   return <main className="presale-shell min-h-screen px-5 py-8 text-white">
     <div className="mx-auto w-full max-w-5xl">
       <header className="mb-10 flex items-center justify-between gap-4">
         <Link href="/" className="relative h-[76px] w-[134px]"><Image src="/kasishares-logo.png" alt="KaSiShares home" fill sizes="134px" className="object-contain object-left" priority /></Link>
         {portal ? <Button variant="outline" onClick={() => void logout()} className="border-white/20 bg-transparent text-white"><LogOut className="mr-2 h-4 w-4" />Sign out</Button> : null}
       </header>
-      {loading ? <p className="text-slate-300">Loading applicant account…</p> : portal ? <PortalView portal={portal} error={error} confirmingPayment={confirmingPayment} onCancel={cancelReservation} /> : <LoginForm error={error} onSubmit={login} />}
+      {loading ? <p className="text-slate-300">Loading applicant account…</p> : portal ? <PortalView portal={portal} error={error} confirmingPayment={confirmingPayment} recheckingPayment={recheckingPayment} paymentNotice={paymentNotice} onCancel={cancelReservation} onRecheck={recheckPayment} /> : <LoginForm error={error} onSubmit={login} />}
     </div>
   </main>;
 }
@@ -145,7 +173,10 @@ function LoginForm({ error, onSubmit }: { error: string; onSubmit: (event: FormE
   </section>;
 }
 
-function PortalView({ portal, error, confirmingPayment, onCancel }: { portal: Portal; error: string; confirmingPayment: boolean; onCancel: (orderReference: string) => Promise<void> }) {
+function PortalView({ portal, error, confirmingPayment, recheckingPayment, paymentNotice, onCancel, onRecheck }: {
+  portal: Portal; error: string; confirmingPayment: boolean; recheckingPayment: boolean; paymentNotice: string;
+  onCancel: (orderReference: string) => Promise<void>; onRecheck: (orderReference: string) => Promise<void>;
+}) {
   const shareholder = portal.shareholder ?? { totalIssuedShares: 0, holdings: [] };
   const isShareholder = shareholder.totalIssuedShares > 0;
   return <div className="space-y-6">
@@ -153,14 +184,51 @@ function PortalView({ portal, error, confirmingPayment, onCancel }: { portal: Po
     <div className="grid gap-5 md:grid-cols-3">
       <StatusCard title="Application" value={portal.application ? `Step ${portal.application.nextStep} of 5` : "Not started"} detail={portal.application?.applicationNumber ?? "No application record"} complete={Boolean(portal.application && portal.application.phaseCompleted >= 4 && portal.kyc.verified)} />
       <StatusCard title="Identity verification" value={portal.kyc.verified ? "Verified" : portal.kyc.status} detail="ID, liveness and face match" complete={portal.kyc.verified} />
-      <StatusCard title="Reservation" value={confirmingPayment ? "confirming_payment" : portal.order?.status ?? "Not created"} detail={portal.order?.orderReference ?? "Payment remains locked until eligible"} complete={portal.order?.status === "confirmed"} />
+      <StatusCard title="Reservation" value={confirmingPayment ? "confirming_payment" : portal.order?.status ?? "Not created"} detail={portal.order?.orderReference ?? "Payment remains locked until eligible"} complete={Boolean(portal.order && ["confirmed", "incorporated"].includes(portal.order.status))} />
     </div>
     {portal.order?.webPayProcessStatus && ["FAILED", "REJECTED", "EXPIRED", "REVERSED"].includes(portal.order.webPayProcessStatus) ? <p role="status" className="rounded-xl border border-rose-300/30 bg-rose-400/10 p-4 text-sm text-rose-100">The last WebPay attempt was {portal.order.webPayProcessStatus.toLowerCase()}. No successful card payment was recorded and no shares were allocated.</p> : null}
     {confirmingPayment ? <p role="status" className="rounded-xl border border-sky-300/30 bg-sky-400/10 p-4 text-sm text-sky-100">WebPay returned successfully. We are waiting for the signed payment notification before confirming your shares.</p> : null}
+    {portal.order?.paymentRail === "remitano_usdt" && ["payment_submitted", "payment_detected"].includes(portal.order.status) ? <CryptoPaymentRecovery order={portal.order} rechecking={recheckingPayment} notice={paymentNotice} onRecheck={onRecheck} /> : null}
     {shareholder.holdings.length > 0 ? <ShareholderPortfolio shareholder={shareholder} /> : null}
     <ContinuationPanel portal={portal} error={error} onCancel={onCancel} />
     <p className="flex items-center gap-2 text-xs text-slate-400"><ShieldCheck className="h-4 w-4" />KaSiShares access remains separate. Normal dashboard and matrix access require an activated membership subscription.</p>
   </div>;
+}
+
+type PortalOrder = NonNullable<Portal["order"]>;
+
+function paymentStatusMessage(status?: string, reason?: string): string {
+  if (status === "pending_confirmations") return "The transfer was found and is waiting for the required blockchain confirmations.";
+  if (status === "manual_review") return "The transfer was found but needs a controlled review before shares can be issued.";
+  if (status === "underpaid") return "The transfer was found, but the verified amount is below the reserved amount. Support must review it.";
+  if (status === "rejected") return "The submitted transaction does not match the reservation and was rejected.";
+  if (reason === "chain_provider_unavailable") return "The blockchain verifier is temporarily unavailable. Your hash is saved and automatic retries remain active.";
+  if (reason?.includes("custody") || reason?.includes("provider")) return "The transfer is visible on-chain, but custody reconciliation is temporarily unavailable. Your hash is saved and will be retried.";
+  return "Verification is still pending. Your submitted hash is saved and automatic retries remain active.";
+}
+
+function CryptoPaymentRecovery({ order, rechecking, notice, onRecheck }: {
+  order: PortalOrder; rechecking: boolean; notice: string; onRecheck: (orderReference: string) => Promise<void>;
+}) {
+  const statusMessage = paymentStatusMessage(order.paymentVerificationStatus, order.paymentVerificationReason);
+  return <section className="rounded-2xl border border-amber-300/30 bg-[#0f2744] p-7" aria-labelledby="crypto-payment-heading">
+    <div className="flex flex-wrap items-start justify-between gap-5">
+      <div className="max-w-2xl">
+        <p className="text-xs font-bold uppercase tracking-[.18em] text-amber-300">Crypto payment recovery</p>
+        <h2 id="crypto-payment-heading" className="mt-2 text-2xl font-black">Your share choice is preserved</h2>
+        <p className="mt-2 text-sm leading-6 text-slate-300">{order.quantity.toLocaleString()} paid {order.quantity === 1 ? "share is" : "shares are"} reserved for {order.totalUsdt} USDT. A second purchase form is intentionally locked while this payment is verified.</p>
+      </div>
+      <Button type="button" disabled={rechecking || !order.transactionHash} onClick={() => void onRecheck(order.orderReference)} className="bg-amber-400 font-bold text-slate-950 hover:bg-amber-300 disabled:opacity-60">
+        {rechecking ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+        {rechecking ? "Checking payment…" : "Recheck payment"}
+      </Button>
+    </div>
+    <dl className="mt-6 grid gap-4 rounded-xl border border-white/10 bg-black/15 p-5 sm:grid-cols-2">
+      <div><dt className="text-xs uppercase tracking-wider text-slate-400">Transaction hash</dt><dd className="mt-2 break-all font-mono text-sm text-slate-100">{order.transactionHash ?? "No hash has been submitted"}</dd></div>
+      <div><dt className="text-xs uppercase tracking-wider text-slate-400">Verification</dt><dd className="mt-2 text-sm font-semibold text-amber-100">{order.paymentVerificationStatus ?? "submitted"}{typeof order.paymentConfirmations === "number" ? ` · ${order.paymentConfirmations}/${order.paymentMinConfirmations ?? "required"} confirmations` : ""}</dd></div>
+    </dl>
+    <p role="status" className="mt-4 rounded-lg border border-sky-300/30 bg-sky-400/10 p-4 text-sm leading-6 text-sky-100">{notice || statusMessage}</p>
+  </section>;
 }
 
 type Shareholder = NonNullable<Portal["shareholder"]>;

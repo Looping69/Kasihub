@@ -14,6 +14,7 @@ import {
   requireIdempotencyKey,
 } from "../workflows/core";
 import { cacheDelete, cacheRead, cacheWrite } from "../shared/cache";
+import { certificatePayloadHash } from "./certificate-integrity";
 
 interface SharePurchaseRequest {
   profileId: string;
@@ -58,7 +59,9 @@ export const myShares = api<
   { profileId: string },
   { certificates: { certificateNumber: string; totalShares: number; status: string; issuedAt: string; revokedAt: string | null;
     distinctiveFrom?: number; distinctiveTo?: number; paidShares?: number; bonusShares?: number;
-    issuePricePerShare?: number; issuePriceCurrency?: string }[] }
+    issuePricePerShare?: number; issuePriceCurrency?: string; verificationId?: string;
+    holderNameSnapshot?: string; holderAddressSnapshot?: string; profileNumberSnapshot?: string;
+    integrityPayload?: string; integrityHash?: string }[] }
 >(
   { method: "GET", path: "/shares/me/:profileId", expose: true },
   async (req) => {
@@ -75,10 +78,19 @@ export const myShares = api<
       bonus_shares: number | null;
       issue_price_per_share: string | null;
       issue_price_currency: string | null;
+      verification_id: string | null;
+      holder_name_snapshot: string | null;
+      holder_address_snapshot: string | null;
+      profile_number_snapshot: string | null;
+      certificate_payload: string | null;
+      certificate_payload_sha256: string | null;
     }>(`SELECT certificate_number, total_shares, status, issued_at, revoked_at,
               distinctive_from, distinctive_to, paid_shares, bonus_shares,
-              CASE WHEN sp.quantity > 0 THEN sp.total_amount / sp.quantity ELSE NULL END::text AS issue_price_per_share,
-              phase.currency AS issue_price_currency
+              COALESCE(certificate.issue_price_per_share_snapshot,
+                CASE WHEN sp.quantity > 0 THEN sp.total_amount / sp.quantity ELSE NULL END)::text AS issue_price_per_share,
+              COALESCE(certificate.issue_price_currency_snapshot, phase.currency) AS issue_price_currency,
+              verification_id,holder_name_snapshot,holder_address_snapshot,profile_number_snapshot,
+              certificate_payload,certificate_payload_sha256
          FROM share_certificates certificate
          LEFT JOIN share_purchases sp ON sp.certificate_id = certificate.id
            OR (sp.certificate_id IS NULL AND sp.presale_order_reference = certificate.presale_order_reference)
@@ -99,6 +111,12 @@ export const myShares = api<
         bonusShares: row.bonus_shares ?? undefined,
         issuePricePerShare: row.issue_price_per_share === null ? undefined : Number(row.issue_price_per_share),
         issuePriceCurrency: row.issue_price_currency ?? undefined,
+        verificationId: row.verification_id ?? undefined,
+        holderNameSnapshot: row.holder_name_snapshot ?? undefined,
+        holderAddressSnapshot: row.holder_address_snapshot ?? undefined,
+        profileNumberSnapshot: row.profile_number_snapshot ?? undefined,
+        integrityPayload: row.certificate_payload ?? undefined,
+        integrityHash: row.certificate_payload_sha256 ?? undefined,
       })),
     };
   },
@@ -384,6 +402,42 @@ export const purchaseShares = api<SharePurchaseRequest, SharePurchaseResponse>(
       }
       return failOperation(operation, error, compensationRequired);
     }
+  },
+);
+
+export const verifyShareCertificate = api<
+  { verificationId: string },
+  { verified: true; certificateNumber: string; status: string; issuedAt: string; revokedAt: string | null;
+    totalShares: number; phaseNumber: number | null; distinctiveFrom: number | null; distinctiveTo: number | null;
+    integrityHash: string }
+>(
+  { method: "GET", path: "/shares/certificates/verify/:verificationId", expose: true, auth: false },
+  async (req) => {
+    const verificationId = z.string().uuid().parse(req.verificationId);
+    const row = await sharesDb.rawQueryRow<{
+      certificate_number: string; status: string; issued_at: string; revoked_at: string | null; total_shares: number;
+      phase_number: number | null; distinctive_from: number | null; distinctive_to: number | null;
+      certificate_payload: string; certificate_payload_sha256: string;
+    }>(`SELECT certificate_number,status,issued_at,revoked_at,total_shares,phase_number,distinctive_from,distinctive_to,
+              certificate_payload,certificate_payload_sha256
+         FROM share_certificates WHERE verification_id=$1`, verificationId);
+    if (!row) throw APIError.notFound("Certificate verification reference not found");
+    if (certificatePayloadHash(row.certificate_payload) !== row.certificate_payload_sha256) {
+      throw APIError.failedPrecondition("Certificate integrity verification failed");
+    }
+    const payload = JSON.parse(row.certificate_payload) as Record<string, unknown>;
+    if (payload.certificateNumber !== row.certificate_number || payload.totalShares !== row.total_shares
+      || payload.phaseNumber !== row.phase_number || payload.distinctiveFrom !== row.distinctive_from
+      || payload.distinctiveTo !== row.distinctive_to
+      || typeof payload.issuedAt !== "string"
+      || new Date(payload.issuedAt).getTime() !== new Date(row.issued_at).getTime()) {
+      throw APIError.failedPrecondition("Certificate ledger verification failed");
+    }
+    return {
+      verified: true, certificateNumber: row.certificate_number, status: row.status, issuedAt: row.issued_at,
+      revokedAt: row.revoked_at, totalShares: row.total_shares, phaseNumber: row.phase_number,
+      distinctiveFrom: row.distinctive_from, distinctiveTo: row.distinctive_to, integrityHash: row.certificate_payload_sha256,
+    };
   },
 );
 

@@ -22,6 +22,7 @@ import { POST as logout } from "./auth/logout/route";
 import { GET as portal } from "./portal/route";
 import { POST as progress } from "./progress/route";
 import { POST as openEcosystemAccount } from "./ecosystem-account/route";
+import { POST as recheckPayment } from "./orders/[reference]/payment-recheck/route";
 
 function request(path: string, body: unknown) {
   return new NextRequest(`https://shares.kasihub.net${path}`, {
@@ -144,5 +145,35 @@ describe("KaSiShares applicant BFF routes", () => {
     expect(response.headers.get("set-cookie")).toContain("kasishares_session=");
     expect(response.headers.get("set-cookie")).toContain("Max-Age=0");
     expect(mocks.encoreRequest).toHaveBeenCalledWith("/presale/auth/logout", { method: "POST" }, "presale-token");
+  });
+
+  test("rechecks a stored crypto hash through the authenticated applicant session", async () => {
+    mocks.encoreRequest.mockResolvedValue({
+      orderReference: "KSP-ONE",
+      status: "settled",
+      transactionHash: "0xabc",
+      confirmations: 12,
+      reason: "canonical_transfer_confirmed",
+    });
+    const response = await recheckPayment(
+      new Request("https://shares.kasihub.net/api/presale/orders/KSP-ONE/payment-recheck", { method: "POST" }),
+      { params: Promise.resolve({ reference: "KSP-ONE" }) },
+    );
+    expect(response.status).toBe(200);
+    expect(mocks.encoreRequest).toHaveBeenCalledWith(
+      "/presale/orders/KSP-ONE/payment-recheck",
+      { method: "POST" },
+      "presale-token",
+    );
+  });
+
+  test("does not expose the crypto recheck endpoint without an applicant session", async () => {
+    mocks.presaleSessionToken.mockResolvedValueOnce(undefined);
+    const response = await recheckPayment(
+      new Request("https://shares.kasihub.net/api/presale/orders/KSP-ONE/payment-recheck", { method: "POST" }),
+      { params: Promise.resolve({ reference: "KSP-ONE" }) },
+    );
+    expect(response.status).toBe(401);
+    expect(mocks.encoreRequest).not.toHaveBeenCalled();
   });
 });

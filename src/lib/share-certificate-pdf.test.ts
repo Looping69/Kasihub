@@ -19,12 +19,15 @@ describe("Solidus shareholder certificate", () => {
       issuePriceCurrency: "USD",
       issuedAt: "2026-08-29T08:00:00.000Z",
       status: "issued",
+      verificationId: "57ca0d58-fcdf-4d35-b350-8e040248e63f",
+      integrityHash: "7f".repeat(32),
     });
 
     const document = await PDFDocument.load(bytes);
     expect(document.getPageCount()).toBe(1);
     expect(document.getTitle()).toBe("CERT-TEST-001 - Solidus Holdings Share Certificate");
     expect(document.getAuthor()).toBe("Solidus Holdings (Pty) Ltd");
+    expect(document.getKeywords()).toContain(`integrity-sha256:${"7f".repeat(32)}`);
     const { width, height } = document.getPage(0).getSize();
     expect(width).toBeCloseTo(841.89, 1);
     expect(height).toBeCloseTo(595.28, 1);

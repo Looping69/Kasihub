@@ -3,10 +3,11 @@ import { NextResponse } from "next/server";
 import { EncoreRequestError, encoreRequest, encoreSessionToken } from "@/lib/encore-client";
 import { generateShareCertificatePdf } from "../../../../../lib/share-certificate-pdf";
 import type { Member } from "@/lib/types";
+import { sealedCertificatePdfData, type CertificateIntegrityFields } from "../../../../../lib/share-certificate-integrity";
 
 export const runtime = "nodejs";
 
-type Certificate = {
+type Certificate = CertificateIntegrityFields & {
   certificateNumber: string;
   totalShares: number;
   status: string;
@@ -39,7 +40,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ certifi
     const holderName = member.companyName
       || [member.firstName, member.lastName].filter(Boolean).join(" ")
       || member.profileNumber;
-    const pdf = await generateShareCertificatePdf({
+    const sealed = sealedCertificatePdfData(certificate);
+    const pdf = await generateShareCertificatePdf(sealed ?? {
       certificateNumber: certificate.certificateNumber,
       holderName,
       holderAddress: [member.addressLine, member.city, member.postalCode, member.country].filter(Boolean).join(", "),
