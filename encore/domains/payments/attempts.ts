@@ -3,7 +3,7 @@ import { api, APIError } from "encore.dev/api";
 import { z } from "zod";
 import { paymentsDb } from "../../resources";
 import { requireProfileAccess } from "../auth/access";
-import { normalizeTransactionHash } from "./chains/hash";
+import { normalizeSubmittedTransactionHash } from "./chains/hash";
 import { assertPaymentTransition, type PaymentStatus } from "./state-machine";
 
 export interface SubmitPaymentAttemptRequest {
@@ -65,23 +65,25 @@ export const submitPaymentAttempt = api<
   { method: "POST", path: "/payments/intents/:intentId/attempts", expose: true },
   async (req) => {
     const payload = submitAttemptRequest.parse(req);
-    let transactionHash: string;
-    try {
-      transactionHash = normalizeTransactionHash(payload.transactionHash);
-    } catch {
-      throw APIError.invalidArgument("Transaction hash must represent a 32-byte hexadecimal hash");
-    }
-
     const intent = await paymentsDb.rawQueryRow<{
-      id: string; payer_profile_id: string; status: PaymentStatus; expires_at: string;
+      id: string; payer_profile_id: string; status: PaymentStatus; expires_at: string; network: "tron" | "bsc";
     }>(
-      "SELECT id, payer_profile_id, status, expires_at FROM payment_intents WHERE id = $1",
+      "SELECT id, payer_profile_id, status, expires_at, network FROM payment_intents WHERE id = $1",
       req.intentId,
     );
     if (!intent) throw APIError.notFound("Payment intent not found");
     await requireProfileAccess(intent.payer_profile_id);
     if (intent.payer_profile_id !== payload.profileId) {
       throw APIError.permissionDenied("Payment intent does not belong to this profile");
+    }
+
+    let transactionHash: string;
+    try {
+      transactionHash = normalizeSubmittedTransactionHash(intent.network, payload.transactionHash);
+    } catch {
+      throw APIError.invalidArgument(intent.network === "bsc"
+        ? "BSC transaction hash must be 0x followed by exactly 64 hexadecimal characters"
+        : "TRON transaction hash must contain exactly 64 hexadecimal characters");
     }
 
     const existing = await findAttemptByHash(transactionHash);

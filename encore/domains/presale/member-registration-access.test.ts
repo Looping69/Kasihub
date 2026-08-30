@@ -7,7 +7,7 @@ const apiPath = fileURLToPath(new URL("./api.ts", import.meta.url));
 
 describe("existing member shareholder registration", () => {
   test("authenticates before granting the isolated presale role and does not require a duplicate account", () => {
-    const source = readFileSync(apiPath, "utf8");
+    const source = readFileSync(apiPath, "utf8").replace(/\r\n/g, "\n");
     const start = source.indexOf("export const registerPresaleMember");
     const end = source.indexOf("export const loginPresaleApplicant", start);
     const registration = source.slice(start, end);
@@ -22,7 +22,7 @@ describe("existing member shareholder registration", () => {
   });
 
   test("targets the partial account-email delivery index created by migration 12", () => {
-    const source = readFileSync(apiPath, "utf8");
+    const source = readFileSync(apiPath, "utf8").replace(/\r\n/g, "\n");
     const start = source.indexOf("export const registerPresaleMember");
     const end = source.indexOf("export const loginPresaleApplicant", start);
     const registration = source.slice(start, end);
@@ -32,7 +32,7 @@ describe("existing member shareholder registration", () => {
   });
 
   test("keeps SWIFT/BIC optional while validating a supplied code", () => {
-    const source = readFileSync(apiPath, "utf8");
+    const source = readFileSync(apiPath, "utf8").replace(/\r\n/g, "\n");
     expect(source).toContain("bankSwift: z.string().trim().min(8).max(20).optional()");
   });
 });

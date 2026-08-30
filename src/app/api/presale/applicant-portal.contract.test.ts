@@ -46,10 +46,26 @@ describe("isolated KaSiShares applicant portal", () => {
     expect(presale).toContain("Exchange withdrawal fees and network fees are additional");
     expect(presale).toContain("Do not send BNB or another token");
     expect(presale).toContain("Do not send funds after this deadline");
-    expect(presale).toContain("dateTime={order.paymentDeadline}");
+    expect(presale).toContain("dateTime={reservation.paymentDeadline}");
     expect(verifier).toContain('decision: "underpaid"');
     expect(verifier).toContain('decision: "manual_review"');
     expect(verifier).toContain('decision: "confirmed"');
+  });
+
+  test("uses the server journey and reservation contracts as the only browser action authority", () => {
+    const presale = source("src/app/presale/presale-client.tsx");
+    const account = source("src/app/shares/account/shares-account-client.tsx");
+    const boundary = source("src/lib/applicant-portal-contract.ts");
+    for (const client of [presale, account]) {
+      expect(client).toContain("allowsApplicantAction");
+      expect(client).toContain("readApplicantAuthority");
+      expect(client).not.toContain("window.confirm");
+      expect(client).not.toMatch(/order\.status\s*===/);
+    }
+    expect(presale).not.toContain("webPayUnitPriceZar ?? 450");
+    expect(presale).not.toContain("Phase 1 shares at $25 each");
+    expect(boundary).toContain('reason: "applicant_contract_unavailable"');
+    expect(boundary).toContain('allowedActions: ["contact_support"]');
   });
 
   test("requires scoped presale sessions while allowing authenticated member reuse", () => {
@@ -114,6 +130,12 @@ describe("isolated KaSiShares applicant portal", () => {
     expect(presale).toContain("setApplicationPhase(4)");
   });
 
+  test("does not rehydrate and remount the live form after creating its applicant profile", () => {
+    const presale = source("src/app/presale/presale-client.tsx");
+    expect(presale).toContain("portalHydratedRef.current = true;\n    await loadApplicantPortal();");
+    expect(presale).toContain("polling must not overwrite values the applicant is actively editing");
+  });
+
   test("persists and restores the encrypted applicant form draft", () => {
     const presale = source("src/app/presale/presale-client.tsx");
     const api = source("encore/domains/presale/api.ts");
@@ -146,7 +168,7 @@ describe("isolated KaSiShares applicant portal", () => {
     const account = source("src/app/shares/account/shares-account-client.tsx");
     const api = source("encore/domains/presale/api.ts");
     expect(presale).toContain("verified: portal.kyc.verified");
-    expect(presale).toContain("setVerificationStarted(portal.kyc.verified");
+    expect(presale).toContain('if (portal.kyc.verified || portal.kyc.status.toLowerCase() !== "pending") setVerificationStarted(true)');
     expect(api).toContain("normalizePresaleApplicationDraft");
     expect(api).toContain('assign("buyerPhone", source.mobileNumber)');
     expect(api).toContain("restoredDraft.buyerEmail ??= session.user.email");
@@ -189,7 +211,8 @@ describe("isolated KaSiShares applicant portal", () => {
     const route = source("src/app/api/presale/orders/[reference]/cancel/route.ts");
     expect(api).toContain('path: "/presale/orders/:orderReference/cancel"');
     expect(api).toContain("acknowledgeNoPaymentSent !== true");
-    expect(api).toContain('target.status !== "awaiting_payment"');
+    expect(api).toContain("deriveReservationCancellationPolicy");
+    expect(api).toContain("Only an unpaid reservation with no payment activity can be cancelled");
     expect(api).toContain("reserved_shares = reserved_shares - $2");
     expect(api).toContain("used_shares = used_shares - $2");
     expect(route).toContain("presaleSessionToken");
