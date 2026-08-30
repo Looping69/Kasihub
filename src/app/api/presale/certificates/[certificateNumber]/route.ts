@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { EncoreRequestError, encoreRequest, presaleSessionToken } from "@/lib/encore-client";
 import { generateShareCertificatePdf } from "../../../../../lib/share-certificate-pdf";
+import { sealedCertificatePdfData, type CertificateIntegrityFields } from "../../../../../lib/share-certificate-integrity";
 
 export const runtime = "nodejs";
 
@@ -11,8 +12,9 @@ type Portal = {
     holdings: Array<{
       orderReference: string; campaignName: string; paidShares: number; bonusShares: number;
       issuePricePerShare?: number; issuePriceCurrency?: string;
-      certificate?: { certificateNumber: string; totalShares: number; status: string; issuedAt: string;
-        distinctiveFrom?: number; distinctiveTo?: number };
+      certificate?: CertificateIntegrityFields & { certificateNumber: string; totalShares: number; status: string; issuedAt: string;
+        distinctiveFrom?: number; distinctiveTo?: number; paidShares?: number; bonusShares?: number;
+        issuePricePerShareSnapshot?: number; issuePriceCurrencySnapshot?: string };
     }>;
   };
 };
@@ -26,7 +28,14 @@ export async function GET(_req: Request, { params }: { params: Promise<{ certifi
     const holding = portal.shareholder.holdings.find((item) => item.certificate?.certificateNumber === certificateNumber);
     if (!holding?.certificate) return NextResponse.json({ error: "Certificate not found" }, { status: 404 });
     const certificate = holding.certificate;
-    const pdf = await generateShareCertificatePdf({
+    const sealed = sealedCertificatePdfData({
+      ...certificate,
+      paidShares: certificate.paidShares ?? holding.paidShares,
+      bonusShares: certificate.bonusShares ?? holding.bonusShares,
+      issuePricePerShare: certificate.issuePricePerShareSnapshot ?? holding.issuePricePerShare,
+      issuePriceCurrency: certificate.issuePriceCurrencySnapshot ?? holding.issuePriceCurrency,
+    });
+    const pdf = await generateShareCertificatePdf(sealed ? { ...sealed, campaignName: holding.campaignName } : {
       certificateNumber: certificate.certificateNumber,
       holderName: portal.applicant.legalName || portal.applicant.profileNumber,
       holderAddress: portal.applicant.physicalAddress,

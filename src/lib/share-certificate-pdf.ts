@@ -19,6 +19,8 @@ export type ShareCertificatePdfData = {
   distinctiveTo?: number;
   issuePricePerShare?: number;
   issuePriceCurrency?: string;
+  verificationId?: string;
+  integrityHash?: string;
 };
 
 const TEMPLATE_PATH = path.join(process.cwd(), "public", "certificate-templates", "solidus-shareholder-certificate.pdf");
@@ -84,6 +86,8 @@ export async function generateShareCertificatePdf(data: ShareCertificatePdfData)
   if (data.issuePricePerShare !== undefined && (!Number.isFinite(data.issuePricePerShare) || data.issuePricePerShare < 0)) {
     throw new Error("invalid_issue_price");
   }
+  if ((data.verificationId === undefined) !== (data.integrityHash === undefined)) throw new Error("incomplete_certificate_integrity");
+  if (data.integrityHash !== undefined && !/^[0-9a-f]{64}$/.test(data.integrityHash)) throw new Error("invalid_certificate_integrity_hash");
   const issuedDate = new Date(data.issuedAt);
   if (Number.isNaN(issuedDate.getTime())) throw new Error("invalid_issue_date");
 
@@ -94,9 +98,9 @@ export async function generateShareCertificatePdf(data: ShareCertificatePdfData)
   const italic = await pdf.embedFont(StandardFonts.HelveticaOblique);
   const issueLabel = new Intl.DateTimeFormat("en-ZA", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "UTC" }).format(issuedDate);
   const issueLongLabel = new Intl.DateTimeFormat("en-ZA", { day: "2-digit", month: "long", year: "numeric", timeZone: "UTC" }).format(issuedDate);
-  const validationCode = createHash("sha256")
+  const validationCode = (data.integrityHash ?? createHash("sha256")
     .update([data.certificateNumber, data.profileNumber, data.totalShares, issuedDate.toISOString()].join("|"))
-    .digest("hex")
+    .digest("hex"))
     .slice(0, 16)
     .toUpperCase();
   const revoked = data.status.toLowerCase() === "revoked";
@@ -120,6 +124,17 @@ export async function generateShareCertificatePdf(data: ShareCertificatePdfData)
   centeredInBox(page, data.certificateNumber, 603, 86, 165, bold, 7);
   centeredInBox(page, data.totalShares.toLocaleString("en-ZA"), 689, 87, 165, bold, 10);
 
+  if (data.paidShares !== undefined && data.bonusShares !== undefined) {
+    page.drawText(`ALLOCATION: ${data.paidShares.toLocaleString("en-ZA")} PAID + ${data.bonusShares.toLocaleString("en-ZA")} BONUS`, {
+      x: 105, y: 124, size: 6.5, font: bold, color: NAVY,
+    });
+  }
+  if (data.verificationId) {
+    const verificationUrl = `shares.kasihub.net/api/shares/certificates/verify/${data.verificationId}`;
+    const fitted = fitText(`VERIFY: ${verificationUrl}`, regular, 6.5, 480, 5);
+    page.drawText(fitted.value, { x: 105, y: 114, size: fitted.size, font: regular, color: NAVY });
+  }
+
   page.drawRectangle({ x: 95, y: 91, width: 550, height: 24, color: WHITE });
   page.drawText(`Given on behalf of the company electronically on ${issueLongLabel}.`, { x: 105, y: 100, size: 8.5, font: regular, color: NAVY });
 
@@ -140,7 +155,8 @@ export async function generateShareCertificatePdf(data: ShareCertificatePdfData)
   pdf.setSubject(`Class B non-voting share certificate for profile ${data.profileNumber}`);
   pdf.setCreator("KaSiHUB Share Register");
   pdf.setProducer("KaSiHUB Share Register using approved Solidus certificate template");
-  pdf.setKeywords(["Solidus Holdings", "Class B", "non-voting share", `validation:${validationCode}`]);
+  pdf.setKeywords(["Solidus Holdings", "Class B", "non-voting share", `validation:${validationCode}`,
+    ...(data.integrityHash ? [`integrity-sha256:${data.integrityHash}`] : [])]);
   pdf.setCreationDate(issuedDate);
   pdf.setModificationDate(issuedDate);
   return pdf.save();

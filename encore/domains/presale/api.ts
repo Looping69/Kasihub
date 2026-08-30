@@ -5,7 +5,7 @@ import { CronJob } from "encore.dev/cron";
 import * as log from "encore.dev/log";
 import { createCipheriv, createDecipheriv, createHash as createNodeHash, randomBytes } from "node:crypto";
 import { z } from "zod";
-import { identityDb, kycDb, membershipDb, presaleDb, sharesDb } from "../../resources";
+import { identityDb, kycDb, membershipDb, paymentsDb, presaleDb, sharesDb } from "../../resources";
 import { hashSessionToken, requestHeader, requirePresaleSession } from "../auth/access";
 import { requireAdminAccess } from "../auth/access";
 import { hashPassword, verifyPassword } from "../auth/password";
@@ -15,7 +15,7 @@ import { submitPaymentAttempt } from "../payments/attempts";
 import { createPaymentIntent, type PaymentIntentResponse } from "../payments/intents";
 import { cancelPaymentObligation, createPaymentObligation } from "../payments/obligations";
 import { resolveActiveReceivingConfiguration } from "../payments/registry";
-import { verifyAndSettlePaymentAttempt } from "../payments/verification";
+import { verifyAndSettlePaymentAttempt, type SettledPaymentResult } from "../payments/verification";
 import {
   hashSecret,
   normalizeEmail,
@@ -33,6 +33,7 @@ import { resolveWebPayUnitPrice, WEBPAY_UNIT_PRICE_ZAR, verifyWebPayChecksum, ve
 import { buildShareholderPortfolio, type PresaleCertificate, type PresalePaidOrder } from "./shareholder-portfolio";
 import { internationalCellphoneSchema, physicalAddressLine, strongPasswordSchema } from "./applicant-validation";
 import { solidusCertificateNumber } from "../shares/certificate-numbering";
+import { sealPresaleCertificate } from "../shares/certificate-integrity";
 
 const PresaleWebhookSecret = secret("PresaleWebhookSecret");
 const InvestorApplicationEncryptionKey = secret("InvestorApplicationEncryptionKey");
@@ -274,7 +275,7 @@ async function retryPresaleEmailDelivery(delivery: RetryableEmailDelivery): Prom
   });
 }
 
-function encryptInvestorApplication(value: unknown): { ciphertext: Buffer; nonce: Buffer; authTag: Buffer } {
+export function encryptInvestorApplication(value: unknown): { ciphertext: Buffer; nonce: Buffer; authTag: Buffer } {
   const key = createNodeHash("sha256").update(InvestorApplicationEncryptionKey()).digest();
   const nonce = randomBytes(12);
   const cipher = createCipheriv("aes-256-gcm", key, nonce);
@@ -849,9 +850,13 @@ async function fulfilWebPayPresalePayment(orderReference: string, providerRefere
 export async function incorporateConfirmedPresaleOrder(orderReference: string): Promise<{ incorporated: boolean; purchaseId: string }> {
   const order = await presaleDb.rawQueryRow<{
     id: string; order_reference: string; external_profile_id: string | null; quantity: number; total_usd: string;
+    buyer_name: string; unit_price_usd: string; investor_application_ciphertext: DatabaseBinary | null;
+    investor_application_nonce: DatabaseBinary | null; investor_application_auth_tag: DatabaseBinary | null;
     status: string; incorporation_status: string; bonus_buy_one_get_one: boolean; share_phase_number: number;
     target_purchase_id: string | null;
   }>(`SELECT o.id,o.order_reference,o.external_profile_id,o.quantity,o.total_usd::text AS total_usd,
+             o.buyer_name,o.unit_price_usd::text AS unit_price_usd,o.investor_application_ciphertext,
+             o.investor_application_nonce,o.investor_application_auth_tag,
              o.status,o.incorporation_status,o.target_purchase_id,c.bonus_buy_one_get_one,c.share_phase_number
         FROM presale_orders o JOIN presale_campaigns c ON c.id=o.campaign_id
        WHERE o.order_reference=$1`, orderReference);
@@ -865,6 +870,7 @@ export async function incorporateConfirmedPresaleOrder(orderReference: string): 
   if (!order.external_profile_id) throw APIError.failedPrecondition(`Order ${order.order_reference} has no authenticated member profile`);
 
   const issuedQuantity = issuedSharesForPresale(order.quantity, order.bonus_buy_one_get_one);
+  const holder = await certificateHolderSnapshot(order);
   const shareTx = await sharesDb.begin();
   let purchaseId: string;
   let incorporated = false;
@@ -896,12 +902,22 @@ export async function incorporateConfirmedPresaleOrder(orderReference: string): 
         RETURNING next_certificate_number - 1 AS sequence`, order.share_phase_number);
       if (!certificateSequence) throw new Error("share_certificate_sequence_not_created");
       const certificateNumber = solidusCertificateNumber(order.share_phase_number, certificateSequence.sequence);
+      const issuedAt = new Date().toISOString();
+      const verificationId = crypto.randomUUID();
+      const seal = sealPresaleCertificate({
+        verificationId, certificateNumber, ...holder, orderReference: order.order_reference,
+        totalShares: issuedQuantity, paidShares: order.quantity, bonusShares: issuedQuantity - order.quantity,
+        phaseNumber: order.share_phase_number, distinctiveFrom: lot.distinctive_from, distinctiveTo: lot.distinctive_to, issuedAt,
+      });
       await shareTx.rawExec(`INSERT INTO share_certificates
         (id,profile_id,certificate_number,total_shares,status,issued_at,presale_order_reference,source,
-         phase_number,distinctive_from,distinctive_to,paid_shares,bonus_shares)
-        VALUES ($1,$2,$3,$4,'issued',now(),$5,'presale',$6,$7,$8,$9,$10)`, certificateId, order.external_profile_id,
-      certificateNumber, issuedQuantity, order.order_reference, order.share_phase_number, lot.distinctive_from,
-      lot.distinctive_to, order.quantity, issuedQuantity - order.quantity);
+         phase_number,distinctive_from,distinctive_to,paid_shares,bonus_shares,verification_id,snapshot_version,
+         holder_name_snapshot,holder_address_snapshot,profile_number_snapshot,issue_price_per_share_snapshot,
+         issue_price_currency_snapshot,certificate_payload,certificate_payload_sha256)
+        VALUES ($1,$2,$3,$4,'issued',$5,$6,'presale',$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::numeric,$18,$19,$20)`, certificateId, order.external_profile_id,
+      certificateNumber, issuedQuantity, issuedAt, order.order_reference, order.share_phase_number, lot.distinctive_from,
+      lot.distinctive_to, order.quantity, issuedQuantity - order.quantity, verificationId, seal.data.version,
+      holder.holderName, holder.holderAddress, holder.profileNumber, holder.issuePricePerShare, "USD", seal.payload, seal.sha256);
       await shareTx.rawExec(`INSERT INTO share_purchases
         (id,profile_id,phase_id,quantity,bonus_quantity,total_amount,status,certificate_id,presale_order_reference,source)
         VALUES ($1,$2,$3,$4,$5,$6::numeric,'paid',$7,$8,'presale')`, purchaseId, order.external_profile_id, phase.id,
@@ -1021,6 +1037,36 @@ function decryptPresaleApplicationDraft(ciphertext: DatabaseBinary, nonce: Datab
   return normalizePresaleApplicationDraft(decoded);
 }
 
+type CertificateOrderSnapshotSource = {
+  order_reference: string;
+  external_profile_id: string | null;
+  buyer_name: string;
+  unit_price_usd: string;
+  investor_application_ciphertext: DatabaseBinary | null;
+  investor_application_nonce: DatabaseBinary | null;
+  investor_application_auth_tag: DatabaseBinary | null;
+};
+
+async function certificateHolderSnapshot(order: CertificateOrderSnapshotSource) {
+  if (!order.external_profile_id) throw APIError.failedPrecondition(`Order ${order.order_reference} has no authenticated member profile`);
+  if (!order.investor_application_ciphertext || !order.investor_application_nonce || !order.investor_application_auth_tag) {
+    throw APIError.failedPrecondition(`Order ${order.order_reference} has no sealed investor application`);
+  }
+  const profile = await identityDb.rawQueryRow<{ profile_number: string }>(
+    "SELECT unique_profile_number AS profile_number FROM profiles WHERE id=$1",
+    order.external_profile_id,
+  );
+  if (!profile?.profile_number?.trim()) throw APIError.failedPrecondition(`Order ${order.order_reference} has no shareholder profile number`);
+  const application = decryptPresaleApplicationDraft(order.investor_application_ciphertext, order.investor_application_nonce, order.investor_application_auth_tag);
+  const part = (name: string) => typeof application[name] === "string" ? application[name].trim() : "";
+  const address = [part("streetAddress"), part("suburb"), part("city"), part("postalCode"), part("countryOfResidence")]
+    .filter(Boolean).join(", ") || part("physicalAddress");
+  if (!order.buyer_name.trim() || !address) {
+    throw APIError.failedPrecondition(`Order ${order.order_reference} does not contain a complete certificate holder snapshot`);
+  }
+  return { holderName: order.buyer_name.trim(), holderAddress: address, profileNumber: profile.profile_number.trim(), issuePricePerShare: order.unit_price_usd };
+}
+
 interface RegisterPresaleMemberRequest {
   inviteToken: string;
   email: string;
@@ -1044,7 +1090,13 @@ interface PresalePortalResponse {
     draft: Record<string, string | boolean> | null;
   };
   kyc: { status: string; verified: boolean };
-  order: null | { orderReference: string; status: string; incorporationStatus: string; paymentRail: PresalePaymentRail; webPayProcessStatus?: string; webPayProcessStage?: string };
+  order: null | {
+    orderReference: string; status: string; incorporationStatus: string; paymentRail: PresalePaymentRail;
+    quantity: number; totalUsdt: string; paymentNetwork?: string; paymentMinConfirmations?: number;
+    transactionHash?: string; paymentVerificationStatus?: string; paymentVerificationReason?: string;
+    paymentVerificationCheckedAt?: string; paymentConfirmations?: number;
+    webPayProcessStatus?: string; webPayProcessStage?: string;
+  };
   shareholder: {
     totalIssuedShares: number;
     holdings: Array<{
@@ -1052,7 +1104,9 @@ interface PresalePortalResponse {
       issuePricePerShare?: number; issuePriceCurrency?: string;
       status: "awaiting_issuance" | "issued" | "revoked" | "issuance_error"; incorporationStatus: string;
       certificate?: { certificateNumber: string; totalShares: number; status: string; issuedAt: string; revokedAt?: string;
-        phaseNumber?: number; distinctiveFrom?: number; distinctiveTo?: number; paidShares?: number; bonusShares?: number };
+        phaseNumber?: number; distinctiveFrom?: number; distinctiveTo?: number; paidShares?: number; bonusShares?: number;
+        verificationId?: string; holderNameSnapshot?: string; holderAddressSnapshot?: string; profileNumberSnapshot?: string;
+        issuePricePerShareSnapshot?: number; issuePriceCurrencySnapshot?: string; integrityPayload?: string; integrityHash?: string };
     }>;
   };
   ecosystemMembership: {
@@ -1323,17 +1377,34 @@ export const presaleApplicantPortal = api<void, PresalePortalResponse>(
     const order = await presaleDb.rawQueryRow<{
       order_reference: string; status: string; incorporation_status: string;
       buyer_name: string; buyer_email: string; buyer_phone: string | null; quantity: number; payment_rail: PresalePaymentRail;
+      total_usdt: string; payment_intent_id: string | null; payment_network: string | null;
+      payment_min_confirmations: number | null; payment_transaction_hash: string | null; payment_confirmations: number | null;
       webpay_process_status: string | null; webpay_process_stage: string | null;
       investor_application_ciphertext: DatabaseBinary | null; investor_application_nonce: DatabaseBinary | null;
       investor_application_auth_tag: DatabaseBinary | null;
     }>(
       `SELECT order_reference, status, incorporation_status, buyer_name, buyer_email, buyer_phone, quantity, payment_rail,
+              total_usdt::text AS total_usdt, payment_intent_id, payment_network, payment_min_confirmations,
+              payment_transaction_hash, payment_confirmations,
               webpay_process_status, webpay_process_stage,
               investor_application_ciphertext, investor_application_nonce, investor_application_auth_tag
        FROM presale_orders
        WHERE external_profile_id = $1 ORDER BY created_at DESC LIMIT 1`,
       session.profile.id,
     );
+    const paymentAttempt = order?.payment_intent_id
+      ? await paymentsDb.rawQueryRow<{
+          transaction_hash: string; verification_status: string; verification_error_code: string | null;
+          verified_at: string | null; confirmations: number | null;
+        }>(
+          `SELECT transaction_hash, verification_status, verification_error_code, verified_at, confirmations
+             FROM payment_attempts
+            WHERE payment_intent_id = $1
+            ORDER BY created_at DESC
+            LIMIT 1`,
+          order.payment_intent_id,
+        )
+      : null;
     const paidOrders = await presaleDb.rawQueryAll<PresalePaidOrder>(
       `SELECT o.order_reference, c.name AS campaign_name, o.quantity, o.total_usd::text AS total_usd, c.bonus_buy_one_get_one,
               o.status, o.incorporation_status
@@ -1344,7 +1415,9 @@ export const presaleApplicantPortal = api<void, PresalePortalResponse>(
     );
     const certificates = await sharesDb.rawQueryAll<PresaleCertificate>(
       `SELECT certificate_number, total_shares, status, issued_at, revoked_at, presale_order_reference,
-              phase_number, distinctive_from, distinctive_to, paid_shares, bonus_shares
+              phase_number, distinctive_from, distinctive_to, paid_shares, bonus_shares, verification_id,
+              holder_name_snapshot,holder_address_snapshot,profile_number_snapshot,issue_price_per_share_snapshot::text,
+              issue_price_currency_snapshot,certificate_payload,certificate_payload_sha256
        FROM share_certificates
        WHERE profile_id = $1 AND source = 'presale' AND presale_order_reference IS NOT NULL
        ORDER BY issued_at DESC`,
@@ -1404,7 +1477,14 @@ export const presaleApplicantPortal = api<void, PresalePortalResponse>(
       } : null,
       kyc: { status: kyc?.status ?? "pending", verified: kyc?.status === "approved" },
       order: order ? { orderReference: order.order_reference, status: order.status, incorporationStatus: order.incorporation_status,
-        paymentRail: order.payment_rail, webPayProcessStatus: order.webpay_process_status ?? undefined,
+        paymentRail: order.payment_rail, quantity: order.quantity, totalUsdt: order.total_usdt,
+        paymentNetwork: order.payment_network ?? undefined, paymentMinConfirmations: order.payment_min_confirmations ?? undefined,
+        transactionHash: order.payment_transaction_hash ?? paymentAttempt?.transaction_hash ?? undefined,
+        paymentVerificationStatus: paymentAttempt?.verification_status,
+        paymentVerificationReason: paymentAttempt?.verification_error_code ?? undefined,
+        paymentVerificationCheckedAt: paymentAttempt?.verified_at ?? undefined,
+        paymentConfirmations: order.payment_confirmations ?? paymentAttempt?.confirmations ?? undefined,
+        webPayProcessStatus: order.webpay_process_status ?? undefined,
         webPayProcessStage: order.webpay_process_stage ?? undefined } : null,
       shareholder,
       ecosystemMembership: {
@@ -2003,7 +2083,49 @@ export const createPresaleWebPayCheckout = api<
   return { actionUrl, fields };
 });
 
-export const submitPresalePaymentProof = api<PresalePaymentProofRequest, { orderReference: string; status: string; transactionHash: string }>(
+type PresalePaymentReconciliation = {
+  orderReference: string;
+  status: string;
+  transactionHash: string;
+  confirmations: number;
+  reason: string;
+};
+
+async function applyPresalePaymentVerification(
+  orderReference: string,
+  orderId: string,
+  verification: SettledPaymentResult,
+): Promise<PresalePaymentReconciliation> {
+  if (verification.subjectType !== "presale_order" || verification.subjectReference !== orderReference) {
+    throw APIError.failedPrecondition("Payment subject does not match this presale order");
+  }
+  if (verification.status === "settled") {
+    await fulfilSettledPresalePayment(orderReference, verification.paymentIntentId, verification.transactionHash, verification.confirmations);
+  } else if (verification.status === "rejected") {
+    await cancelPaymentObligation({ obligationId: verification.obligationId, reason: `Rejected chain evidence for ${orderReference}` });
+    await rejectPresalePayment(orderReference, verification.paymentIntentId);
+  } else if (["pending_confirmations", "underpaid", "manual_review"].includes(verification.status)) {
+    await presaleDb.rawExec("UPDATE presale_orders SET status = 'payment_detected', updated_at = now() WHERE id = $1", orderId);
+  }
+  return {
+    orderReference,
+    status: verification.status,
+    transactionHash: verification.transactionHash,
+    confirmations: verification.confirmations,
+    reason: verification.reason,
+  };
+}
+
+async function reconcilePresalePaymentAttempt(input: {
+  orderReference: string;
+  orderId: string;
+  attemptId: string;
+}): Promise<PresalePaymentReconciliation> {
+  const verification = await verifyAndSettlePaymentAttempt(input.attemptId);
+  return applyPresalePaymentVerification(input.orderReference, input.orderId, verification);
+}
+
+export const submitPresalePaymentProof = api<PresalePaymentProofRequest, PresalePaymentReconciliation>(
   { method: "POST", path: "/presale/orders/:orderReference/payment-proof", expose: true },
   async (request) => {
     const payload = proofInput.parse(request);
@@ -2022,19 +2144,35 @@ export const submitPresalePaymentProof = api<PresalePaymentProofRequest, { order
     });
     await presaleDb.rawExec(`UPDATE presale_orders SET status = CASE WHEN status = 'awaiting_payment' THEN 'payment_submitted' ELSE status END,
       updated_at = now() WHERE id = $1`, order.id);
-    const verification = await verifyAndSettlePaymentAttempt(attempt.id);
-    if (verification.status === "settled") {
-      if (verification.subjectType !== "presale_order" || verification.subjectReference !== payload.orderReference) {
-        throw APIError.failedPrecondition("Settled payment subject does not match this presale order");
-      }
-      await fulfilSettledPresalePayment(payload.orderReference, verification.paymentIntentId, verification.transactionHash, verification.confirmations);
-    } else if (verification.status === "rejected") {
-      await cancelPaymentObligation({ obligationId: verification.obligationId, reason: `Rejected chain evidence for ${payload.orderReference}` });
-      await rejectPresalePayment(payload.orderReference, verification.paymentIntentId);
-    } else if (["pending_confirmations", "underpaid", "manual_review"].includes(verification.status)) {
-      await presaleDb.rawExec("UPDATE presale_orders SET status = 'payment_detected', updated_at = now() WHERE id = $1", order.id);
+    return reconcilePresalePaymentAttempt({ orderReference: payload.orderReference, orderId: order.id, attemptId: attempt.id });
+  },
+);
+
+export const recheckPresalePayment = api<{ orderReference: string }, PresalePaymentReconciliation>(
+  { method: "POST", path: "/presale/orders/:orderReference/payment-recheck", expose: true },
+  async ({ orderReference }) => {
+    const session = await requirePresaleSession();
+    const order = await presaleDb.rawQueryRow<{
+      id: string; status: string; payment_rail: PresalePaymentRail; payment_intent_id: string | null;
+    }>(
+      `SELECT id, status, payment_rail, payment_intent_id
+         FROM presale_orders
+        WHERE order_reference = $1 AND external_profile_id::text = $2::text`,
+      orderReference,
+      session.profile.id,
+    );
+    if (!order) throw APIError.notFound("Reservation not found");
+    if (order.payment_rail !== "remitano_usdt") throw APIError.failedPrecondition("This reservation is not a crypto payment");
+    if (!["payment_submitted", "payment_detected", "confirmed", "incorporated"].includes(order.status)) {
+      throw APIError.failedPrecondition("Submit a transaction hash before requesting payment verification");
     }
-    return { orderReference: payload.orderReference, status: verification.status, transactionHash: attempt.transactionHash };
+    if (!order.payment_intent_id) throw APIError.failedPrecondition("This reservation does not have a payment intent");
+    const attempt = await paymentsDb.rawQueryRow<{ id: string }>(
+      `SELECT id FROM payment_attempts WHERE payment_intent_id = $1 ORDER BY created_at DESC LIMIT 1`,
+      order.payment_intent_id,
+    );
+    if (!attempt) throw APIError.failedPrecondition("No transaction hash has been submitted for this reservation");
+    return reconcilePresalePaymentAttempt({ orderReference, orderId: order.id, attemptId: attempt.id });
   },
 );
 
@@ -2047,7 +2185,36 @@ export const receivePresalePaymentEvent = api<PresalePaymentEventRequest, { acce
     await presaleDb.rawExec(`INSERT INTO presale_payment_events (provider, provider_event_id, tx_hash, payload, outcome)
       VALUES ($1,$2,$3,$4::jsonb,'ignored_requires_chain_verification') ON CONFLICT (provider, provider_event_id) DO NOTHING`,
       event.provider, event.eventId, event.txHash.toLowerCase(), JSON.stringify(event));
-    return { accepted: true, outcome: "ignored_requires_chain_verification", orderReference: event.orderReference };
+    if (!event.orderReference) {
+      return { accepted: true, outcome: "recorded_without_order_reference" };
+    }
+    const order = await presaleDb.rawQueryRow<{ id: string; status: string; payment_intent_id: string | null }>(
+      `SELECT id, status, payment_intent_id FROM presale_orders WHERE order_reference = $1`,
+      event.orderReference,
+    );
+    if (!order?.payment_intent_id || !["payment_submitted", "payment_detected", "confirmed", "incorporated"].includes(order.status)) {
+      return { accepted: true, outcome: "recorded_without_reconcilable_order", orderReference: event.orderReference };
+    }
+    const attempt = await paymentsDb.rawQueryRow<{ id: string; transaction_hash: string }>(
+      `SELECT id, transaction_hash FROM payment_attempts WHERE payment_intent_id = $1 ORDER BY created_at DESC LIMIT 1`,
+      order.payment_intent_id,
+    );
+    if (!attempt || attempt.transaction_hash.trim().toLowerCase() !== event.txHash.trim().toLowerCase()) {
+      return { accepted: true, outcome: "recorded_hash_not_previously_submitted", orderReference: event.orderReference };
+    }
+    const verification = await reconcilePresalePaymentAttempt({
+      orderReference: event.orderReference,
+      orderId: order.id,
+      attemptId: attempt.id,
+    });
+    const outcome = `canonical_${verification.status}`;
+    await presaleDb.rawExec(
+      `UPDATE presale_payment_events SET outcome = $3 WHERE provider = $1 AND provider_event_id = $2`,
+      event.provider,
+      event.eventId,
+      outcome,
+    );
+    return { accepted: true, outcome, orderReference: event.orderReference };
   },
 );
 
@@ -2363,8 +2530,12 @@ export const applyPresaleIncorporation = api<
   if (batch.status === "cancelled") throw APIError.failedPrecondition("This incorporation batch is cancelled");
   const orders = await presaleDb.rawQueryAll<{
     id: string; order_reference: string; external_profile_id: string | null; quantity: number; total_usd: string;
+    buyer_name: string; unit_price_usd: string; investor_application_ciphertext: DatabaseBinary | null;
+    investor_application_nonce: DatabaseBinary | null; investor_application_auth_tag: DatabaseBinary | null;
     bonus_buy_one_get_one: boolean; share_phase_number: number;
   }>(`SELECT o.id, o.order_reference, o.external_profile_id, o.quantity, o.total_usd::text AS total_usd,
+       o.buyer_name,o.unit_price_usd::text AS unit_price_usd,o.investor_application_ciphertext,
+       o.investor_application_nonce,o.investor_application_auth_tag,
        c.bonus_buy_one_get_one, c.share_phase_number
       FROM presale_orders o JOIN presale_campaigns c ON c.id = o.campaign_id
      WHERE o.incorporation_batch_id = $1 AND o.incorporation_status = 'batched' AND o.status = 'confirmed'
@@ -2374,6 +2545,7 @@ export const applyPresaleIncorporation = api<
   for (const order of orders) {
     if (!order.external_profile_id) throw APIError.failedPrecondition(`Order ${order.order_reference} has no authenticated member profile`);
     const issuedQuantity = issuedSharesForPresale(order.quantity, order.bonus_buy_one_get_one);
+    const holder = await certificateHolderSnapshot(order);
     const shareTx = await sharesDb.begin();
     try {
       const existing = await shareTx.rawQueryRow<{ id: string }>("SELECT id FROM share_purchases WHERE presale_order_reference = $1 FOR UPDATE", order.order_reference);
@@ -2404,12 +2576,22 @@ export const applyPresaleIncorporation = api<
           RETURNING next_certificate_number - 1 AS sequence`, order.share_phase_number);
         if (!certificateSequence) throw new Error("share_certificate_sequence_not_created");
         const certificateNumber = solidusCertificateNumber(order.share_phase_number, certificateSequence.sequence);
+        const issuedAt = new Date().toISOString();
+        const verificationId = crypto.randomUUID();
+        const seal = sealPresaleCertificate({
+          verificationId, certificateNumber, ...holder, orderReference: order.order_reference,
+          totalShares: issuedQuantity, paidShares: order.quantity, bonusShares: issuedQuantity - order.quantity,
+          phaseNumber: order.share_phase_number, distinctiveFrom: lot.distinctive_from, distinctiveTo: lot.distinctive_to, issuedAt,
+        });
         await shareTx.rawExec(`INSERT INTO share_certificates
           (profile_id, certificate_number, total_shares, status, issued_at, presale_order_reference, source,
-           phase_number,distinctive_from,distinctive_to,paid_shares,bonus_shares)
-          VALUES ($1,$2,$3,'issued',now(),$4,'presale',$5,$6,$7,$8,$9)`, order.external_profile_id,
-          certificateNumber, issuedQuantity, order.order_reference, order.share_phase_number, lot.distinctive_from,
-          lot.distinctive_to, order.quantity, issuedQuantity - order.quantity);
+           phase_number,distinctive_from,distinctive_to,paid_shares,bonus_shares,verification_id,snapshot_version,
+           holder_name_snapshot,holder_address_snapshot,profile_number_snapshot,issue_price_per_share_snapshot,
+           issue_price_currency_snapshot,certificate_payload,certificate_payload_sha256)
+          VALUES ($1,$2,$3,'issued',$4,$5,'presale',$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::numeric,$17,$18,$19)`, order.external_profile_id,
+        certificateNumber, issuedQuantity, issuedAt, order.order_reference, order.share_phase_number, lot.distinctive_from,
+        lot.distinctive_to, order.quantity, issuedQuantity - order.quantity, verificationId, seal.data.version,
+        holder.holderName, holder.holderAddress, holder.profileNumber, holder.issuePricePerShare, "USD", seal.payload, seal.sha256);
         incorporated += 1;
       }
       await shareTx.commit();
@@ -2503,6 +2685,54 @@ export const retryFailedPresaleEmails = api<void, { sent: number; failed: number
   },
 );
 
+export const retryPendingPresaleCryptoPayments = api<void, { settled: number; pending: number; failed: number }>(
+  { method: "POST", path: "/internal/presale/retry-crypto-payments", expose: false },
+  async () => {
+    const orders = await presaleDb.rawQueryAll<{
+      id: string; order_reference: string; payment_intent_id: string;
+    }>(
+      `SELECT id, order_reference, payment_intent_id
+         FROM presale_orders
+        WHERE payment_rail = 'remitano_usdt'
+          AND status IN ('payment_submitted', 'payment_detected')
+          AND payment_intent_id IS NOT NULL
+        ORDER BY updated_at
+        LIMIT 50`,
+    );
+    let settled = 0;
+    let pending = 0;
+    let failed = 0;
+    for (const order of orders) {
+      try {
+        const attempt = await paymentsDb.rawQueryRow<{ id: string }>(
+          `SELECT a.id
+             FROM payment_attempts a
+             JOIN payment_intents i ON i.id = a.payment_intent_id
+            WHERE a.payment_intent_id = $1
+              AND i.status IN ('submitted', 'verifying', 'pending_confirmations')
+              AND a.verification_status IN ('submitted', 'verifying', 'pending_confirmations')
+              AND COALESCE(a.verified_at, a.created_at) < now() - interval '1 minute'
+            ORDER BY a.created_at DESC
+            LIMIT 1`,
+          order.payment_intent_id,
+        );
+        if (!attempt) continue;
+        const result = await reconcilePresalePaymentAttempt({
+          orderReference: order.order_reference,
+          orderId: order.id,
+          attemptId: attempt.id,
+        });
+        if (result.status === "settled") settled += 1;
+        else pending += 1;
+      } catch (error) {
+        failed += 1;
+        log.error(error, "presale crypto payment reconciliation failed", { orderReference: order.order_reference });
+      }
+    }
+    return { settled, pending, failed };
+  },
+);
+
 const presaleExpiryJob = new CronJob("presale-order-expiry", {
   title: "Release expired presale reservations",
   every: "5m",
@@ -2523,3 +2753,10 @@ const presaleEmailRetryJob = new CronJob("presale-email-retry", {
   endpoint: retryFailedPresaleEmails,
 });
 void presaleEmailRetryJob;
+
+const presaleCryptoPaymentRetryJob = new CronJob("presale-crypto-payment-retry", {
+  title: "Recheck submitted presale crypto payments",
+  every: "5m",
+  endpoint: retryPendingPresaleCryptoPayments,
+});
+void presaleCryptoPaymentRetryJob;

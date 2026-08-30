@@ -1,16 +1,36 @@
 // Author: Klaasvaakie ( |╲ )
 import { describe, expect, it } from "vitest";
-import { presaleDb, sharesDb } from "../../resources";
-import { fulfilSettledPresalePayment, rejectPresalePayment } from "./api";
+import { identityDb, presaleDb, sharesDb } from "../../resources";
+import { encryptInvestorApplication, fulfilSettledPresalePayment, rejectPresalePayment } from "./api";
 
 async function seedOrders() {
   const campaignId = crypto.randomUUID();
   const invitationId = crypto.randomUUID();
   const profileId = crypto.randomUUID();
+  const userId = crypto.randomUUID();
   const fulfilledIntentId = crypto.randomUUID();
   const rejectedIntentId = crypto.randomUUID();
   const fulfilledReference = `KSP-FULFIL-${crypto.randomUUID()}`;
   const rejectedReference = `KSP-REJECT-${crypto.randomUUID()}`;
+  const investorApplication = encryptInvestorApplication({
+    streetAddress: "1 Legacy Street",
+    suburb: "Test Suburb",
+    city: "Johannesburg",
+    postalCode: "2001",
+    countryOfResidence: "South Africa",
+  });
+  await identityDb.rawExec(
+    "INSERT INTO users (id,email,status) VALUES ($1,$2,'active')",
+    userId,
+    `legacy-${crypto.randomUUID()}@example.test`,
+  );
+  await identityDb.rawExec(
+    `INSERT INTO profiles (id,user_id,profile_type,unique_profile_number,first_name,surname,status)
+     VALUES ($1,$2,'individual',$3,'Legacy','Tester','active')`,
+    profileId,
+    userId,
+    `KSI-${crypto.randomUUID()}`,
+  );
   await presaleDb.rawExec(`INSERT INTO presale_campaigns
     (id,slug,name,issuer_name,status,total_shares,reserved_shares,sold_shares,price_usdt,price_usd,network,receiving_address,min_confirmations,bonus_buy_one_get_one)
     VALUES ($1,$2,'Legacy-tier test','KaSiShares','active',100,4,0,25,25,'bsc','0x2222222222222222222222222222222222222222',3,true)`,
@@ -23,12 +43,14 @@ async function seedOrders() {
       (id,order_reference,campaign_id,invitation_id,buyer_name,buyer_email,external_profile_id,quantity,
        unit_price_usdt,total_usdt,unit_price_usd,total_usd,usdt_per_usd,quote_reference,status,
        idempotency_key_hash,request_hash,access_token_hash,terms_version,terms_accepted_at,payment_deadline,
-       payment_obligation_id,payment_intent_id,payment_network,payment_receiving_address,payment_token_contract,payment_min_confirmations)
+       payment_obligation_id,payment_intent_id,payment_network,payment_receiving_address,payment_token_contract,payment_min_confirmations,
+       investor_application_ciphertext,investor_application_nonce,investor_application_auth_tag)
       VALUES ($1,$2,$3,$4,'Legacy Tester','legacy@example.test',$5,1,25,25,25,25,1,'test','payment_submitted',
        $6,$7,$8,'2026-08-01',now(),now()+interval '30 minutes',$9,$10,'bsc',
-       '0x2222222222222222222222222222222222222222','0x1111111111111111111111111111111111111111',3)`,
+       '0x2222222222222222222222222222222222222222','0x1111111111111111111111111111111111111111',3,$11,$12,$13)`,
     crypto.randomUUID(), reference, campaignId, invitationId, profileId,
-    crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID(), intentId);
+    crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID(), intentId,
+    investorApplication.ciphertext, investorApplication.nonce, investorApplication.authTag);
   }
   return { campaignId, invitationId, fulfilledIntentId, rejectedIntentId, fulfilledReference, rejectedReference };
 }

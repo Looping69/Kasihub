@@ -72,6 +72,43 @@ function retryableResult(row: VerificationRow, reason: string): SettledPaymentRe
   };
 }
 
+async function persistRetryableResult(
+  row: VerificationRow,
+  reason: string,
+  evaluation?: PaymentEvidenceEvaluation,
+): Promise<SettledPaymentResult> {
+  if (evaluation) {
+    await paymentsDb.rawExec(
+      `UPDATE payment_attempts
+          SET chain_sender_wallet = $3,
+              chain_receiver_wallet = $4,
+              chain_amount = $5::numeric,
+              block_number = $6,
+              confirmations = $7,
+              verification_error_code = $2,
+              verification_error_detail = NULL,
+              verified_at = now()
+        WHERE id = $1
+          AND verification_status IN ('submitted', 'verifying', 'pending_confirmations')`,
+      row.attempt_id,
+      reason,
+      evaluation.sender,
+      evaluation.receiver,
+      evaluation.receivedAmount,
+      evaluation.blockNumber ?? null,
+      evaluation.confirmations,
+    );
+    return { ...retryableResult(row, reason), confirmations: evaluation.confirmations };
+  }
+  await paymentsDb.rawExec(
+    `UPDATE payment_attempts SET verification_error_code = $2,
+        verification_error_detail = NULL, verified_at = now()
+      WHERE id = $1 AND verification_status IN ('submitted', 'verifying', 'pending_confirmations')`,
+    row.attempt_id, reason,
+  );
+  return retryableResult(row, reason);
+}
+
 /**
  * Product-neutral payment authority. It alone reads chain evidence and moves a
  * payment from submitted to settled. Product domains may consume the settled
@@ -112,7 +149,7 @@ export async function verifyAndSettlePaymentAttempt(
   try {
     evidence = await evidenceReader(row.network, row.transaction_hash);
   } catch (error) {
-    if (error instanceof ChainProviderUnavailable) return retryableResult(row, "chain_provider_unavailable");
+    if (error instanceof ChainProviderUnavailable) return persistRetryableResult(row, "chain_provider_unavailable");
     throw error;
   }
   const evaluation = evaluatePaymentEvidence({
@@ -125,7 +162,7 @@ export async function verifyAndSettlePaymentAttempt(
     minimumConfirmations: row.minimum_confirmations,
   }, evidence);
   let decision = targetStatus(evaluation);
-  if (decision === "retryable") return retryableResult(row, evaluation.reason);
+  if (decision === "retryable") return persistRetryableResult(row, evaluation.reason, evaluation);
   let custodyEvidence: CustodyEvidence | null = null;
   let custodyDecision: CustodyDecision | null = null;
   if (decision === "confirmed" && row.custody_reconciliation_required) {
@@ -140,7 +177,7 @@ export async function verifyAndSettlePaymentAttempt(
         tokenDecimals: row.decimals,
       });
     } catch (error) {
-      if (error instanceof CustodyProviderUnavailable) return retryableResult(row, error.message);
+      if (error instanceof CustodyProviderUnavailable) return persistRetryableResult(row, error.message, evaluation);
       throw error;
     }
     custodyDecision = evaluateCustodyEvidence({
@@ -153,7 +190,7 @@ export async function verifyAndSettlePaymentAttempt(
       tokenDecimals: row.decimals,
     }, custodyEvidence);
     await recordCustodyEvidence(row.attempt_id, custodyEvidence, custodyDecision);
-    if (custodyDecision.decision === "retryable") return retryableResult(row, custodyDecision.reason);
+    if (custodyDecision.decision === "retryable") return persistRetryableResult(row, custodyDecision.reason, evaluation);
     if (custodyDecision.decision === "manual_review") decision = "manual_review";
   }
   const decisionReason = custodyDecision?.reason ?? evaluation.reason;

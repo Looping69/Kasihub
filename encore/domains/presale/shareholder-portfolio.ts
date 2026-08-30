@@ -12,6 +12,9 @@ export type PresaleCertificate = {
   revoked_at: string | null; presale_order_reference: string;
   phase_number: number | null; distinctive_from: number | null; distinctive_to: number | null;
   paid_shares: number | null; bonus_shares: number | null;
+  verification_id?: string | null; holder_name_snapshot?: string | null; holder_address_snapshot?: string | null;
+  profile_number_snapshot?: string | null; issue_price_per_share_snapshot?: string | null;
+  issue_price_currency_snapshot?: string | null; certificate_payload?: string | null; certificate_payload_sha256?: string | null;
 };
 
 export function buildShareholderPortfolio(paidOrders: PresalePaidOrder[], certificates: PresaleCertificate[]) {
@@ -43,6 +46,14 @@ export function buildShareholderPortfolio(paidOrders: PresalePaidOrder[], certif
         distinctiveTo: certificate.distinctive_to ?? undefined,
         paidShares: certificate.paid_shares ?? undefined,
         bonusShares: certificate.bonus_shares ?? undefined,
+        verificationId: certificate.verification_id ?? undefined,
+        holderNameSnapshot: certificate.holder_name_snapshot ?? undefined,
+        holderAddressSnapshot: certificate.holder_address_snapshot ?? undefined,
+        profileNumberSnapshot: certificate.profile_number_snapshot ?? undefined,
+        issuePricePerShareSnapshot: certificate.issue_price_per_share_snapshot == null ? undefined : Number(certificate.issue_price_per_share_snapshot),
+        issuePriceCurrencySnapshot: certificate.issue_price_currency_snapshot ?? undefined,
+        integrityPayload: certificate.certificate_payload ?? undefined,
+        integrityHash: certificate.certificate_payload_sha256 ?? undefined,
       } : undefined,
     };
   });

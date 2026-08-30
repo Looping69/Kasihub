@@ -118,10 +118,23 @@ describe("product-neutral payment verification and settlement", () => {
       async () => { throw new CustodyProviderUnavailable("remitano", "custody_temporarily_unavailable"); },
     );
     expect(result).toMatchObject({ status: "retryable", reason: "custody_temporarily_unavailable" });
-    const state = await paymentsDb.rawQueryRow<{ intent_status: string; obligation_status: string }>(
-      `SELECT i.status AS intent_status,o.status AS obligation_status
-       FROM payment_intents i JOIN payment_obligations o ON o.id=i.order_id WHERE i.id=$1`, seeded.intentId);
-    expect(state).toEqual({ intent_status: "submitted", obligation_status: "open" });
+    const state = await paymentsDb.rawQueryRow<{
+      intent_status: string; obligation_status: string; verification_error_code: string | null;
+      verified_at: string | null; confirmations: number | null;
+    }>(
+      `SELECT i.status AS intent_status,o.status AS obligation_status,
+              a.verification_error_code,a.verified_at,a.confirmations
+       FROM payment_intents i
+       JOIN payment_obligations o ON o.id=i.order_id
+       JOIN payment_attempts a ON a.payment_intent_id=i.id
+       WHERE i.id=$1`, seeded.intentId);
+    expect(state).toMatchObject({
+      intent_status: "submitted",
+      obligation_status: "open",
+      verification_error_code: "custody_temporarily_unavailable",
+      confirmations: 3,
+    });
+    expect(state?.verified_at).toBeTruthy();
   });
 
   it("sends custody mismatches to manual review without duplicating evidence", async () => {
