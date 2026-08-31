@@ -7,6 +7,7 @@ describe("presale campaign editor contract", () => {
     const payload = campaignSavePayload({
       name: "Phase 1",
       priceUsd: 25,
+      usdtPerUsd: Number.NaN,
       priceUsdt: 0,
       startsAt: "2026-08-12T10:00:00.000Z",
       endsAt: "",
@@ -15,6 +16,7 @@ describe("presale campaign editor contract", () => {
     });
 
     expect(payload.priceUsd).toBe(25);
+    expect(payload.usdtPerUsd).toBe(1);
     expect(payload.priceUsdt).toBe(0);
     expect(payload.startsAt).toBe("2026-08-12T10:00:00.000Z");
     expect(payload.endsAt).toBeUndefined();
