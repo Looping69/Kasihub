@@ -12,4 +12,12 @@ describe("shares portfolio backend contract", () => {
     expect(source).toContain("quantity_available, total_quantity, price_per_share");
     expect(source).toContain('cacheRead(sharePhaseCache, "all-v2")');
   });
+
+  test("exposes a session-derived versioned portfolio with exact money strings", () => {
+    expect(source).toContain('path: "/shares/portfolio/me"');
+    expect(source).toContain('schemaVersion: "shareholder-portfolio.v2"');
+    expect(source).toContain("await requireEcosystemProfileAccess(session.profile.id)");
+    expect(source).toContain("acquisition_cost");
+    expect(source).toContain("issue_price_per_paid_share");
+  });
 });

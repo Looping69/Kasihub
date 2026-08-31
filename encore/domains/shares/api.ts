@@ -3,7 +3,7 @@ import { api, APIError } from "encore.dev/api";
 import { StructKeyspace, expireInSeconds } from "encore.dev/storage/cache";
 import { z } from "zod";
 import { applicationCache, auditDb, documentsBucket, financeDb, identityDb, presaleDb, sharesDb } from "../../resources";
-import { requireAdminAccess, requireProfileAccess } from "../auth/access";
+import { requireAdminAccess, requireEcosystemProfileAccess, requireProfileAccess, requireSession } from "../auth/access";
 import {
   beginOperation,
   captureWalletHold,
@@ -127,6 +127,110 @@ export const myShares = api<
         integrityPayload: row.certificate_payload ?? undefined,
         integrityHash: row.certificate_payload_sha256 ?? undefined,
       })),
+    };
+  },
+);
+
+type ShareholderPortfolioV2 = {
+  schemaVersion: "shareholder-portfolio.v2";
+  asOf: string;
+  ledgerRevision: string;
+  summary: {
+    issuedShares: number;
+    paidShares: number;
+    bonusShares: number;
+    acquisitionCost: { amount: string; currency: "USD" };
+  };
+  holdings: Array<{
+    orderReference: string | null;
+    certificateNumber: string;
+    certificateStatus: string;
+    issuedAt: string;
+    revokedAt: string | null;
+    phaseNumber: number | null;
+    paidShares: number;
+    bonusShares: number;
+    totalShares: number;
+    distinctiveFrom: number | null;
+    distinctiveTo: number | null;
+    acquisitionCost: { amount: string; currency: string };
+    issuePricePerPaidShare: { amount: string; currency: string } | null;
+    verificationId: string | null;
+  }>;
+  capabilities: { canApplyForMoreShares: boolean; applicationUrl: "/presale" };
+};
+
+export const myShareholderPortfolio = api<void, ShareholderPortfolioV2>(
+  { method: "GET", path: "/shares/portfolio/me", expose: true },
+  async () => {
+    const session = await requireSession();
+    await requireEcosystemProfileAccess(session.profile.id);
+    const [rows, summary, revision] = await Promise.all([
+      sharesDb.rawQueryAll<{
+        presale_order_reference: string | null; certificate_number: string; status: string; issued_at: string;
+        revoked_at: string | null; phase_number: number | null; paid_shares: number | null; bonus_shares: number | null;
+        total_shares: number; distinctive_from: number | null; distinctive_to: number | null; total_amount: string | null;
+        currency: string | null; issue_price_per_paid_share: string | null; verification_id: string | null;
+      }>(`SELECT certificate.presale_order_reference,certificate.certificate_number,certificate.status,
+                certificate.issued_at,certificate.revoked_at,COALESCE(certificate.phase_number,phase.phase_number) AS phase_number,
+                COALESCE(certificate.paid_shares,purchase.quantity,certificate.total_shares) AS paid_shares,
+                COALESCE(certificate.bonus_shares,purchase.bonus_quantity,0) AS bonus_shares,
+                certificate.total_shares,certificate.distinctive_from,certificate.distinctive_to,
+                COALESCE(purchase.total_amount,0)::text AS total_amount,COALESCE(phase.currency,'USD') AS currency,
+                CASE WHEN COALESCE(certificate.paid_shares,purchase.quantity,0)>0
+                  THEN (COALESCE(purchase.total_amount,0)/COALESCE(certificate.paid_shares,purchase.quantity))::text
+                  ELSE NULL END AS issue_price_per_paid_share,
+                certificate.verification_id
+           FROM share_certificates certificate
+           LEFT JOIN share_purchases purchase ON purchase.certificate_id=certificate.id
+             OR (purchase.certificate_id IS NULL AND purchase.presale_order_reference=certificate.presale_order_reference)
+           LEFT JOIN share_phases phase ON phase.id=purchase.phase_id
+          WHERE certificate.profile_id=$1
+          ORDER BY certificate.issued_at DESC,certificate.certificate_number`, session.profile.id),
+      sharesDb.rawQueryRow<{
+        issued_shares: string; paid_shares: string; bonus_shares: string; acquisition_cost: string;
+      }>(`SELECT COALESCE(SUM(certificate.total_shares) FILTER (WHERE certificate.status='issued'),0)::text AS issued_shares,
+                COALESCE(SUM(COALESCE(certificate.paid_shares,purchase.quantity,certificate.total_shares))
+                  FILTER (WHERE certificate.status='issued'),0)::text AS paid_shares,
+                COALESCE(SUM(COALESCE(certificate.bonus_shares,purchase.bonus_quantity,0))
+                  FILTER (WHERE certificate.status='issued'),0)::text AS bonus_shares,
+                COALESCE(SUM(COALESCE(purchase.total_amount,0)) FILTER (WHERE certificate.status='issued'),0)::text AS acquisition_cost
+           FROM share_certificates certificate
+           LEFT JOIN share_purchases purchase ON purchase.certificate_id=certificate.id
+             OR (purchase.certificate_id IS NULL AND purchase.presale_order_reference=certificate.presale_order_reference)
+          WHERE certificate.profile_id=$1`, session.profile.id),
+      sharesDb.rawQueryRow<{ revision: string }>(`SELECT CONCAT(COUNT(*)::text,':',COALESCE(MAX(completed_at)::text,'empty')) AS revision
+        FROM share_issuance_operations WHERE purchase_id IN
+          (SELECT id FROM share_purchases WHERE profile_id=$1)`, session.profile.id),
+    ]);
+    return {
+      schemaVersion: "shareholder-portfolio.v2",
+      asOf: new Date().toISOString(),
+      ledgerRevision: revision?.revision ?? "0:empty",
+      summary: {
+        issuedShares: Number(summary?.issued_shares ?? "0"),
+        paidShares: Number(summary?.paid_shares ?? "0"),
+        bonusShares: Number(summary?.bonus_shares ?? "0"),
+        acquisitionCost: { amount: summary?.acquisition_cost ?? "0", currency: "USD" },
+      },
+      holdings: rows.map((row) => ({
+        orderReference: row.presale_order_reference,
+        certificateNumber: row.certificate_number,
+        certificateStatus: row.status,
+        issuedAt: row.issued_at,
+        revokedAt: row.revoked_at,
+        phaseNumber: row.phase_number,
+        paidShares: row.paid_shares ?? row.total_shares,
+        bonusShares: row.bonus_shares ?? 0,
+        totalShares: row.total_shares,
+        distinctiveFrom: row.distinctive_from,
+        distinctiveTo: row.distinctive_to,
+        acquisitionCost: { amount: row.total_amount ?? "0", currency: row.currency ?? "USD" },
+        issuePricePerPaidShare: row.issue_price_per_paid_share === null ? null
+          : { amount: row.issue_price_per_paid_share, currency: row.currency ?? "USD" },
+        verificationId: row.verification_id,
+      })),
+      capabilities: { canApplyForMoreShares: true, applicationUrl: "/presale" },
     };
   },
 );

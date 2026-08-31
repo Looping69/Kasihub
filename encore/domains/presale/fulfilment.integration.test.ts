@@ -71,9 +71,18 @@ describe("presale settlement consumption", () => {
       "SELECT used_shares,status FROM presale_invitations WHERE id=$1", seeded.invitationId);
     const certificate = await sharesDb.rawQueryRow<{ total_shares: number; source: string }>(
       "SELECT total_shares,source FROM share_certificates WHERE presale_order_reference=$1", seeded.fulfilledReference);
+    const issuance = await sharesDb.rawQueryRow<{ operation_id: string; status: string }>(
+      "SELECT operation_id,status FROM share_issuance_operations WHERE source_reference=$1", seeded.fulfilledReference);
+    const delivery = await presaleDb.rawQueryRow<{ status: string; attempt_count: number }>(
+      "SELECT status,attempt_count FROM presale_outbox WHERE aggregate_id=$1", seeded.fulfilledReference);
+    const completion = await presaleDb.rawQueryRow<{ count: string }>(
+      "SELECT COUNT(*)::text AS count FROM presale_inbox WHERE correlation_id=$1", `presale:${seeded.fulfilledReference}`);
     expect(campaign).toEqual({ reserved_shares: 0, sold_shares: 2 });
     expect(orders.map((row) => row.status)).toEqual(["cancelled", "incorporated"]);
     expect(invite).toEqual({ used_shares: 1, status: "active" });
     expect(certificate).toEqual({ total_shares: 2, source: "presale" });
+    expect(issuance).toEqual({ operation_id: `presale:${seeded.fulfilledReference}`, status: "completed" });
+    expect(delivery).toEqual({ status: "processed", attempt_count: 1 });
+    expect(completion).toEqual({ count: "1" });
   });
 });

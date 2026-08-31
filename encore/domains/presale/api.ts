@@ -32,8 +32,7 @@ import { databaseBinaryToBuffer, type DatabaseBinary } from "./database-binary";
 import { resolveWebPayUnitPrice, WEBPAY_UNIT_PRICE_ZAR, verifyWebPayChecksum, verifyWebPayProcessChecksum, webPayChecksum, webPayMerchantFields, webPayOrderNumber, webPayTotalZar, type PresalePaymentRail } from "./webpay";
 import { buildShareholderPortfolio, type PresaleCertificate, type PresalePaidOrder } from "./shareholder-portfolio";
 import { applicantLoginSchema, internationalCellphoneSchema, physicalAddressLine, strongPasswordSchema } from "./applicant-validation";
-import { solidusCertificateNumber } from "../shares/certificate-numbering";
-import { sealPresaleCertificate } from "../shares/certificate-integrity";
+import { issueShares } from "../shares/issuance";
 import { deriveApplicantJourney, type ApplicantJourneyDecision } from "./applicant-journey";
 import {
   buildPresaleReservationContract,
@@ -775,6 +774,46 @@ export async function rejectPresalePayment(orderReference: string, paymentIntent
   }
 }
 
+type PresaleTransaction = Awaited<ReturnType<typeof presaleDb.begin>>;
+
+function presaleIssuanceEventKey(orderReference: string): string {
+  return `presale:${orderReference}:share-issuance-requested:v1`;
+}
+
+async function enqueuePresaleIssuanceRequest(
+  tx: PresaleTransaction,
+  orderId: string,
+  orderReference: string,
+): Promise<void> {
+  const correlationId = `presale:${orderReference}`;
+  await tx.rawExec(`INSERT INTO presale_outbox
+    (id,event_key,event_type,schema_version,correlation_id,aggregate_type,aggregate_id,payload)
+    VALUES ($1,$2,'share_issuance_requested','share-issuance-requested.v1',$3,'presale_order',$4,$5::jsonb)
+    ON CONFLICT (event_key) DO NOTHING`, crypto.randomUUID(), presaleIssuanceEventKey(orderReference), correlationId,
+  orderReference, JSON.stringify({ orderId, orderReference, operationId: correlationId }));
+}
+
+async function ensurePresaleIssuanceRequest(orderId: string, orderReference: string): Promise<void> {
+  const tx = await presaleDb.begin();
+  try {
+    await enqueuePresaleIssuanceRequest(tx, orderId, orderReference);
+    await tx.commit();
+  } catch (error) {
+    try { await tx.rollback(); } catch { /* transaction may already be closed */ }
+    throw error;
+  }
+}
+
+async function attemptImmediatePresaleIssuance(orderReference: string): Promise<void> {
+  try {
+    await processPresaleIssuanceOutbox(orderReference);
+  } catch (error) {
+    // Settlement is already durable. The outbox worker owns the retry from
+    // this point; provider callbacks must not manufacture a second payment.
+    log.error(error, "immediate presale share issuance failed; durable retry retained", { orderReference });
+  }
+}
+
 export async function fulfilSettledPresalePayment(
   orderReference: string,
   paymentIntentId: string,
@@ -790,8 +829,9 @@ export async function fulfilSettledPresalePayment(
     if (!order) throw APIError.notFound("Presale order not found");
     if (order.payment_intent_id !== paymentIntentId) throw APIError.failedPrecondition("Settled payment does not belong to this presale order");
     if (["confirmed", "incorporated"].includes(order.status)) {
+      if (order.status === "confirmed") await enqueuePresaleIssuanceRequest(tx, order.id, orderReference);
       await tx.commit();
-      if (order.status === "confirmed") await incorporateConfirmedPresaleOrder(orderReference);
+      if (order.status === "confirmed") await attemptImmediatePresaleIssuance(orderReference);
       return;
     }
     if (!["awaiting_payment", "payment_submitted", "payment_detected"].includes(order.status)) {
@@ -806,15 +846,16 @@ export async function fulfilSettledPresalePayment(
       payment_transaction_hash = COALESCE(payment_transaction_hash, $2),
       payment_confirmations = GREATEST(COALESCE(payment_confirmations, 0), $3),
       payment_settled_at = COALESCE(payment_settled_at, now()), updated_at = now() WHERE id = $1`, order.id, transactionHash, confirmations);
+    await enqueuePresaleIssuanceRequest(tx, order.id, orderReference);
     await tx.commit();
-    await incorporateConfirmedPresaleOrder(orderReference);
+    await attemptImmediatePresaleIssuance(orderReference);
   } catch (error) {
     try { await tx.rollback(); } catch { /* transaction may already be closed */ }
     throw error;
   }
 }
 
-async function fulfilWebPayPresalePayment(orderReference: string, providerReference: string, paymentMethod: string): Promise<void> {
+export async function fulfilWebPayPresalePayment(orderReference: string, providerReference: string, paymentMethod: string): Promise<void> {
   const tx = await presaleDb.begin();
   try {
     const order = await tx.rawQueryRow<{ id: string; campaign_id: string; quantity: number; status: string; payment_rail: PresalePaymentRail; bonus_buy_one_get_one: boolean }>(
@@ -824,8 +865,9 @@ async function fulfilWebPayPresalePayment(orderReference: string, providerRefere
     if (!order) throw APIError.notFound("Presale order not found");
     if (order.payment_rail !== "webpay_card") throw APIError.failedPrecondition("WebPay payment does not belong to this order");
     if (["confirmed", "incorporated"].includes(order.status)) {
+      if (order.status === "confirmed") await enqueuePresaleIssuanceRequest(tx, order.id, orderReference);
       await tx.commit();
-      if (order.status === "confirmed") await incorporateConfirmedPresaleOrder(orderReference);
+      if (order.status === "confirmed") await attemptImmediatePresaleIssuance(orderReference);
       return;
     }
     if (!["awaiting_payment", "payment_submitted", "payment_detected"].includes(order.status)) {
@@ -840,8 +882,9 @@ async function fulfilWebPayPresalePayment(orderReference: string, providerRefere
       webpay_system_reference = COALESCE(webpay_system_reference, $2), webpay_payment_method = COALESCE(webpay_payment_method, $3),
       payment_settled_at = COALESCE(payment_settled_at, now()), updated_at = now() WHERE id = $1`,
     order.id, providerReference, paymentMethod);
+    await enqueuePresaleIssuanceRequest(tx, order.id, orderReference);
     await tx.commit();
-    await incorporateConfirmedPresaleOrder(orderReference);
+    await attemptImmediatePresaleIssuance(orderReference);
   } catch (error) {
     try { await tx.rollback(); } catch { /* transaction may already be closed */ }
     throw error;
@@ -871,74 +914,46 @@ export async function incorporateConfirmedPresaleOrder(orderReference: string): 
   if (order.status === "incorporated" && order.incorporation_status === "incorporated" && order.target_purchase_id) {
     return { incorporated: false, purchaseId: order.target_purchase_id };
   }
-  if (order.status !== "confirmed" || order.incorporation_status !== "pending") {
+  if (order.status !== "confirmed" || !["pending", "batched"].includes(order.incorporation_status)) {
     throw APIError.failedPrecondition(`Presale order cannot be incorporated while ${order.status}/${order.incorporation_status}`);
   }
   if (!order.external_profile_id) throw APIError.failedPrecondition(`Order ${order.order_reference} has no authenticated member profile`);
 
-  const issuedQuantity = issuedSharesForPresale(order.quantity, order.bonus_buy_one_get_one);
   const holder = await certificateHolderSnapshot(order);
-  const shareTx = await sharesDb.begin();
-  let purchaseId: string;
-  let incorporated = false;
+  const issuedQuantity = issuedSharesForPresale(order.quantity, order.bonus_buy_one_get_one);
+  await ensurePresaleIssuanceRequest(order.id, order.order_reference);
+  const result = await issueShares({
+    operationId: `presale:${order.order_reference}`,
+    source: "presale",
+    sourceReference: order.order_reference,
+    profileId: order.external_profile_id,
+    phaseNumber: order.share_phase_number,
+    paidShares: order.quantity,
+    bonusShares: issuedQuantity - order.quantity,
+    acquisitionAmount: order.total_usd,
+    issuePricePerPaidShare: order.unit_price_usd,
+    currency: "USD",
+    holder: { name: holder.holderName, address: holder.holderAddress, profileNumber: holder.profileNumber },
+  });
+  const completionTx = await presaleDb.begin();
   try {
-    await shareTx.rawExec("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", order.order_reference);
-    const existing = await shareTx.rawQueryRow<{ id: string }>(
-      "SELECT id FROM share_purchases WHERE presale_order_reference=$1 FOR UPDATE", order.order_reference);
-    if (existing) {
-      const certificate = await shareTx.rawQueryRow<{ id: string }>(
-        "SELECT id FROM share_certificates WHERE presale_order_reference=$1", order.order_reference);
-      if (!certificate) throw APIError.failedPrecondition(`Order ${order.order_reference} has a purchase without a certificate`);
-      purchaseId = existing.id;
-    } else {
-      const phase = await shareTx.rawQueryRow<{ id: string }>(`UPDATE share_phases SET quantity_available=quantity_available-$2
-        WHERE phase_number=$1 AND status IN ('active','paused') AND quantity_available >= $2 RETURNING id`,
-      order.share_phase_number, issuedQuantity);
-      if (!phase) throw APIError.failedPrecondition(`Share phase ${order.share_phase_number} cannot fulfil ${issuedQuantity} shares`);
-      purchaseId = crypto.randomUUID();
-      const certificateId = crypto.randomUUID();
-      const lot = await shareTx.rawQueryRow<{ distinctive_from: number; distinctive_to: number }>(`UPDATE share_lot_sequence
-        SET next_share_number = next_share_number + $1
-        WHERE singleton = TRUE AND next_share_number + $1 - 1 <= 1200000
-        RETURNING next_share_number - $1 AS distinctive_from, next_share_number - 1 AS distinctive_to`, issuedQuantity);
-      if (!lot) throw APIError.failedPrecondition("The authorised Solidus share register is exhausted");
-      const certificateSequence = await shareTx.rawQueryRow<{ sequence: number }>(`INSERT INTO share_certificate_phase_sequences
-        (phase_number, next_certificate_number) VALUES ($1, 2)
-        ON CONFLICT (phase_number) DO UPDATE
-          SET next_certificate_number = share_certificate_phase_sequences.next_certificate_number + 1
-        RETURNING next_certificate_number - 1 AS sequence`, order.share_phase_number);
-      if (!certificateSequence) throw new Error("share_certificate_sequence_not_created");
-      const certificateNumber = solidusCertificateNumber(order.share_phase_number, certificateSequence.sequence);
-      const issuedAt = new Date().toISOString();
-      const verificationId = crypto.randomUUID();
-      const seal = sealPresaleCertificate({
-        verificationId, certificateNumber, ...holder, orderReference: order.order_reference,
-        totalShares: issuedQuantity, paidShares: order.quantity, bonusShares: issuedQuantity - order.quantity,
-        phaseNumber: order.share_phase_number, distinctiveFrom: lot.distinctive_from, distinctiveTo: lot.distinctive_to, issuedAt,
-      });
-      await shareTx.rawExec(`INSERT INTO share_certificates
-        (id,profile_id,certificate_number,total_shares,status,issued_at,presale_order_reference,source,
-         phase_number,distinctive_from,distinctive_to,paid_shares,bonus_shares,verification_id,snapshot_version,
-         holder_name_snapshot,holder_address_snapshot,profile_number_snapshot,issue_price_per_share_snapshot,
-         issue_price_currency_snapshot,certificate_payload,certificate_payload_sha256)
-        VALUES ($1,$2,$3,$4,'issued',$5,$6,'presale',$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::numeric,$18,$19,$20)`, certificateId, order.external_profile_id,
-      certificateNumber, issuedQuantity, issuedAt, order.order_reference, order.share_phase_number, lot.distinctive_from,
-      lot.distinctive_to, order.quantity, issuedQuantity - order.quantity, verificationId, seal.data.version,
-      holder.holderName, holder.holderAddress, holder.profileNumber, holder.issuePricePerShare, "USD", seal.payload, seal.sha256);
-      await shareTx.rawExec(`INSERT INTO share_purchases
-        (id,profile_id,phase_id,quantity,bonus_quantity,total_amount,status,certificate_id,presale_order_reference,source)
-        VALUES ($1,$2,$3,$4,$5,$6::numeric,'paid',$7,$8,'presale')`, purchaseId, order.external_profile_id, phase.id,
-      order.quantity, issuedQuantity - order.quantity, order.total_usd, certificateId, order.order_reference);
-      incorporated = true;
-    }
-    await shareTx.commit();
+    await completionTx.rawExec(`INSERT INTO presale_inbox
+      (event_id,event_type,schema_version,correlation_id,source,payload)
+      VALUES ($1,'share_issuance_completed','share-issuance-completed.v1',$2,'shares',$3::jsonb)
+      ON CONFLICT (event_id) DO NOTHING`, result.completionEventId, `presale:${order.order_reference}`,
+    JSON.stringify({ orderReference: order.order_reference, purchaseId: result.purchaseId,
+      certificateId: result.certificateId, certificateNumber: result.certificateNumber, verificationId: result.verificationId }));
+    await completionTx.rawExec(`UPDATE presale_orders SET incorporation_status='incorporated',target_purchase_id=$2,
+      status='incorporated',updated_at=now() WHERE id=$1 AND status='confirmed'`, order.id, result.purchaseId);
+    await completionTx.rawExec(`UPDATE presale_outbox SET status='processed',processed_at=COALESCE(processed_at,now()),
+      locked_until=NULL,last_error_code=NULL,updated_at=now()
+      WHERE event_key=$1`, presaleIssuanceEventKey(order.order_reference));
+    await completionTx.commit();
   } catch (error) {
-    await shareTx.rollback();
+    try { await completionTx.rollback(); } catch { /* transaction may already be closed */ }
     throw error;
   }
-  await presaleDb.rawExec(`UPDATE presale_orders SET incorporation_status='incorporated',target_purchase_id=$2,
-    status='incorporated',updated_at=now() WHERE id=$1 AND incorporation_status='pending'`, order.id, purchaseId);
-  return { incorporated, purchaseId };
+  return { incorporated: result.issued, purchaseId: result.purchaseId };
 }
 
 interface WebPayNotificationRequest {
@@ -2618,79 +2633,16 @@ export const applyPresaleIncorporation = api<
     "SELECT id, status FROM presale_incorporation_batches WHERE id = $1", req.batchId);
   if (!batch) throw APIError.notFound("Presale incorporation batch not found");
   if (batch.status === "cancelled") throw APIError.failedPrecondition("This incorporation batch is cancelled");
-  const orders = await presaleDb.rawQueryAll<{
-    id: string; order_reference: string; external_profile_id: string | null; quantity: number; total_usd: string;
-    buyer_name: string; unit_price_usd: string; investor_application_ciphertext: DatabaseBinary | null;
-    investor_application_nonce: DatabaseBinary | null; investor_application_auth_tag: DatabaseBinary | null;
-    bonus_buy_one_get_one: boolean; share_phase_number: number;
-  }>(`SELECT o.id, o.order_reference, o.external_profile_id, o.quantity, o.total_usd::text AS total_usd,
-       o.buyer_name,o.unit_price_usd::text AS unit_price_usd,o.investor_application_ciphertext,
-       o.investor_application_nonce,o.investor_application_auth_tag,
-       c.bonus_buy_one_get_one, c.share_phase_number
-      FROM presale_orders o JOIN presale_campaigns c ON c.id = o.campaign_id
+  const orders = await presaleDb.rawQueryAll<{ order_reference: string }>(`SELECT o.order_reference
+      FROM presale_orders o
      WHERE o.incorporation_batch_id = $1 AND o.incorporation_status = 'batched' AND o.status = 'confirmed'
      ORDER BY o.created_at, o.id`, req.batchId);
   let incorporated = 0;
   let alreadyIncorporated = 0;
   for (const order of orders) {
-    if (!order.external_profile_id) throw APIError.failedPrecondition(`Order ${order.order_reference} has no authenticated member profile`);
-    const issuedQuantity = issuedSharesForPresale(order.quantity, order.bonus_buy_one_get_one);
-    const holder = await certificateHolderSnapshot(order);
-    const shareTx = await sharesDb.begin();
-    try {
-      const existing = await shareTx.rawQueryRow<{ id: string }>("SELECT id FROM share_purchases WHERE presale_order_reference = $1 FOR UPDATE", order.order_reference);
-      let purchaseId = existing?.id;
-      if (existing) {
-        alreadyIncorporated += 1;
-      } else {
-        // A paused retail phase must still honour an already-paid presale allocation
-        // through this administrator-controlled incorporation path. Closed phases fail shut.
-        // Author: Klaasvaakie ( |╲ )
-        const phase = await shareTx.rawQueryRow<{ id: string }>(`UPDATE share_phases SET quantity_available = quantity_available - $2
-          WHERE phase_number = $1 AND status IN ('active', 'paused') AND quantity_available >= $2 RETURNING id`, order.share_phase_number, issuedQuantity);
-        if (!phase) throw APIError.failedPrecondition(`Share phase ${order.share_phase_number} cannot fulfil ${issuedQuantity} shares`);
-        purchaseId = crypto.randomUUID();
-        await shareTx.rawExec(`INSERT INTO share_purchases
-          (id, profile_id, phase_id, quantity, bonus_quantity, total_amount, status, presale_order_reference, source)
-          VALUES ($1,$2,$3,$4,$5,$6::numeric,'paid',$7,'presale')`, purchaseId, order.external_profile_id, phase.id, order.quantity,
-          issuedQuantity - order.quantity, order.total_usd, order.order_reference);
-        const lot = await shareTx.rawQueryRow<{ distinctive_from: number; distinctive_to: number }>(`UPDATE share_lot_sequence
-          SET next_share_number = next_share_number + $1
-          WHERE singleton = TRUE AND next_share_number + $1 - 1 <= 1200000
-          RETURNING next_share_number - $1 AS distinctive_from, next_share_number - 1 AS distinctive_to`, issuedQuantity);
-        if (!lot) throw APIError.failedPrecondition("The authorised Solidus share register is exhausted");
-        const certificateSequence = await shareTx.rawQueryRow<{ sequence: number }>(`INSERT INTO share_certificate_phase_sequences
-          (phase_number, next_certificate_number) VALUES ($1, 2)
-          ON CONFLICT (phase_number) DO UPDATE
-            SET next_certificate_number = share_certificate_phase_sequences.next_certificate_number + 1
-          RETURNING next_certificate_number - 1 AS sequence`, order.share_phase_number);
-        if (!certificateSequence) throw new Error("share_certificate_sequence_not_created");
-        const certificateNumber = solidusCertificateNumber(order.share_phase_number, certificateSequence.sequence);
-        const issuedAt = new Date().toISOString();
-        const verificationId = crypto.randomUUID();
-        const seal = sealPresaleCertificate({
-          verificationId, certificateNumber, ...holder, orderReference: order.order_reference,
-          totalShares: issuedQuantity, paidShares: order.quantity, bonusShares: issuedQuantity - order.quantity,
-          phaseNumber: order.share_phase_number, distinctiveFrom: lot.distinctive_from, distinctiveTo: lot.distinctive_to, issuedAt,
-        });
-        await shareTx.rawExec(`INSERT INTO share_certificates
-          (profile_id, certificate_number, total_shares, status, issued_at, presale_order_reference, source,
-           phase_number,distinctive_from,distinctive_to,paid_shares,bonus_shares,verification_id,snapshot_version,
-           holder_name_snapshot,holder_address_snapshot,profile_number_snapshot,issue_price_per_share_snapshot,
-           issue_price_currency_snapshot,certificate_payload,certificate_payload_sha256)
-          VALUES ($1,$2,$3,'issued',$4,$5,'presale',$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::numeric,$17,$18,$19)`, order.external_profile_id,
-        certificateNumber, issuedQuantity, issuedAt, order.order_reference, order.share_phase_number, lot.distinctive_from,
-        lot.distinctive_to, order.quantity, issuedQuantity - order.quantity, verificationId, seal.data.version,
-        holder.holderName, holder.holderAddress, holder.profileNumber, holder.issuePricePerShare, "USD", seal.payload, seal.sha256);
-        incorporated += 1;
-      }
-      await shareTx.commit();
-      await presaleDb.rawExec(`UPDATE presale_orders SET incorporation_status = 'incorporated', incorporation_batch_id = $2,
-        target_purchase_id = $3, status = 'incorporated', updated_at = now() WHERE id = $1`, order.id, req.batchId, purchaseId);
-    } catch (error) {
-      await shareTx.rollback();
-      throw error;
-    }
+    const result = await incorporateConfirmedPresaleOrder(order.order_reference);
+    if (result.incorporated) incorporated += 1;
+    else alreadyIncorporated += 1;
   }
   await presaleDb.rawExec(`UPDATE presale_incorporation_batches SET status = 'applied', applied_at = COALESCE(applied_at, now())
     WHERE id = $1 AND NOT EXISTS (SELECT 1 FROM presale_orders WHERE incorporation_batch_id = $1 AND incorporation_status = 'batched')`, req.batchId);
@@ -2723,26 +2675,56 @@ export const expirePresaleOrders = api<void, { expired: number }>(
   },
 );
 
+async function processPresaleIssuanceOutbox(orderReference?: string): Promise<{
+  incorporated: number; alreadyIncorporated: number; failed: number;
+}> {
+  let incorporated = 0;
+  let alreadyIncorporated = 0;
+  let failed = 0;
+  for (let index = 0; index < 100; index += 1) {
+    const event = await presaleDb.rawQueryRow<{ id: string; aggregate_id: string; attempt_count: number }>(`UPDATE presale_outbox
+      SET status='processing',attempt_count=attempt_count+1,locked_until=now()+interval '5 minutes',updated_at=now()
+      WHERE id=(
+        SELECT id FROM presale_outbox
+        WHERE event_type='share_issuance_requested'
+          AND ($1::text IS NULL OR aggregate_id=$1)
+          AND available_at<=now()
+          AND (status='pending' OR (status='processing' AND locked_until<now()))
+        ORDER BY created_at
+        FOR UPDATE SKIP LOCKED
+        LIMIT 1
+      )
+      RETURNING id,aggregate_id,attempt_count`, orderReference ?? null);
+    if (!event) break;
+    try {
+      const result = await incorporateConfirmedPresaleOrder(event.aggregate_id);
+      if (result.incorporated) incorporated += 1;
+      else alreadyIncorporated += 1;
+    } catch (error) {
+      failed += 1;
+      const errorCode = error instanceof Error ? error.message.slice(0, 160) : "share_issuance_failed";
+      await presaleDb.rawExec(`UPDATE presale_outbox
+        SET status=CASE WHEN attempt_count>=10 THEN 'failed' ELSE 'pending' END,
+            available_at=now()+(LEAST(attempt_count,10)*interval '1 minute'),locked_until=NULL,
+            last_error_code=$2,updated_at=now()
+        WHERE id=$1`, event.id, errorCode);
+      log.error(error, "presale share issuance outbox delivery failed", {
+        orderReference: event.aggregate_id,
+        attempt: event.attempt_count,
+      });
+    }
+  }
+  return { incorporated, alreadyIncorporated, failed };
+}
+
 export const reconcileConfirmedPresaleOrders = api<void, { incorporated: number; alreadyIncorporated: number; failed: number }>(
   { method: "POST", path: "/internal/presale/reconcile-incorporation", expose: false },
   async () => {
-    const rows = await presaleDb.rawQueryAll<{ order_reference: string }>(`SELECT order_reference FROM presale_orders
+    const rows = await presaleDb.rawQueryAll<{ id: string; order_reference: string }>(`SELECT id,order_reference FROM presale_orders
       WHERE status='confirmed' AND incorporation_status='pending' AND payment_settled_at IS NOT NULL
       ORDER BY confirmed_at,created_at LIMIT 100`);
-    let incorporated = 0;
-    let alreadyIncorporated = 0;
-    let failed = 0;
-    for (const row of rows) {
-      try {
-        const result = await incorporateConfirmedPresaleOrder(row.order_reference);
-        if (result.incorporated) incorporated += 1;
-        else alreadyIncorporated += 1;
-      } catch (error) {
-        failed += 1;
-        log.error(error, "confirmed presale incorporation reconciliation failed", { orderReference: row.order_reference });
-      }
-    }
-    return { incorporated, alreadyIncorporated, failed };
+    for (const row of rows) await ensurePresaleIssuanceRequest(row.id, row.order_reference);
+    return processPresaleIssuanceOutbox();
   },
 );
 

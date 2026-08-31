@@ -8,8 +8,12 @@ $ErrorActionPreference = "Stop"
 $PSNativeCommandUseErrorActionPreference = $false
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $backendPath = Join-Path $repoRoot "encore"
-$packageLock = Get-Content -LiteralPath (Join-Path $backendPath "package-lock.json") -Raw | ConvertFrom-Json
-$encoreVersion = $packageLock.packages."node_modules/encore.dev".version
+$packageLockPath = Join-Path $backendPath "package-lock.json"
+# Windows PowerShell 5 ConvertFrom-Json rejects package-lock keys that differ
+# only by case. Node is the authority that consumes this lockfile, so use it to
+# resolve the exact locked Encore SDK version as well. Author: Klaasvaakie ( |╲ )
+$encoreVersion = & node -e "const lock=require(process.argv[1]); process.stdout.write(lock.packages['node_modules/encore.dev'].version)" $packageLockPath
+if ($LASTEXITCODE -ne 0) { throw "Could not read encore/package-lock.json with Node.js." }
 if ($encoreVersion -notmatch '^\d+\.\d+\.\d+$') {
     throw "Could not determine the installed encore.dev version from encore/package-lock.json."
 }

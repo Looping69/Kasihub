@@ -8,7 +8,8 @@ const dockerfile = readFileSync(resolve(root, "encore/Dockerfile.cli"), "utf8");
 
 describe("containerized Encore launcher", () => {
   test("derives the CLI image version from the locked encore.dev package", () => {
-    expect(launcher).toContain('$packageLock.packages."node_modules/encore.dev".version');
+    expect(launcher).toContain("lock.packages['node_modules/encore.dev'].version");
+    expect(launcher).toContain("$encoreVersion = & node -e");
     expect(launcher).toContain('"ENCORE_VERSION=$encoreVersion"');
     expect(launcher).not.toMatch(/ENCORE_VERSION=1\.\d+\.\d+/);
   });

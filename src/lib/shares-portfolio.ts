@@ -28,6 +28,35 @@ export type EncoreShareCertificate = {
   source?: string;
 };
 
+export type ShareholderPortfolioV2 = {
+  schemaVersion: "shareholder-portfolio.v2";
+  asOf: string;
+  ledgerRevision: string;
+  summary: {
+    issuedShares: number;
+    paidShares: number;
+    bonusShares: number;
+    acquisitionCost: { amount: string; currency: "USD" };
+  };
+  holdings: Array<{
+    orderReference: string | null;
+    certificateNumber: string;
+    certificateStatus: string;
+    issuedAt: string;
+    revokedAt: string | null;
+    phaseNumber: number | null;
+    paidShares: number;
+    bonusShares: number;
+    totalShares: number;
+    distinctiveFrom: number | null;
+    distinctiveTo: number | null;
+    acquisitionCost: { amount: string; currency: string };
+    issuePricePerPaidShare: { amount: string; currency: string } | null;
+    verificationId: string | null;
+  }>;
+  capabilities: { canApplyForMoreShares: boolean; applicationUrl: string };
+};
+
 export type SharesData = {
   phases: SharePhase[];
   activeShares: Share[];
@@ -124,5 +153,64 @@ export function buildSharesData(
     dailyProfitSharePerShare: 0,
     myDailyProfitShare: 0,
     totalSharesOutstanding: phases.reduce((sum, phase) => sum + phase.soldShares, 0),
+  };
+}
+
+export function buildSharesDataFromPortfolio(
+  portfolio: ShareholderPortfolioV2,
+  phaseRecords: EncoreSharePhase[] = [],
+): SharesData {
+  const phases = phaseRecords.map(mapSharePhase);
+  const mapHolding = (holding: ShareholderPortfolioV2["holdings"][number]): Share => {
+    const acquisitionCost = Number(holding.acquisitionCost.amount);
+    const issuePrice = holding.issuePricePerPaidShare ? Number(holding.issuePricePerPaidShare.amount) : 0;
+    return {
+      id: holding.certificateNumber,
+      phase: holding.phaseNumber ?? 0,
+      pricePerShare: issuePrice,
+      quantity: holding.totalShares,
+      paidShares: holding.paidShares,
+      bonusShares: holding.bonusShares,
+      totalAmount: acquisitionCost,
+      certificateNo: holding.certificateNumber,
+      prevCertificateNo: null,
+      status: holding.certificateStatus.toUpperCase(),
+      createdAt: holding.issuedAt,
+      isLegacy: holding.phaseNumber === 1 && holding.bonusShares > 0,
+      // Retained only for the existing presentation model. These are historical
+      // acquisition terms, never a market or current valuation.
+      currentValuePerShare: issuePrice,
+      currentTotalValue: acquisitionCost,
+    };
+  };
+  const activeShares = portfolio.holdings
+    .filter((holding) => holding.certificateStatus.toLowerCase() !== "revoked")
+    .map(mapHolding);
+  const retractedShares = portfolio.holdings
+    .filter((holding) => holding.certificateStatus.toLowerCase() === "revoked")
+    .map(mapHolding);
+  const acquisitionCost = Number(portfolio.summary.acquisitionCost.amount);
+  const averagePaidIssuePrice = portfolio.summary.paidShares > 0
+    ? acquisitionCost / portfolio.summary.paidShares
+    : 0;
+  return {
+    phases,
+    activeShares,
+    retractedShares,
+    aureusShares: [],
+    retractedAureusShares: [],
+    totalShares: portfolio.summary.issuedShares,
+    totalValue: acquisitionCost,
+    shareValuePerShare: averagePaidIssuePrice,
+    legacyShares: portfolio.summary.bonusShares,
+    aureusValuePerShare: 0,
+    aureusTotalShares: 0,
+    aureusTotalValue: 0,
+    profitShareAvailable: false,
+    dailyProfitSharePerShare: 0,
+    myDailyProfitShare: 0,
+    totalSharesOutstanding: phases.length > 0
+      ? phases.reduce((sum, phase) => sum + phase.soldShares, 0)
+      : portfolio.summary.issuedShares,
   };
 }
