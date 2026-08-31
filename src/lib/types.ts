@@ -95,6 +95,8 @@ export interface Share {
   phase: number;
   pricePerShare: number;
   quantity: number;
+  paidShares?: number;
+  bonusShares?: number;
   totalAmount: number;
   certificateNo: string;
   prevCertificateNo: string | null;

@@ -29,7 +29,7 @@ interface AdminOverviewBundle {
   vouchers: { vouchers: { id: string; memberId: string; code: string; title: string; description: string; provider: string; value: number; category: string; status: string; issueDate: string; expiryDate: string; anniversaryDate: string | null; wablastSent: boolean; expiringSent: boolean; createdAt: string }[] };
   referrals: { referrals: { id: string; referrerId: string; referredId: string | null; referralCode: string; referredName: string; referredEmail: string; referredMobile: string; status: string; rewardAmount: number; createdAt: string; convertedAt: string | null }[] };
   notifications: { notifications: { id: string; memberId: string; daysBefore: number; channel: string; status: string; message: string; sentAt: string }[]; activeMembers: number };
-  phases: { phases: { id: string; phaseNumber: number; quantityAvailable: number; pricePerShare: string; currency: string; status: string; totalShares?: number; bonusBuyOneGet?: boolean; createdAt?: string; updatedAt?: string }[] };
+  phases: { phases: { id: string; phaseNumber: number; quantityAvailable: number; pricePerShare: string; currency: string; status: string; totalShares: number; bonusBuyOneGet: boolean; createdAt: string; updatedAt: string }[] };
   dividends: { dividends: { id: string; amount: number; totalShares: number; perShareAmount: number; status: string; declaredAt: string; paidAt: string | null }[] };
   activity: { transactions: { id: string; transactionType: string; referenceType: string; referenceId: string; description: string; createdAt: string; profileId: string | null; amount: number }[] };
 }
@@ -43,7 +43,7 @@ export const adminOverview = api<void, AdminOverviewBundle>(
   { method: "GET", path: "/admin/overview", expose: true },
   async () => {
     await requireAdminAccess();
-    const cached = await cacheRead(adminOverviewCache, "bundle-v1");
+    const cached = await cacheRead(adminOverviewCache, "bundle-v2");
     if (cached) return cached;
 
     const [members, shares, roots, marketplace, mall, pool, vouchers, referrals, notifications, phases, dividends, activity] = await Promise.all([
@@ -61,7 +61,7 @@ export const adminOverview = api<void, AdminOverviewBundle>(
       listLedgerTransactions(),
     ]);
     const response = { members, shares, roots, marketplace, mall, pool, vouchers, referrals, notifications, phases, dividends, activity };
-    await cacheWrite(adminOverviewCache, "bundle-v1", response);
+    await cacheWrite(adminOverviewCache, "bundle-v2", response);
     return response;
   },
 );
