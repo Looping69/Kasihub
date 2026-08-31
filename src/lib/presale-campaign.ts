@@ -4,6 +4,8 @@ export type PresaleCampaignSaveInput = {
   priceUsd: number;
   startsAt?: string;
   endsAt?: string;
+  tokenContract?: string;
+  receivingAddress?: string;
   [key: string]: unknown;
 };
 
@@ -30,5 +32,7 @@ export function campaignSavePayload<T extends PresaleCampaignSaveInput>(draft: T
     priceUsd: draft.priceUsd,
     startsAt: draft.startsAt ? new Date(draft.startsAt).toISOString() : undefined,
     endsAt: draft.endsAt ? new Date(draft.endsAt).toISOString() : undefined,
+    tokenContract: draft.tokenContract?.trim() || undefined,
+    receivingAddress: draft.receivingAddress?.trim() || undefined,
   };
 }

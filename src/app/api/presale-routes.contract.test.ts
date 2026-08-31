@@ -372,6 +372,17 @@ describe("presale BFF contracts", () => {
     expect((await submitProof(jsonPost("/api/presale/orders/KSP/payment-proof", {}), orderContext)).status).toBe(403);
   });
 
+  test("campaign save exposes a bounded backend validation message", async () => {
+    const { EncoreRequestError } = await import("@/lib/encore-client");
+    mocks.encoreRequest.mockRejectedValueOnce(new EncoreRequestError("invalid", 400, {
+      message: "Campaign end must be after its start",
+    }));
+
+    const response = await saveCampaign(jsonPost("/api/admin/presale/campaigns", {}));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "Campaign end must be after its start" });
+  });
+
   test.each([
     ["campaign list", () => listCampaigns()],
     ["incorporation prepare", () => prepareBatch(jsonPost("/api/admin/presale/incorporation-batches", {}))],
