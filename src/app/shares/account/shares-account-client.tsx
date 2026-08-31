@@ -7,6 +7,24 @@ import Link from "next/link";
 import { CheckCircle2, Clock3, Download, FileCheck2, Layers3, LoaderCircle, LogOut, RefreshCw, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import {
+  allowsApplicantAction,
+  applicantJourneyPresentation,
+  readApplicantAuthority,
+  type ApplicantAuthority,
+  type PresaleReservationContract,
+} from "@/lib/applicant-portal-contract";
 
 type Portal = {
   applicant: { profileNumber: string; email: string };
@@ -33,6 +51,9 @@ type Portal = {
     reason: "resume" | "resume_credential_unavailable" | "no_application" | "invitation_unavailable" | "application_not_editable" | "reservation_in_progress" | "signup_complete";
     resumeUrl: string | null;
   };
+  journey?: unknown;
+  reservation?: unknown;
+  authority: ApplicantAuthority;
 };
 
 const SIGNUP_STEPS = [
@@ -56,8 +77,9 @@ export function SharesAccountClient() {
     if (response.status === 401 || response.status === 403) { setPortal(null); return; }
     const body = await response.json();
     if (!response.ok) throw new Error(body.error ?? "Applicant status is unavailable");
-    setPortal(body);
-    if (body.order?.status !== "awaiting_payment") setConfirmingPayment(false);
+    const authority = readApplicantAuthority(body);
+    setPortal({ ...body, authority });
+    if (authority.journey.state !== "awaiting_payment") setConfirmingPayment(false);
   }, []);
 
   useEffect(() => {
@@ -68,7 +90,7 @@ export function SharesAccountClient() {
   }, [loadPortal]);
 
   useEffect(() => {
-    if (portal?.order?.paymentRail !== "webpay_card" || portal.order.status !== "awaiting_payment") return;
+    if (!portal?.authority.available || portal.authority.reservation?.paymentMethod !== "webpay_card" || portal.authority.journey.state !== "awaiting_payment") return;
     const returnState = new URLSearchParams(window.location.search).get("payment");
     if (returnState !== "webpay" && returnState !== "cancelled") return;
     const startTimer = returnState === "webpay" ? window.setTimeout(() => setConfirmingPayment(true), 0) : undefined;
@@ -85,7 +107,7 @@ export function SharesAccountClient() {
       if (startTimer !== undefined) window.clearTimeout(startTimer);
       window.clearInterval(interval);
     };
-  }, [loadPortal, portal?.order?.paymentRail, portal?.order?.status]);
+  }, [loadPortal, portal?.authority.available, portal?.authority.journey.state, portal?.authority.reservation?.paymentMethod]);
 
   async function login(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -106,8 +128,6 @@ export function SharesAccountClient() {
   }
 
   async function cancelReservation(orderReference: string) {
-    const confirmed = window.confirm("Cancel this unpaid reservation? Continue only if no card payment or crypto transfer has been sent. The reserved allocation will be released so you can choose another payment method.");
-    if (!confirmed) return;
     setError("");
     const response = await fetch(`/api/presale/orders/${encodeURIComponent(orderReference)}/cancel`, {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -179,16 +199,19 @@ function PortalView({ portal, error, confirmingPayment, recheckingPayment, payme
 }) {
   const shareholder = portal.shareholder ?? { totalIssuedShares: 0, holdings: [] };
   const isShareholder = shareholder.totalIssuedShares > 0;
+  const journey = applicantJourneyPresentation(portal.authority.journey);
+  const reservation = portal.authority.reservation;
   return <div className="space-y-6">
     <div><p className="text-xs font-bold uppercase tracking-[.18em] text-amber-300">{isShareholder ? "Shareholder account" : "Applicant account"}</p><h1 className="mt-2 text-3xl font-black">Welcome back</h1><p className="mt-2 text-slate-300">{portal.applicant.email} · {portal.applicant.profileNumber}</p></div>
     <div className="grid gap-5 md:grid-cols-3">
       <StatusCard title="Application" value={portal.application ? `Step ${portal.application.nextStep} of 5` : "Not started"} detail={portal.application?.applicationNumber ?? "No application record"} complete={Boolean(portal.application && portal.application.phaseCompleted >= 4 && portal.kyc.verified)} />
       <StatusCard title="Identity verification" value={portal.kyc.verified ? "Verified" : portal.kyc.status} detail="ID, liveness and face match" complete={portal.kyc.verified} />
-      <StatusCard title="Reservation" value={confirmingPayment ? "confirming_payment" : portal.order?.status ?? "Not created"} detail={portal.order?.orderReference ?? "Payment remains locked until eligible"} complete={Boolean(portal.order && ["confirmed", "incorporated"].includes(portal.order.status))} />
+      <StatusCard title="Applicant journey" value={confirmingPayment ? "Confirming WebPay notification" : journey.label} detail={reservation?.orderReference ?? journey.detail} complete={journey.complete} attention={journey.attention} />
     </div>
+    {!portal.authority.available ? <p role="alert" className="rounded-xl border border-rose-300/30 bg-rose-400/10 p-4 text-sm leading-6 text-rose-100"><strong className="block text-white">Applicant controls are safely locked</strong>The server authority contract is unavailable or incomplete. No payment, cancellation, or continuation action has been enabled.</p> : null}
     {portal.order?.webPayProcessStatus && ["FAILED", "REJECTED", "EXPIRED", "REVERSED"].includes(portal.order.webPayProcessStatus) ? <p role="status" className="rounded-xl border border-rose-300/30 bg-rose-400/10 p-4 text-sm text-rose-100">The last WebPay attempt was {portal.order.webPayProcessStatus.toLowerCase()}. No successful card payment was recorded and no shares were allocated.</p> : null}
     {confirmingPayment ? <p role="status" className="rounded-xl border border-sky-300/30 bg-sky-400/10 p-4 text-sm text-sky-100">WebPay returned successfully. We are waiting for the signed payment notification before confirming your shares.</p> : null}
-    {portal.order?.paymentRail === "remitano_usdt" && ["payment_submitted", "payment_detected"].includes(portal.order.status) ? <CryptoPaymentRecovery order={portal.order} rechecking={recheckingPayment} notice={paymentNotice} onRecheck={onRecheck} /> : null}
+    {portal.order?.paymentRail === "remitano_usdt" && reservation && allowsApplicantAction(portal.authority, "recheck_payment") ? <CryptoPaymentRecovery order={portal.order} reservation={reservation} rechecking={recheckingPayment} notice={paymentNotice} onRecheck={onRecheck} /> : null}
     {shareholder.holdings.length > 0 ? <ShareholderPortfolio shareholder={shareholder} /> : null}
     <ContinuationPanel portal={portal} error={error} onCancel={onCancel} />
     <p className="flex items-center gap-2 text-xs text-slate-400"><ShieldCheck className="h-4 w-4" />KaSiShares access remains separate. Normal dashboard and matrix access require an activated membership subscription.</p>
@@ -207,8 +230,8 @@ function paymentStatusMessage(status?: string, reason?: string): string {
   return "Verification is still pending. Your submitted hash is saved and automatic retries remain active.";
 }
 
-function CryptoPaymentRecovery({ order, rechecking, notice, onRecheck }: {
-  order: PortalOrder; rechecking: boolean; notice: string; onRecheck: (orderReference: string) => Promise<void>;
+function CryptoPaymentRecovery({ order, reservation, rechecking, notice, onRecheck }: {
+  order: PortalOrder; reservation: PresaleReservationContract; rechecking: boolean; notice: string; onRecheck: (orderReference: string) => Promise<void>;
 }) {
   const statusMessage = paymentStatusMessage(order.paymentVerificationStatus, order.paymentVerificationReason);
   return <section className="rounded-2xl border border-amber-300/30 bg-[#0f2744] p-7" aria-labelledby="crypto-payment-heading">
@@ -216,9 +239,9 @@ function CryptoPaymentRecovery({ order, rechecking, notice, onRecheck }: {
       <div className="max-w-2xl">
         <p className="text-xs font-bold uppercase tracking-[.18em] text-amber-300">Crypto payment recovery</p>
         <h2 id="crypto-payment-heading" className="mt-2 text-2xl font-black">Your share choice is preserved</h2>
-        <p className="mt-2 text-sm leading-6 text-slate-300">{order.quantity.toLocaleString()} paid {order.quantity === 1 ? "share is" : "shares are"} reserved for {order.totalUsdt} USDT. A second purchase form is intentionally locked while this payment is verified.</p>
+        <p className="mt-2 text-sm leading-6 text-slate-300">{reservation.paidShares.toLocaleString()} paid {reservation.paidShares === 1 ? "share is" : "shares are"} reserved for {reservation.totalUsdt} USDT. A second purchase form is intentionally locked while this payment is verified.</p>
       </div>
-      <Button type="button" disabled={rechecking || !order.transactionHash} onClick={() => void onRecheck(order.orderReference)} className="bg-amber-400 font-bold text-slate-950 hover:bg-amber-300 disabled:opacity-60">
+      <Button type="button" disabled={rechecking || !order.transactionHash} onClick={() => void onRecheck(reservation.orderReference)} className="bg-amber-400 font-bold text-slate-950 hover:bg-amber-300 disabled:opacity-60">
         {rechecking ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
         {rechecking ? "Checking payment…" : "Recheck payment"}
       </Button>
@@ -281,6 +304,12 @@ function ContinuationPanel({ portal, error, onCancel }: { portal: Portal; error:
   const canUseTestInvitation = Boolean(portal.testInviteUrl && (
     continuation.reason === "no_application" || continuation.reason === "resume_credential_unavailable"
   ));
+  const canResume = allowsApplicantAction(portal.authority, "resume_application") || allowsApplicantAction(portal.authority, "resume_kyc");
+  const reservation = portal.authority.reservation;
+  const canCancel = Boolean(
+    reservation?.cancellation.eligible
+    && allowsApplicantAction(portal.authority, "cancel_reservation"),
+  );
   const content = ({
     resume: {
       title: "Continue signup",
@@ -319,11 +348,9 @@ function ContinuationPanel({ portal, error, onCancel }: { portal: Portal; error:
         <h2 className="mt-1 text-2xl font-bold">{content.title}</h2>
         <p className="mt-2 text-sm leading-6 text-slate-300">{content.detail}</p>
       </div>
-      {continuation.reason === "resume" && continuation.resumeUrl ? <Button asChild className="bg-amber-400 font-bold text-slate-950 hover:bg-amber-300">
+      {continuation.reason === "resume" && continuation.resumeUrl && canResume ? <Button asChild className="bg-amber-400 font-bold text-slate-950 hover:bg-amber-300">
         <Link href={continuation.resumeUrl}>Continue signup</Link>
-      </Button> : continuation.reason === "reservation_in_progress" && portal.order?.status === "awaiting_payment" ? <Button type="button" variant="outline" className="border-rose-300/50 bg-rose-400/10 text-rose-100 hover:bg-rose-400/20" onClick={() => void onCancel(portal.order!.orderReference)}>
-        Cancel unpaid reservation &amp; change payment method
-      </Button> : canUseTestInvitation ? <Button asChild className="bg-amber-400 font-bold text-slate-950 hover:bg-amber-300">
+      </Button> : canCancel && reservation ? <CancelReservationDialog reservation={reservation} onCancel={onCancel} /> : canUseTestInvitation && allowsApplicantAction(portal.authority, "start_with_invitation") ? <Button asChild className="bg-amber-400 font-bold text-slate-950 hover:bg-amber-300">
         <Link href={portal.testInviteUrl!}>Open test invitation</Link>
       </Button> : null}
     </div>
@@ -334,7 +361,24 @@ function ContinuationPanel({ portal, error, onCancel }: { portal: Portal; error:
   </section>;
 }
 
-function StatusCard({ title, value, detail, complete }: { title: string; value: string; detail: string; complete: boolean }) {
+function CancelReservationDialog({ reservation, onCancel }: { reservation: PresaleReservationContract; onCancel: (orderReference: string) => Promise<void> }) {
+  return <AlertDialog>
+    <AlertDialogTrigger asChild><Button type="button" variant="outline" className="border-rose-300/50 bg-rose-400/10 text-rose-100 hover:bg-rose-400/20">Cancel unpaid reservation &amp; change payment method</Button></AlertDialogTrigger>
+    <AlertDialogContent className="border-rose-300/30 bg-slate-950 text-white">
+      <AlertDialogHeader>
+        <AlertDialogTitle>Release reservation {reservation.orderReference}?</AlertDialogTitle>
+        <AlertDialogDescription className="leading-6 text-slate-300">Confirm only if no card payment or crypto transfer has been sent. Cancelling releases {reservation.totalAllocatedShares.toLocaleString()} allocated shares and cannot be undone from this screen.</AlertDialogDescription>
+      </AlertDialogHeader>
+      <AlertDialogFooter>
+        <AlertDialogCancel className="border-white/20 bg-transparent text-white hover:bg-white/10">Keep reservation</AlertDialogCancel>
+        <AlertDialogAction className="bg-rose-500 font-bold text-white hover:bg-rose-400" onClick={() => void onCancel(reservation.orderReference)}>I have not paid — release it</AlertDialogAction>
+      </AlertDialogFooter>
+    </AlertDialogContent>
+  </AlertDialog>;
+}
+
+function StatusCard({ title, value, detail, complete, attention = false }: { title: string; value: string; detail: string; complete: boolean; attention?: boolean }) {
   const Icon = complete ? CheckCircle2 : Clock3;
-  return <div className="rounded-2xl border border-white/10 bg-[#0f2744] p-5"><Icon className={`h-6 w-6 ${complete ? "text-emerald-400" : "text-amber-300"}`} /><p className="mt-4 text-xs uppercase tracking-wider text-slate-400">{title}</p><p className="mt-1 text-xl font-bold">{value}</p><p className="mt-2 text-xs leading-5 text-slate-400">{detail}</p></div>;
+  const color = complete ? "text-emerald-400" : attention ? "text-rose-300" : "text-amber-300";
+  return <div className="rounded-2xl border border-white/10 bg-[#0f2744] p-5"><Icon className={`h-6 w-6 ${color}`} /><p className="mt-4 text-xs uppercase tracking-wider text-slate-400">{title}</p><p className="mt-1 text-xl font-bold">{value}</p><p className="mt-2 text-xs leading-5 text-slate-400">{detail}</p></div>;
 }

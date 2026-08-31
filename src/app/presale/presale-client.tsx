@@ -10,7 +10,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { PRESALE_DEV_PREVIEW_OFFER, type PresaleDevPreviewOffer } from "@/lib/presale-dev-preview";
-import { availablePaidShares, formatUsdt } from "@/lib/presale-display";
+import { availablePaidShares, formatUsdt, multiplyDecimalByWhole } from "@/lib/presale-display";
+import { submittedTransactionHashMessage, submittedTransactionHashPattern, validSubmittedTransactionHash, type SupportedPaymentNetwork } from "@/lib/payment-transaction-hash";
+import {
+  allowsApplicantAction,
+  applicantJourneyPresentation,
+  readApplicantAuthority,
+  type ApplicantAuthority,
+} from "@/lib/applicant-portal-contract";
 
 type Offer = PresaleDevPreviewOffer & {
   invitationEmail?: string;
@@ -54,6 +61,8 @@ type ResumePortal = {
   application: null | { applicantType: "individual" | "company" | "trust"; nextStep: number; draft: Record<string, string | boolean> | null };
   kyc: { status: string; verified: boolean };
   continuation?: { nextStep: number | null; reason: string; resumeUrl: string | null };
+  journey?: unknown;
+  reservation?: unknown;
 };
 
 const APPLICATION_PHASES = [
@@ -113,18 +122,6 @@ function resumeNationalNumber(value?: string): string {
   return value ? parsePhoneNumberFromString(value)?.nationalNumber ?? value : "";
 }
 
-function statusLabel(status: string) {
-  return ({
-    awaiting_payment: "Awaiting USDT payment",
-    payment_submitted: "Transaction submitted",
-    payment_detected: "Payment detected — confirming",
-    confirmed: "Payment confirmed",
-    expired: "Reservation expired",
-    cancelled: "Order cancelled",
-    incorporated: "Shares incorporated",
-  } as Record<string, string>)[status] ?? status;
-}
-
 export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken: string; devPreview?: boolean }) {
   const [offer, setOffer] = useState<Offer | null>(devPreview ? PRESALE_DEV_PREVIEW_OFFER : null);
   const [order, setOrder] = useState<Order | null>(null);
@@ -158,7 +155,50 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
   const [resumeApplicant, setResumeApplicant] = useState<ResumePortal["applicant"] | null>(null);
   const [resumeLoading, setResumeLoading] = useState(!devPreview);
   const [resumeDraft, setResumeDraft] = useState<Record<string, string | boolean> | null>(null);
+  const [applicantAuthority, setApplicantAuthority] = useState<ApplicantAuthority | null>(null);
   const applicationFormRef = useRef<HTMLFormElement | null>(null);
+  const portalHydratedRef = useRef(false);
+
+  const loadApplicantPortal = useCallback(async (): Promise<ApplicantAuthority | null> => {
+    if (devPreview) return null;
+    const response = await fetch("/api/presale/portal", { cache: "no-store" });
+    if (response.status === 401 || response.status === 403) return null;
+    if (!response.ok) throw new Error("Applicant status is temporarily unavailable");
+    const portal = await response.json() as ResumePortal;
+    const authority = readApplicantAuthority(portal);
+    setApplicantAuthority(authority);
+    setMemberProfileNumber(portal.applicant.profileNumber);
+    setKycVerification({ required: true, verified: portal.kyc.verified, status: portal.kyc.status, caseId: null });
+    if (portal.kyc.verified || portal.kyc.status.toLowerCase() !== "pending") setVerificationStarted(true);
+    const shouldHydrate = !portalHydratedRef.current;
+    if (shouldHydrate) {
+      portalHydratedRef.current = true;
+      setResumeApplicant(portal.applicant);
+      const restoredPhone = parsePhoneNumberFromString(portal.applicant.phone);
+      if (restoredPhone) {
+        const restoredCountryCode = `+${restoredPhone.countryCallingCode}`;
+        const restoredNationalNumber = restoredPhone.nationalNumber;
+        setPhoneCountryCode(restoredCountryCode);
+        setConfirmPhoneCountryCode(restoredCountryCode);
+        setPhoneNumber(restoredNationalNumber);
+        setConfirmPhoneNumber(restoredNationalNumber);
+      }
+      // The first authenticated response hydrates saved fields once. Later
+      // polling must not overwrite values the applicant is actively editing.
+      if (portal.application) {
+        setApplicantType(portal.application.applicantType);
+        setResumeDraft(portal.application.draft);
+        if (typeof portal.application.draft?.sourceOfFunds === "string") setSourceOfFunds(portal.application.draft.sourceOfFunds);
+        if (typeof portal.application.draft?.quantity === "string") setQuantity(portal.application.draft.quantity);
+        if (portal.application.draft?.paymentRail === "webpay_card" || portal.application.draft?.paymentRail === "remitano_usdt") setPaymentRail(portal.application.draft.paymentRail);
+        if (authority.available && (allowsApplicantAction(authority, "resume_application") || allowsApplicantAction(authority, "resume_kyc") || allowsApplicantAction(authority, "create_reservation"))) {
+          const authoritativeNextStep = portal.continuation?.nextStep ?? portal.application.nextStep;
+          setApplicationPhase(Math.max(1, Math.min(5, authoritativeNextStep)));
+        }
+      }
+    }
+    return authority;
+  }, [devPreview]);
 
   useEffect(() => {
     // Development preview has static display data and cannot contact the BFF.
@@ -178,36 +218,10 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
   useEffect(() => {
     if (devPreview) return;
     const timer = window.setTimeout(() => {
-      void fetch("/api/presale/portal", { cache: "no-store" }).then(async (response) => {
-        if (!response.ok) return;
-        const portal = await response.json() as ResumePortal;
-        setResumeApplicant(portal.applicant);
-        const restoredPhone = parsePhoneNumberFromString(portal.applicant.phone);
-        if (restoredPhone) {
-          const restoredCountryCode = `+${restoredPhone.countryCallingCode}`;
-          const restoredNationalNumber = restoredPhone.nationalNumber;
-          setPhoneCountryCode(restoredCountryCode);
-          setConfirmPhoneCountryCode(restoredCountryCode);
-          setPhoneNumber(restoredNationalNumber);
-          setConfirmPhoneNumber(restoredNationalNumber);
-        }
-        setMemberProfileNumber(portal.applicant.profileNumber);
-        setKycVerification({ required: true, verified: portal.kyc.verified, status: portal.kyc.status, caseId: null });
-        setVerificationStarted(portal.kyc.verified || portal.kyc.status.toLowerCase() !== "pending");
-        if (!portal.application) return;
-        setApplicantType(portal.application.applicantType);
-        setResumeDraft(portal.application.draft);
-        if (typeof portal.application.draft?.sourceOfFunds === "string") setSourceOfFunds(portal.application.draft.sourceOfFunds);
-        if (typeof portal.application.draft?.quantity === "string") setQuantity(portal.application.draft.quantity);
-        if (portal.application.draft?.paymentRail === "webpay_card" || portal.application.draft?.paymentRail === "remitano_usdt") {
-          setPaymentRail(portal.application.draft.paymentRail);
-        }
-        const authoritativeNextStep = portal.continuation?.nextStep ?? portal.application.nextStep;
-        setApplicationPhase(Math.max(1, Math.min(5, authoritativeNextStep)));
-      }).catch(() => undefined).finally(() => setResumeLoading(false));
+      void loadApplicantPortal().catch(() => undefined).finally(() => setResumeLoading(false));
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [devPreview]);
+  }, [devPreview, loadApplicantPortal]);
 
   useEffect(() => {
     const form = applicationFormRef.current;
@@ -227,15 +241,18 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
   }, [resumeDraft]);
 
   const refreshOrder = useCallback(async () => {
-    if (!order || !accessToken) return;
-    // Keep the bearer-style access token out of browser history and request URLs.
-    // Author: Klaasvaakie ( |╲ )
-    const response = await fetch(`/api/presale/orders/${encodeURIComponent(order.orderReference)}`, {
-      cache: "no-store",
-      headers: { "X-Presale-Access-Token": accessToken },
-    });
-    if (response.ok) setOrder((await response.json()).order);
-  }, [accessToken, order]);
+    const orderReference = order?.orderReference;
+    if (orderReference && accessToken) {
+      // Keep the bearer-style access token out of browser history and request URLs.
+      // Author: Klaasvaakie ( |╲ )
+      const response = await fetch(`/api/presale/orders/${encodeURIComponent(orderReference)}`, {
+        cache: "no-store",
+        headers: { "X-Presale-Access-Token": accessToken },
+      });
+      if (response.ok) setOrder((await response.json()).order);
+    }
+    await loadApplicantPortal();
+  }, [accessToken, loadApplicantPortal, order?.orderReference]);
 
   const refreshKycVerification = useCallback(async () => {
     if (devPreview) return null;
@@ -245,20 +262,22 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
     const verification = payload.verification as KycVerification;
     setKycVerification(verification);
     if (verification.verified) setApplicationPhase(5);
+    await loadApplicantPortal();
     return verification;
-  }, [devPreview]);
+  }, [devPreview, loadApplicantPortal]);
 
   useEffect(() => {
-    if (!order || !accessToken || ["confirmed", "expired", "cancelled", "incorporated"].includes(order.status)) return;
+    if (!applicantAuthority?.available || !["payment", "incorporation"].includes(applicantAuthority.journey.polling)) return;
     const timer = window.setInterval(() => { void refreshOrder(); }, 10_000);
     return () => window.clearInterval(timer);
-  }, [accessToken, order, refreshOrder]);
+  }, [applicantAuthority?.available, applicantAuthority?.journey.polling, refreshOrder]);
 
   useEffect(() => {
     if (!verificationStarted || kycVerification?.verified || devPreview) return;
+    if (applicantAuthority?.available && applicantAuthority.journey.polling !== "kyc") return;
     const timer = window.setInterval(() => { void refreshKycVerification().catch(() => undefined); }, 10_000);
     return () => window.clearInterval(timer);
-  }, [devPreview, verificationStarted, kycVerification?.verified, refreshKycVerification]);
+  }, [applicantAuthority?.available, applicantAuthority?.journey.polling, devPreview, verificationStarted, kycVerification?.verified, refreshKycVerification]);
 
   useEffect(() => {
     // A fresh applicant must accept the phase-four declarations before KYC can
@@ -268,8 +287,11 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
   }, [applicationPhase, devPreview, memberProfileNumber, verificationStarted, kycVerification, refreshKycVerification]);
 
   const maximumPaidShares = offer ? availablePaidShares(offer.invitationSharesRemaining, offer.sharesRemaining) : 0;
-  const totalPreview = offer ? Number(offer.priceUsdt) * Number(quantity || 0) : 0;
-  const webPayUnitPriceZar = Number(offer?.webPayUnitPriceZar ?? 450);
+  const totalPreview = offer ? multiplyDecimalByWhole(offer.priceUsdt, quantity || "0") : null;
+  const webPayUnitPriceZar = offer?.webPayUnitPriceZar && /^\d+(?:\.\d+)?$/.test(offer.webPayUnitPriceZar)
+    ? offer.webPayUnitPriceZar
+    : null;
+  const webPayTotalZar = webPayUnitPriceZar ? multiplyDecimalByWhole(webPayUnitPriceZar, quantity || "0") : null;
   const validatedPhoneNumber = validatedInternationalCellphone(phoneCountryCode, phoneNumber);
   const validatedConfirmPhoneNumber = validatedInternationalCellphone(confirmPhoneCountryCode, confirmPhoneNumber);
   const phoneNumberValid = Boolean(validatedPhoneNumber);
@@ -280,11 +302,17 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
   );
   const passwordValid = validAccountPassword(password);
   const confirmPasswordValid = passwordValid && confirmPassword === password;
+  const reservation = applicantAuthority?.reservation ?? null;
+  const canCreateReservation = allowsApplicantAction(applicantAuthority, "create_reservation");
 
   async function createOrder(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (devPreview) return;
     if (!offer) return;
+    if (!canCreateReservation) {
+      setError("The server has not authorised reservation creation. Refresh your identity status or open your KaSiShares account.");
+      return;
+    }
     const form = event.currentTarget;
     const invalidControl = firstInvalidApplicationControl(form);
     if (invalidControl) {
@@ -385,6 +413,10 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
       setOrder(payload.order);
       setAccessToken(payload.accessToken);
       setReservationEmailDelayed(payload.emailStatus === "failed");
+      const authority = await loadApplicantPortal();
+      if (!authority?.available || !authority.reservation) {
+        throw new Error("The reservation was created, but its authoritative status could not be loaded. Open your KaSiShares account before taking payment action.");
+      }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Order could not be created");
     } finally {
@@ -394,7 +426,15 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
 
   async function submitProof(event: FormEvent) {
     event.preventDefault();
-    if (!order) return;
+    const reservation = applicantAuthority?.reservation;
+    if (!order || !reservation || !allowsApplicantAction(applicantAuthority, "submit_payment_hash")) return;
+    const paymentNetwork = reservation.network?.toLowerCase() as SupportedPaymentNetwork;
+    if ((paymentNetwork !== "bsc" && paymentNetwork !== "tron") || !validSubmittedTransactionHash(paymentNetwork, txHash)) {
+      setError(paymentNetwork === "tron"
+        ? submittedTransactionHashMessage("tron")
+        : submittedTransactionHashMessage("bsc"));
+      return;
+    }
     setSubmitting(true);
     setError("");
     try {
@@ -406,6 +446,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error ?? "Transaction could not be submitted");
       await refreshOrder();
+      await loadApplicantPortal();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Transaction could not be submitted");
     } finally {
@@ -414,14 +455,16 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
   }
 
   async function copyAddress() {
-    if (!order) return;
-    await navigator.clipboard.writeText(order.receivingAddress);
+    const receivingAddress = applicantAuthority?.reservation?.receivingAddress;
+    if (!receivingAddress) return;
+    await navigator.clipboard.writeText(receivingAddress);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1500);
   }
 
   async function startIdentityVerification() {
     if (devPreview || verificationStarted) return;
+    if (!allowsApplicantAction(applicantAuthority, "resume_kyc")) throw new Error("The server has not authorised identity verification for this application state.");
     const response = await fetch("/api/presale/kyc-session", { method: "POST" });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error ?? "Identity verification could not be started");
@@ -433,7 +476,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
   }
 
   async function startWebPayCheckout() {
-    if (!order || order.paymentRail !== "webpay_card" || !accessToken) return;
+    if (!order || !accessToken || !allowsApplicantAction(applicantAuthority, "start_card_checkout")) return;
     setSubmitting(true);
     setError("");
     try {
@@ -497,6 +540,10 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
     setMemberProfileNumber(payload.profileNumber);
     setAccountEmailStatus(payload.emailStatus);
     if (payload.emailStatus === "sent" || payload.emailStatus === "existing") setAccountNotice(true);
+    // The applicant is already editing this live form. Refresh authority only;
+    // do not remount and rehydrate it from a just-created server draft.
+    portalHydratedRef.current = true;
+    await loadApplicantPortal();
   }
 
   function applicationDraft(form: HTMLFormElement): Record<string, string | boolean> {
@@ -519,6 +566,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
       body: JSON.stringify({ phaseCompleted, draft: applicationDraft(form) }),
     });
     if (!response.ok) throw new Error("Application progress could not be saved.");
+    await loadApplicantPortal();
   }
 
   async function advanceApplication(event: React.MouseEvent<HTMLButtonElement>) {
@@ -551,6 +599,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
       setError("");
       try {
         await saveProgress(form, 3);
+        await saveProgress(form, 4);
         await startIdentityVerification();
         const verification = await refreshKycVerification();
         if (!verification?.verified) return;
@@ -574,7 +623,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
   }
 
   if (loading || resumeLoading) return <Shell><p className="text-sm text-slate-400">Opening private application…</p></Shell>;
-  if (!devPreview && (!inviteToken || (!offer && error))) return (
+  if (!devPreview && (!inviteToken || (!offer && error && !reservation))) return (
     <Shell>
       <Card className="w-full max-w-xl border-white/10 bg-white/5 text-white">
         <CardHeader><LockKeyhole className="mb-3 h-8 w-8 text-amber-400" /><h2 className="font-semibold leading-none">Private invitation required</h2>
@@ -582,6 +631,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
       </Card>
     </Shell>
   );
+  if (!offer && reservation && applicantAuthority) return <Shell><ReservationStateCard authority={applicantAuthority} order={order} accessToken={accessToken} error={error} submitting={submitting} txHash={txHash} copied={copied} reservationEmailDelayed={reservationEmailDelayed} onTxHashChange={setTxHash} onSubmitProof={submitProof} onCopyAddress={copyAddress} onStartWebPay={startWebPayCheckout} /></Shell>;
   if (!offer) return null;
 
   return (
@@ -602,14 +652,14 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
             ))}
           </div>
           <div className="grid gap-3 sm:grid-cols-3">
-            <Metric label="Price per paid share" value={`$${Number(offer.priceUsd).toLocaleString(undefined, { maximumFractionDigits: 2 })}`} />
+            <Metric label="Price per paid share" value={`$${formatUsdt(offer.priceUsd)}`} />
             <Metric label="USDT price" value={`${formatUsdt(offer.priceUsdt)} USDT`} />
             <Metric label="Your allocation" value={`${offer.invitationSharesRemaining.toLocaleString()} shares`} />
             <Metric label="Network" value={offer.network} />
           </div>
         </section>
 
-        {!order ? (
+        {!reservation && !order ? (
           <Card className="presale-form-card min-w-0 text-white shadow-2xl shadow-black/20">
             <CardHeader><p className="text-xs font-bold uppercase tracking-[.18em] text-amber-300">Investor application</p><h2 className="mt-2 font-semibold leading-none">{APPLICATION_PHASES[applicationPhase - 1].title}</h2><CardDescription className="text-slate-400">Step {applicationPhase} of 5 · {APPLICATION_PHASES[applicationPhase - 1].description}</CardDescription></CardHeader>
             <CardContent><form ref={applicationFormRef} key={resumeApplicant?.profileNumber ?? "new-applicant"} className="space-y-5" noValidate onSubmit={createOrder}>
@@ -651,9 +701,9 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
               </div>
               <div data-application-phase="2" hidden={applicationPhase !== 2} className="space-y-5">
               <SectionTitle>Investment</SectionTitle>
-              <Field label="Phase 1 shares at $25 each *"><Input name="quantity" type="number" required min={1} max={maximumPaidShares} value={quantity} onChange={(event) => setQuantity(event.target.value)} className="border-white/15 bg-black/20" /></Field>
+              <Field label={`Paid ${offer.shareClass} at $${formatUsdt(offer.priceUsd)} each *`}><Input name="quantity" type="number" required min={1} max={maximumPaidShares} value={quantity} onChange={(event) => setQuantity(event.target.value)} className="border-white/15 bg-black/20" /></Field>
               <p className="text-xs text-emerald-200">This invitation allows up to {maximumPaidShares.toLocaleString()} paid shares. Each paid share receives one bonus share free.</p>
-              <div className="rounded-xl border border-amber-400/20 bg-amber-400/10 p-4 text-sm text-amber-100"><p className="font-semibold text-white">Estimated investment</p><p className="mt-1">Your current total is {formatUsdt(totalPreview)} USDT. The final amount and payment window are confirmed when your reservation is created.</p></div>
+              <div className="rounded-xl border border-amber-400/20 bg-amber-400/10 p-4 text-sm text-amber-100"><p className="font-semibold text-white">Estimated investment</p><p className="mt-1">Your current total is {formatUsdt(totalPreview ?? "0")} USDT. The final amount and payment window are confirmed when your reservation is created.</p></div>
               </div>
               <div data-application-phase="3" hidden={applicationPhase !== 3} className="space-y-5">
               <SectionTitle>Source of funds</SectionTitle>
@@ -692,9 +742,9 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
                 <label className={`block cursor-pointer rounded-xl border p-4 transition ${paymentRail === "remitano_usdt" ? "border-amber-300 bg-amber-300/10" : "border-white/15 bg-black/20"}`}>
                   <span className="flex items-start gap-3"><input name="paymentRail" type="radio" value="remitano_usdt" checked={paymentRail === "remitano_usdt"} onChange={() => setPaymentRail("remitano_usdt")} className="mt-1" required /><span><strong className="block text-white">International payment — Remitano</strong><span className="mt-1 block text-xs leading-5 text-slate-300">Pay the locked USDT amount using the displayed blockchain network and receiving address.</span></span></span>
                 </label>
-                <label className={`block cursor-pointer rounded-xl border p-4 transition ${paymentRail === "webpay_card" ? "border-sky-300 bg-sky-300/10" : "border-white/15 bg-black/20"}`}>
-                  <span className="flex items-start gap-3"><input name="paymentRail" type="radio" value="webpay_card" checked={paymentRail === "webpay_card"} onChange={() => setPaymentRail("webpay_card")} className="mt-1" required /><span><strong className="block text-white">Debit or credit card — WebPay</strong><span className="mt-1 block text-xs leading-5 text-slate-300">R{webPayUnitPriceZar.toFixed(2)} per paid share. Your card details are entered only on the secure WebPay checkout.</span><span className="mt-2 block font-bold text-sky-100">Total: R{(Number(quantity || 0) * webPayUnitPriceZar).toFixed(2)}</span></span></span>
-                </label>
+                {webPayUnitPriceZar && webPayTotalZar ? <label className={`block cursor-pointer rounded-xl border p-4 transition ${paymentRail === "webpay_card" ? "border-sky-300 bg-sky-300/10" : "border-white/15 bg-black/20"}`}>
+                  <span className="flex items-start gap-3"><input name="paymentRail" type="radio" value="webpay_card" checked={paymentRail === "webpay_card"} onChange={() => setPaymentRail("webpay_card")} className="mt-1" required /><span><strong className="block text-white">Debit or credit card — WebPay</strong><span className="mt-1 block text-xs leading-5 text-slate-300">R{webPayUnitPriceZar} per paid share. Your card details are entered only on the secure WebPay checkout.</span><span className="mt-2 block font-bold text-sky-100">Estimated total: R{webPayTotalZar}</span></span></span>
+                </label> : null}
               </fieldset>
               <a href={TERMS_PDF_PATH} target="_blank" rel="noreferrer" className="inline-flex text-sm font-semibold text-amber-200 underline underline-offset-4 hover:text-amber-100">Open the authoritative terms PDF</a>
               <div tabIndex={0} onScroll={(event) => { const node = event.currentTarget; if (node.scrollTop + node.clientHeight >= node.scrollHeight - 8) setTermsRead(true); }} className="h-[32rem] overflow-y-auto rounded-xl border border-white/15 bg-slate-100 p-2" aria-label="Investor terms document">
@@ -703,6 +753,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
               <label className="flex items-start gap-3 text-xs leading-5 text-slate-300"><input name="termsAccepted" type="checkbox" required disabled={!termsRead} className="mt-1" />
                 <span>I accept the presale reservation acknowledgement (version {offer.termsVersion}) and understand that blockchain confirmation is payment evidence, not a Share Subscription Agreement or final share certificate.</span></label>
               {!termsRead && <p className="text-xs text-amber-200">Read and scroll through the complete terms to enable acceptance.</p>}
+              {!devPreview && !canCreateReservation ? <p role="status" className="rounded-lg border border-amber-300/30 bg-amber-400/10 p-3 text-xs leading-5 text-amber-100">Reservation remains locked until the server confirms that the application and identity checks are complete.</p> : null}
               </div>
               {error && applicationPhase !== 4 && <p role="alert" className="text-sm text-red-300">{error}</p>}
               <div className="flex gap-3">
@@ -711,52 +762,83 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
                     <ChevronLeft className="mr-1 h-4 w-4" />Back
                   </Button>
                 )}
-                {applicationPhase < 5 ? <Button type="button" className="flex-1 bg-amber-400 font-bold text-slate-950 hover:bg-amber-300" disabled={submitting || (applicationPhase === 4 && verificationStarted && !kycVerification?.verified)} onClick={advanceApplication}>{submitting && applicationPhase === 1 ? "Creating member profile…" : submitting && applicationPhase === 4 ? "Opening verification…" : applicationPhase === 4 && verificationStarted && !kycVerification?.verified ? "Awaiting verification" : applicationPhase === 4 && kycVerification?.status === "PENDING" ? "Resume identity verification" : applicationPhase === 4 ? "Verify ID" : "Continue"}<ChevronRight className="ml-1 h-4 w-4" /></Button> : devPreview ? <Button type="button" aria-label="Read-only preview — no reservation" className="flex-1 bg-slate-500 font-bold text-white" disabled>Preview only</Button> : <Button formNoValidate className="flex-1 bg-amber-400 font-bold text-slate-950 hover:bg-amber-300" disabled={submitting || !termsRead}>PAY NOW</Button>}
+                {applicationPhase < 5 ? <Button type="button" className="flex-1 bg-amber-400 font-bold text-slate-950 hover:bg-amber-300" disabled={submitting || (applicationPhase === 4 && verificationStarted && !kycVerification?.verified)} onClick={advanceApplication}>{submitting && applicationPhase === 1 ? "Creating member profile…" : submitting && applicationPhase === 4 ? "Opening verification…" : applicationPhase === 4 && verificationStarted && !kycVerification?.verified ? "Awaiting verification" : applicationPhase === 4 && kycVerification?.status === "PENDING" ? "Resume identity verification" : applicationPhase === 4 ? "Verify ID" : "Continue"}<ChevronRight className="ml-1 h-4 w-4" /></Button> : devPreview ? <Button type="button" aria-label="Read-only preview — no reservation" className="flex-1 bg-slate-500 font-bold text-white" disabled>Preview only</Button> : <Button formNoValidate className="flex-1 bg-amber-400 font-bold text-slate-950 hover:bg-amber-300" disabled={submitting || !termsRead || !canCreateReservation}>Create reservation</Button>}
               </div>
             </form></CardContent>
           </Card>
+        ) : applicantAuthority?.available && reservation ? (
+          <ReservationStateCard authority={applicantAuthority} order={order} accessToken={accessToken} error={error} submitting={submitting} txHash={txHash} copied={copied} reservationEmailDelayed={reservationEmailDelayed} onTxHashChange={setTxHash} onSubmitProof={submitProof} onCopyAddress={copyAddress} onStartWebPay={startWebPayCheckout} />
         ) : (
-          <Card className="presale-form-card min-w-0 text-white shadow-2xl shadow-black/20">
-            <CardHeader><div className="flex items-start justify-between gap-4"><div><h2 className="font-semibold leading-none">{statusLabel(order.status)}</h2><CardDescription className="mt-2 text-slate-400">{order.orderReference}</CardDescription></div>
-              {order.status === "confirmed" ? <CheckCircle2 className="h-8 w-8 text-emerald-400" /> : <Clock3 className="h-8 w-8 text-amber-400" />}</div></CardHeader>
-            <CardContent className="space-y-5">
-              {reservationEmailDelayed ? <div role="status" className="rounded-xl border border-amber-400/30 bg-amber-400/10 p-4 text-sm leading-6 text-amber-100"><strong className="block text-white">Reservation confirmed — email delayed</strong>Your confirmation email is queued for automatic retry. You can continue securely with the payment instructions below; your reservation and order reference are already saved.</div> : null}
-              {order.paymentRail === "webpay_card" ? <div className="rounded-xl border border-sky-400/30 bg-sky-400/10 p-4">
-                <p className="text-xs uppercase tracking-wider text-sky-200">WebPay card amount</p><p className="mt-1 text-3xl font-black text-white">R{order.totalZar}</p>
-                <p className="mt-1 text-sm text-sky-100/80">R{order.unitPriceZar} per paid share · bonus shares are free</p>
-                <p className="mt-3 border-t border-sky-200/20 pt-3 text-sm text-sky-50">Pay before <time dateTime={order.paymentDeadline} className="font-semibold">{new Date(order.paymentDeadline).toLocaleString()}</time>.</p>
-              </div> : <div className="rounded-xl border border-amber-400/20 bg-amber-400/10 p-4">
-                <p className="text-xs uppercase tracking-wider text-amber-200">Send exactly</p><p className="mt-1 text-3xl font-black text-white">{order.totalUsdt} USDT</p>
-                <p className="mt-1 text-sm text-amber-100/80">using {order.network} only</p>
-                <p className="mt-3 border-t border-amber-200/20 pt-3 text-sm text-amber-50">Pay before <time dateTime={order.paymentDeadline} className="font-semibold">{new Date(order.paymentDeadline).toLocaleString()}</time>. Do not send funds after this deadline.</p>
-              </div>}
-              {order.paymentRail === "remitano_usdt" && <>
-                <div className="rounded-xl border border-rose-400/30 bg-rose-400/10 p-4 text-sm leading-6 text-rose-50">
-                  <p className="font-semibold">The receiving address must get exactly {order.totalUsdt} USDT.</p>
-                  <p className="mt-1 text-rose-100/85">Exchange withdrawal fees and network fees are additional. If your wallet deducts fees from the amount, increase the amount sent so the recipient still receives exactly {order.totalUsdt} USDT.</p>
-                  <p className="mt-1 text-rose-100/85">Send USDT on {order.network} only. Do not send BNB or another token, even if it uses the same network.</p>
-                </div>
-                <div><p className="mb-2 text-xs uppercase tracking-wider text-slate-400">Receiving address</p><div className="flex gap-2"><code className="min-w-0 flex-1 break-all rounded-lg bg-black/30 p-3 text-xs text-slate-200">{order.receivingAddress}</code>
-                  <Button type="button" variant="outline" size="icon" onClick={copyAddress} aria-label="Copy receiving address"><Copy className="h-4 w-4" /></Button></div>{copied && <p className="mt-1 text-xs text-emerald-300">Address copied</p>}</div>
-                {order.tokenContract && <div><p className="mb-1 text-xs uppercase tracking-wider text-slate-400">Verified USDT contract</p><code className="break-all text-xs text-slate-300">{order.tokenContract}</code></div>}
-              </>}
-              {order.status === "confirmed" ? (
-                <div className="rounded-xl border border-emerald-400/20 bg-emerald-400/10 p-4 text-sm text-emerald-100">Payment has reached {order.confirmations} confirmations. Your order is secured and ready for the next processing step.</div>
-              ) : order.paymentRail === "webpay_card" ? (
-                <div className="space-y-3"><div className="rounded-xl border border-sky-400/20 bg-sky-400/10 p-4 text-sm leading-6 text-sky-100">Your reservation is locked to WebPay. You will enter card details only on WebPay&apos;s secure hosted checkout.</div>{error && <p className="text-sm text-red-300">{error}</p>}<Button type="button" className="w-full bg-sky-300 font-bold text-slate-950 hover:bg-sky-200" disabled={submitting} onClick={() => void startWebPayCheckout()}>{submitting ? "Opening WebPay…" : "Continue to secure WebPay checkout"}</Button></div>
-              ) : (
-                <form className="space-y-3" onSubmit={submitProof}><Field label="Transaction hash"><Input value={txHash} onChange={(event) => setTxHash(event.target.value)} required minLength={16} placeholder="Paste the blockchain transaction hash" className="border-white/15 bg-black/20" /></Field>
-                  {error && <p className="text-sm text-red-300">{error}</p>}<Button className="w-full" disabled={submitting}>{submitting ? "Submitting…" : "Submit hash"}</Button></form>
-              )}
-              {order.transactionHash && <div className="text-xs text-slate-400">Confirmations: {order.confirmations}/{order.minConfirmations}<br /><span className="break-all">{order.transactionHash}</span></div>}
-              <p className="text-xs leading-5 text-slate-500">Never send assets on another network. A transaction hash is not accepted as settled until the configured blockchain verifier confirms the receiver, token contract, amount, and confirmation depth.</p>
-            </CardContent>
-          </Card>
+          <Card className="presale-form-card min-w-0 text-white shadow-2xl shadow-black/20"><CardHeader><Clock3 className="mb-3 h-8 w-8 text-amber-300" /><h2 className="font-semibold leading-none">Reservation saved — controls locked</h2><CardDescription className="text-slate-400">The reservation response was accepted, but the authoritative journey contract could not be loaded. No payment action is enabled.</CardDescription></CardHeader><CardContent><Button asChild variant="outline" className="w-full border-white/20 bg-transparent text-white"><Link href="/shares/account">Open KaSiShares account</Link></Button>{error ? <p role="alert" className="mt-4 text-sm text-red-300">{error}</p> : null}</CardContent></Card>
         )}
       </div>
       {accountNotice && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-5" role="dialog" aria-modal="true" aria-labelledby="account-email-title"><div className="w-full max-w-md rounded-2xl border border-emerald-400/30 bg-slate-950 p-6 text-white shadow-2xl"><CheckCircle2 className="h-9 w-9 text-emerald-400" /><h2 id="account-email-title" className="mt-4 text-xl font-bold">Shareholder profile created</h2><p className="mt-3 text-sm leading-6 text-slate-300">An email has been sent to you with your shareholder login details if you need to continue the process.</p><p className="mt-2 text-xs leading-5 text-slate-500">For your security, the email contains the login link and account identity, never your password.</p><Button type="button" className="mt-6 w-full bg-emerald-400 text-slate-950 hover:bg-emerald-300" onClick={() => setAccountNotice(false)}>Continue application</Button></div></div>}
     </Shell>
   );
+}
+
+function ReservationStateCard({ authority, order, accessToken, error, submitting, txHash, copied, reservationEmailDelayed, onTxHashChange, onSubmitProof, onCopyAddress, onStartWebPay }: {
+  authority: ApplicantAuthority;
+  order: Order | null;
+  accessToken: string;
+  error: string;
+  submitting: boolean;
+  txHash: string;
+  copied: boolean;
+  reservationEmailDelayed: boolean;
+  onTxHashChange: (value: string) => void;
+  onSubmitProof: (event: FormEvent) => Promise<void>;
+  onCopyAddress: () => Promise<void>;
+  onStartWebPay: () => Promise<void>;
+}) {
+  const reservation = authority.reservation;
+  if (!reservation) return null;
+  const presentation = applicantJourneyPresentation(authority.journey);
+  const paymentNetwork = reservation.network?.toLowerCase() as SupportedPaymentNetwork;
+  const canSubmitHash = Boolean(order && accessToken && allowsApplicantAction(authority, "submit_payment_hash"));
+  const canStartCard = Boolean(order && accessToken && allowsApplicantAction(authority, "start_card_checkout"));
+  const needsAccountAction = allowsApplicantAction(authority, "recheck_payment")
+    || allowsApplicantAction(authority, "cancel_reservation")
+    || ((allowsApplicantAction(authority, "submit_payment_hash") || allowsApplicantAction(authority, "start_card_checkout")) && (!order || !accessToken));
+  const Icon = presentation.complete ? CheckCircle2 : Clock3;
+
+  return <Card className="presale-form-card min-w-0 text-white shadow-2xl shadow-black/20">
+    <CardHeader><div className="flex items-start justify-between gap-4"><div><p className="text-xs font-bold uppercase tracking-[.18em] text-amber-300">{reservation.phaseLabel} · {reservation.campaignName}</p><h2 className="mt-2 font-semibold leading-none">{presentation.label}</h2><CardDescription className="mt-2 text-slate-400">{reservation.orderReference}</CardDescription></div><Icon className={`h-8 w-8 ${presentation.complete ? "text-emerald-400" : presentation.attention ? "text-rose-300" : "text-amber-400"}`} /></div></CardHeader>
+    <CardContent className="space-y-5">
+      <p role="status" className={`rounded-xl border p-4 text-sm leading-6 ${presentation.attention ? "border-rose-300/30 bg-rose-400/10 text-rose-100" : "border-white/10 bg-white/5 text-slate-200"}`}>{presentation.detail}</p>
+      {reservationEmailDelayed ? <div role="status" className="rounded-xl border border-amber-400/30 bg-amber-400/10 p-4 text-sm leading-6 text-amber-100"><strong className="block text-white">Reservation confirmed — email delayed</strong>Your confirmation email is queued for automatic retry. You can continue securely with the payment instructions below; your reservation and order reference are already saved.</div> : null}
+      <dl className="grid gap-3 rounded-xl border border-white/10 bg-black/15 p-4 sm:grid-cols-2">
+        <div><dt className="text-xs uppercase tracking-wider text-slate-400">Paid allocation</dt><dd className="mt-1 font-bold">{reservation.paidShares.toLocaleString()} paid + {reservation.bonusShares.toLocaleString()} bonus</dd></div>
+        <div><dt className="text-xs uppercase tracking-wider text-slate-400">Total shares</dt><dd className="mt-1 font-bold">{reservation.totalAllocatedShares.toLocaleString()}</dd></div>
+        <div><dt className="text-xs uppercase tracking-wider text-slate-400">Issuer</dt><dd className="mt-1 font-bold">{reservation.issuerName}</dd></div>
+        <div><dt className="text-xs uppercase tracking-wider text-slate-400">Share class</dt><dd className="mt-1 font-bold">{reservation.shareClass}</dd></div>
+      </dl>
+      {reservation.paymentMethod === "webpay_card" ? <div className="rounded-xl border border-sky-400/30 bg-sky-400/10 p-4">
+        <p className="text-xs uppercase tracking-wider text-sky-200">WebPay card obligation</p><p className="mt-1 text-3xl font-black text-white">R{reservation.totalZar}</p>
+        <p className="mt-1 text-sm text-sky-100/80">R{reservation.unitPriceZar} per paid share · bonus shares are free</p>
+        <p className="mt-3 border-t border-sky-200/20 pt-3 text-sm text-sky-50">Pay before <time dateTime={reservation.paymentDeadline} className="font-semibold">{new Date(reservation.paymentDeadline).toLocaleString()}</time>.</p>
+      </div> : <>
+        <div className="rounded-xl border border-amber-400/20 bg-amber-400/10 p-4">
+          <p className="text-xs uppercase tracking-wider text-amber-200">USDT payment obligation</p><p className="mt-1 text-3xl font-black text-white">{reservation.totalUsdt} USDT</p>
+          <p className="mt-1 text-sm text-amber-100/80">using {reservation.network} only</p>
+          <p className="mt-3 border-t border-amber-200/20 pt-3 text-sm text-amber-50">Pay before <time dateTime={reservation.paymentDeadline} className="font-semibold">{new Date(reservation.paymentDeadline).toLocaleString()}</time>. Do not send funds after this deadline.</p>
+        </div>
+        <div className="rounded-xl border border-rose-400/30 bg-rose-400/10 p-4 text-sm leading-6 text-rose-50">
+          <p className="font-semibold">The receiving address must get exactly {reservation.totalUsdt} USDT.</p>
+          <p className="mt-1 text-rose-100/85">Exchange withdrawal fees and network fees are additional. If your wallet deducts fees from the amount, increase the amount sent so the recipient still receives exactly {reservation.totalUsdt} USDT.</p>
+          <p className="mt-1 text-rose-100/85">Send USDT on {reservation.network} only. Do not send BNB or another token, even if it uses the same network.</p>
+        </div>
+        {reservation.receivingAddress ? <div><p className="mb-2 text-xs uppercase tracking-wider text-slate-400">Receiving address</p><div className="flex gap-2"><code className="min-w-0 flex-1 break-all rounded-lg bg-black/30 p-3 text-xs text-slate-200">{reservation.receivingAddress}</code><Button type="button" variant="outline" size="icon" onClick={() => void onCopyAddress()} aria-label="Copy receiving address"><Copy className="h-4 w-4" /></Button></div>{copied ? <p className="mt-1 text-xs text-emerald-300">Address copied</p> : null}</div> : null}
+        {reservation.tokenContract ? <div><p className="mb-1 text-xs uppercase tracking-wider text-slate-400">Verified USDT contract</p><code className="break-all text-xs text-slate-300">{reservation.tokenContract}</code></div> : null}
+      </>}
+      {canStartCard ? <div className="space-y-3"><div className="rounded-xl border border-sky-400/20 bg-sky-400/10 p-4 text-sm leading-6 text-sky-100">Your reservation is locked to WebPay. You will enter card details only on WebPay&apos;s secure hosted checkout.</div><Button type="button" className="w-full bg-sky-300 font-bold text-slate-950 hover:bg-sky-200" disabled={submitting} onClick={() => void onStartWebPay()}>{submitting ? "Opening WebPay…" : "Continue to secure WebPay checkout"}</Button></div> : null}
+      {canSubmitHash ? <form className="space-y-3" onSubmit={(event) => void onSubmitProof(event)}><Field label="Transaction hash"><Input value={txHash} onChange={(event) => onTxHashChange(event.target.value)} required minLength={64} maxLength={66} pattern={submittedTransactionHashPattern(paymentNetwork)} title={submittedTransactionHashMessage(paymentNetwork)} placeholder="Paste the blockchain transaction hash" className="border-white/15 bg-black/20" /></Field><Button className="w-full" disabled={submitting}>{submitting ? "Submitting…" : "Submit hash"}</Button></form> : null}
+      {order?.transactionHash ? <div className="text-xs text-slate-400">Confirmations: {order.confirmations}/{reservation.requiredConfirmations ?? order.minConfirmations}<br /><span className="break-all">{order.transactionHash}</span></div> : null}
+      {needsAccountAction ? <Button asChild variant="outline" className="w-full border-white/20 bg-transparent text-white hover:bg-white/10"><Link href="/shares/account">Open applicant account for the next authorised action</Link></Button> : null}
+      {error ? <p role="alert" className="text-sm text-red-300">{error}</p> : null}
+      <p className="text-xs leading-5 text-slate-500">Never send assets on another network. A transaction hash is not accepted as settled until the configured blockchain verifier confirms the receiver, token contract, amount, and confirmation depth.</p>
+    </CardContent>
+  </Card>;
 }
 
 function Shell({ children }: { children: React.ReactNode }) {

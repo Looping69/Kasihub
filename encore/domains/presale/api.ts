@@ -34,6 +34,13 @@ import { buildShareholderPortfolio, type PresaleCertificate, type PresalePaidOrd
 import { internationalCellphoneSchema, physicalAddressLine, strongPasswordSchema } from "./applicant-validation";
 import { solidusCertificateNumber } from "../shares/certificate-numbering";
 import { sealPresaleCertificate } from "../shares/certificate-integrity";
+import { deriveApplicantJourney, type ApplicantJourneyDecision } from "./applicant-journey";
+import {
+  buildPresaleReservationContract,
+  deriveReservationCancellationPolicy,
+  type PresaleReservationContract,
+  type ReservationCancellationPolicy,
+} from "./reservation-contract";
 
 const PresaleWebhookSecret = secret("PresaleWebhookSecret");
 const InvestorApplicationEncryptionKey = secret("InvestorApplicationEncryptionKey");
@@ -1096,7 +1103,10 @@ interface PresalePortalResponse {
     transactionHash?: string; paymentVerificationStatus?: string; paymentVerificationReason?: string;
     paymentVerificationCheckedAt?: string; paymentConfirmations?: number;
     webPayProcessStatus?: string; webPayProcessStage?: string;
+    cancellation: ReservationCancellationPolicy;
   };
+  reservation: PresaleReservationContract | null;
+  journey: ApplicantJourneyDecision;
   shareholder: {
     totalIssuedShares: number;
     holdings: Array<{
@@ -1377,19 +1387,28 @@ export const presaleApplicantPortal = api<void, PresalePortalResponse>(
     const order = await presaleDb.rawQueryRow<{
       order_reference: string; status: string; incorporation_status: string;
       buyer_name: string; buyer_email: string; buyer_phone: string | null; quantity: number; payment_rail: PresalePaymentRail;
-      total_usdt: string; payment_intent_id: string | null; payment_network: string | null;
-      payment_min_confirmations: number | null; payment_transaction_hash: string | null; payment_confirmations: number | null;
+      unit_price_zar: string | null; total_zar: string | null; unit_price_usdt: string; total_usdt: string;
+      unit_price_usd: string; total_usd: string; payment_deadline: string; terms_version: string;
+      payment_intent_id: string | null; payment_network: string | null; payment_receiving_address: string | null;
+      payment_token_contract: string | null; payment_min_confirmations: number | null;
+      payment_transaction_hash: string | null; payment_confirmations: number | null; webpay_transaction_id: string | null;
       webpay_process_status: string | null; webpay_process_stage: string | null;
       investor_application_ciphertext: DatabaseBinary | null; investor_application_nonce: DatabaseBinary | null;
       investor_application_auth_tag: DatabaseBinary | null;
+      campaign_name: string; issuer_name: string; share_class: string; share_phase_number: number; bonus_buy_one_get_one: boolean;
     }>(
-      `SELECT order_reference, status, incorporation_status, buyer_name, buyer_email, buyer_phone, quantity, payment_rail,
-              total_usdt::text AS total_usdt, payment_intent_id, payment_network, payment_min_confirmations,
-              payment_transaction_hash, payment_confirmations,
-              webpay_process_status, webpay_process_stage,
-              investor_application_ciphertext, investor_application_nonce, investor_application_auth_tag
-       FROM presale_orders
-       WHERE external_profile_id = $1 ORDER BY created_at DESC LIMIT 1`,
+      `SELECT o.order_reference, o.status, o.incorporation_status, o.buyer_name, o.buyer_email, o.buyer_phone, o.quantity, o.payment_rail,
+              o.unit_price_zar::text AS unit_price_zar, o.total_zar::text AS total_zar,
+              o.unit_price_usdt::text AS unit_price_usdt, o.total_usdt::text AS total_usdt,
+              o.unit_price_usd::text AS unit_price_usd, o.total_usd::text AS total_usd,
+              o.payment_deadline, o.terms_version, o.payment_intent_id, o.payment_network,
+              o.payment_receiving_address, o.payment_token_contract, o.payment_min_confirmations,
+              o.payment_transaction_hash, o.payment_confirmations, o.webpay_transaction_id,
+              o.webpay_process_status, o.webpay_process_stage,
+              o.investor_application_ciphertext, o.investor_application_nonce, o.investor_application_auth_tag,
+              c.name AS campaign_name, c.issuer_name, c.share_class, c.share_phase_number, c.bonus_buy_one_get_one
+       FROM presale_orders o JOIN presale_campaigns c ON c.id = o.campaign_id
+       WHERE o.external_profile_id = $1 ORDER BY o.created_at DESC LIMIT 1`,
       session.profile.id,
     );
     const paymentAttempt = order?.payment_intent_id
@@ -1424,6 +1443,54 @@ export const presaleApplicantPortal = api<void, PresalePortalResponse>(
       session.profile.id,
     );
     const shareholder = buildShareholderPortfolio(paidOrders, certificates);
+    const transactionHash = order?.payment_transaction_hash ?? paymentAttempt?.transaction_hash ?? null;
+    const cancellation = order ? deriveReservationCancellationPolicy({
+      status: order.status,
+      transactionHash,
+      webPayTransactionId: order.webpay_transaction_id,
+    }) : null;
+    const reservation = order && cancellation ? buildPresaleReservationContract({
+      orderReference: order.order_reference,
+      phaseNumber: order.share_phase_number,
+      campaignName: order.campaign_name,
+      issuerName: order.issuer_name,
+      shareClass: order.share_class,
+      paidShares: order.quantity,
+      bonusBuyOneGetOne: order.bonus_buy_one_get_one,
+      paymentMethod: order.payment_rail,
+      unitPriceUsd: order.unit_price_usd,
+      totalUsd: order.total_usd,
+      unitPriceUsdt: order.unit_price_usdt,
+      totalUsdt: order.total_usdt,
+      unitPriceZar: order.unit_price_zar,
+      totalZar: order.total_zar,
+      network: order.payment_network,
+      tokenContract: order.payment_token_contract,
+      receivingAddress: order.payment_receiving_address,
+      requiredConfirmations: order.payment_min_confirmations,
+      paymentDeadline: order.payment_deadline,
+      termsVersion: order.terms_version,
+      status: order.status,
+      incorporationStatus: order.incorporation_status,
+      cancellation,
+    }) : null;
+    const currentHolding = order
+      ? shareholder.holdings.find((holding) => holding.orderReference === order.order_reference)
+      : undefined;
+    const journey = deriveApplicantJourney({
+      application: application ? { status: application.status, phaseCompleted: application.phase_completed } : null,
+      kycStatus: kyc?.status ?? null,
+      order: order ? {
+        status: order.status,
+        incorporationStatus: order.incorporation_status,
+        paymentRail: order.payment_rail,
+        paymentVerificationStatus: paymentAttempt?.verification_status,
+        hasTransactionHash: Boolean(transactionHash),
+        cancellationEligible: cancellation?.eligible ?? false,
+        cardCheckoutStarted: Boolean(order.webpay_transaction_id),
+      } : null,
+      holdingStatus: currentHolding?.status ?? null,
+    });
     const continuation = deriveApplicantContinuation({
       application: application ? {
         status: application.status,
@@ -1479,13 +1546,16 @@ export const presaleApplicantPortal = api<void, PresalePortalResponse>(
       order: order ? { orderReference: order.order_reference, status: order.status, incorporationStatus: order.incorporation_status,
         paymentRail: order.payment_rail, quantity: order.quantity, totalUsdt: order.total_usdt,
         paymentNetwork: order.payment_network ?? undefined, paymentMinConfirmations: order.payment_min_confirmations ?? undefined,
-        transactionHash: order.payment_transaction_hash ?? paymentAttempt?.transaction_hash ?? undefined,
+        transactionHash: transactionHash ?? undefined,
         paymentVerificationStatus: paymentAttempt?.verification_status,
         paymentVerificationReason: paymentAttempt?.verification_error_code ?? undefined,
         paymentVerificationCheckedAt: paymentAttempt?.verified_at ?? undefined,
         paymentConfirmations: order.payment_confirmations ?? paymentAttempt?.confirmations ?? undefined,
         webPayProcessStatus: order.webpay_process_status ?? undefined,
-        webPayProcessStage: order.webpay_process_stage ?? undefined } : null,
+        webPayProcessStage: order.webpay_process_stage ?? undefined,
+        cancellation: cancellation! } : null,
+      reservation,
+      journey,
       shareholder,
       ecosystemMembership: {
         enabled: ecosystemRole?.enabled ?? false,
@@ -2229,14 +2299,24 @@ export const cancelPresaleOrder = api<
   const tx = await presaleDb.begin();
   let obligations: string[] = [];
   try {
-    const target = await tx.rawQueryRow<{ invitation_id: string; status: string; webpay_transaction_id: string | null }>(
-      `SELECT invitation_id,status,webpay_transaction_id FROM presale_orders
+    const target = await tx.rawQueryRow<{
+      invitation_id: string; status: string; webpay_transaction_id: string | null; payment_transaction_hash: string | null;
+    }>(
+      `SELECT invitation_id,status,webpay_transaction_id,payment_transaction_hash FROM presale_orders
        WHERE order_reference = $1 AND external_profile_id::text = $2::text FOR UPDATE`,
       request.orderReference, session.profile.id,
     );
     if (!target) throw APIError.notFound("Reservation not found");
-    if (target.status !== "awaiting_payment") throw APIError.failedPrecondition("Only an unpaid reservation can be cancelled");
-    if (target.webpay_transaction_id) throw APIError.failedPrecondition("WebPay checkout has already started; contact support before changing payment method");
+    const cancellation = deriveReservationCancellationPolicy({
+      status: target.status,
+      transactionHash: target.payment_transaction_hash,
+      webPayTransactionId: target.webpay_transaction_id,
+    });
+    if (!cancellation.eligible) {
+      throw APIError.failedPrecondition(cancellation.reason === "card_checkout_started"
+        ? "WebPay checkout has already started; contact support before changing payment method"
+        : "Only an unpaid reservation with no payment activity can be cancelled");
+    }
 
     // Cancel every unpaid duplicate created for the same applicant invitation. This repairs historical
     // post-commit retry duplicates and preserves one clear business action for the applicant.
