@@ -12,6 +12,8 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:browser": "playwright test",
+    "test:presale:e2e": "node scripts/run-presale-e2e.mjs",
+    "test:presale:e2e:backend": "node scripts/run-presale-e2e.mjs --backend-only",
     "audit:production": "npm audit --omit=dev --audit-level=moderate"
   },
   "dependencies": {

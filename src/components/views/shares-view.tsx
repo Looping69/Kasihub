@@ -36,8 +36,16 @@ function memberDisplayName(member: Member | null): string {
   return member.email;
 }
 
-/** Open a new window with a printable KasiShare certificate and call print(). */
+/** Open the holder-authorised PDF generated from the sealed ledger snapshot. */
 function printKasiCertificate(share: Share, memberName: string) {
+  if (share.certificateNo) {
+    const certificateUrl = `/api/shares/certificates/${encodeURIComponent(share.certificateNo)}`;
+    const pdfWindow = window.open(certificateUrl, "_blank", "noopener,noreferrer");
+    if (!pdfWindow) toast.error("Pop-up blocked. Use the PDF button to open the certificate.");
+    return;
+  }
+  // Compatibility fallback for malformed pre-ledger fixtures only. Issued
+  // certificates always have a certificate number and use the sealed PDF path.
   const issued = new Date(share.createdAt).toLocaleDateString("en-ZA", {
     year: "numeric", month: "long", day: "numeric",
   });
@@ -235,14 +243,8 @@ export function SharesView() {
   const load = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
     setError(null);
-    if (!currentMember) {
-      setData(null);
-      setError("Your member profile is not available in this session. Refresh the page or sign in again.");
-      setLoading(false);
-      return;
-    }
     try {
-      const res = await fetch(`/api/shares?memberId=${encodeURIComponent(currentMember.id)}`, {
+      const res = await fetch("/api/member/shares", {
         cache: "no-store",
         signal,
       });
@@ -261,7 +263,7 @@ export function SharesView() {
     } finally {
       if (!signal?.aborted) setLoading(false);
     }
-  }, [currentMember]);
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -342,7 +344,7 @@ export function SharesView() {
             <div className="mt-4 grid grid-cols-2 gap-2">
               {[
                 ["Your holding", `${data.totalShares.toLocaleString()} shares`],
-                ["Current value", fmtUSD(data.totalValue)],
+                ["Acquisition cost", fmtUSD(data.totalValue)],
                 ["Open phase", activePhase ? `Phase ${activePhase.phase}` : "Not open"],
                 ["Certificates", `${kasiActiveCount} active`],
               ].map(([label, value]) => (
@@ -369,11 +371,11 @@ export function SharesView() {
             </div>
             <div>
               <p className="font-bold text-sm">KasiShares holdings</p>
-              <p className="text-[10px] text-muted-foreground">Current share value</p>
+              <p className="text-[10px] text-muted-foreground">Historical acquisition terms</p>
             </div>
           </div>
           <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-400 dark:border-amber-900">
-            <Sparkles className="h-3 w-3 mr-1" /> {fmtUSD(data.shareValuePerShare)} / share
+            <Sparkles className="h-3 w-3 mr-1" /> {fmtUSD(data.shareValuePerShare)} average paid issue price
           </Badge>
         </div>
 
@@ -390,13 +392,13 @@ export function SharesView() {
           </div>
           <div className="hidden sm:flex items-center justify-center text-amber-600 font-black text-xl">×</div>
           <div className="rounded-lg bg-white/70 dark:bg-card/60 p-3 text-center border border-amber-100 dark:border-amber-900/50">
-            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Share value</p>
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Average paid issue price</p>
             <p className="text-2xl font-black mt-0.5 text-amber-600">{fmtUSD(data.shareValuePerShare)}</p>
-            <p className="text-[10px] text-muted-foreground">per share</p>
+            <p className="text-[10px] text-muted-foreground">per paid share</p>
           </div>
           <div className="hidden sm:flex items-center justify-center text-amber-600 font-black text-xl">=</div>
           <div className="rounded-lg bg-emerald-50 dark:bg-emerald-950/30 p-3 text-center border-2 border-emerald-200 dark:border-emerald-900">
-            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Total value</p>
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Historical acquisition cost</p>
             <p className="text-2xl font-black mt-0.5 text-emerald-600">{fmtUSD(data.totalValue)}</p>
             <p className="text-[10px] text-muted-foreground">Purchase amount {fmtUSD(purchaseAmount)}</p>
           </div>
@@ -612,11 +614,11 @@ export function SharesView() {
                                 <p className="text-lg font-black">{s.quantity}</p>
                               </div>
                               <div>
-                                <p className="text-[10px] text-muted-foreground">Value/share</p>
+                                <p className="text-[10px] text-muted-foreground">Issue price/paid share</p>
                                 <p className="text-sm font-bold">{fmtUSD(s.currentValuePerShare ?? s.pricePerShare)}</p>
                               </div>
                               <div>
-                                <p className="text-[10px] text-muted-foreground">Current value</p>
+                                <p className="text-[10px] text-muted-foreground">Acquisition cost</p>
                                 <p className="text-sm font-bold">{fmtUSD(s.currentTotalValue ?? s.totalAmount)}</p>
                               </div>
                             </div>

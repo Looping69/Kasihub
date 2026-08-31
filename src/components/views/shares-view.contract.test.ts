@@ -17,8 +17,18 @@ describe("SharesView failure and authority contract", () => {
     expect(source).toContain("(aureusActiveCount > 0 || aureusRetractedCount > 0)");
   });
 
-  test("distinguishes current portfolio value from historical purchase amount", () => {
+  test("uses session-derived ownership and historical acquisition terminology", () => {
+    expect(source).toContain('fetch("/api/member/shares"');
+    expect(source).not.toContain("memberId=");
+    expect(source).toContain("Historical acquisition cost");
+    expect(source).toContain("Average paid issue price");
     expect(source).toContain("Purchase amount");
+    expect(source).not.toContain('["Current value"');
     expect(source).not.toContain("actual value");
+  });
+
+  test("prints issued presale certificates through the sealed PDF route", () => {
+    expect(source).toContain("/api/shares/certificates/");
+    expect(source).toContain("Open the holder-authorised PDF generated from the sealed ledger snapshot");
   });
 });
