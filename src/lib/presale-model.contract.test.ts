@@ -24,7 +24,7 @@ describe("presale payment contracts", () => {
   });
 
   test("records acceptance against the approved consolidated investor terms", () => {
-    expect(PRESALE_TERMS_VERSION).toBe("2026-08-16-v1");
+    expect(PRESALE_TERMS_VERSION).toBe("2026-08-29-v1.1");
   });
 
   test("creates one deterministic canonical event message", () => {
