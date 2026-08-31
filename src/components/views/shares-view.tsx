@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import {
   Coins, TrendingUp, Award, FileText, Loader2, Sparkles, DollarSign, Download,
   Check, Lock, Calendar, Printer, Gem,
-  ArrowRight, ShieldCheck,
+  ArrowRight, ShieldCheck, AlertTriangle, RefreshCw,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -18,27 +18,10 @@ import {
   Tabs, TabsList, TabsTrigger, TabsContent,
 } from "@/components/ui/tabs";
 import { useKasiStore } from "@/lib/store";
-import type { Share, SharePhase, AureusShare, Member } from "@/lib/types";
+import type { Share, AureusShare, Member } from "@/lib/types";
 import { toast } from "sonner";
 import { ActivePresaleCampaigns } from "@/components/views/active-presale-campaigns";
-
-interface SharesData {
-  phases: SharePhase[];
-  activeShares: Share[];
-  retractedShares: Share[];
-  aureusShares: AureusShare[];
-  retractedAureusShares: AureusShare[];
-  totalShares: number;
-  totalValue: number; // = sum of each share's quantity × its phase price
-  shareValuePerShare: number; // $39.95 default/legacy value
-  legacyShares: number; // count of Phase 1 BOGO shares (legacy FREE)
-  aureusValuePerShare: number; // $15.00
-  aureusTotalShares: number;
-  aureusTotalValue: number;
-  dailyProfitSharePerShare: number; // in ZAR
-  myDailyProfitShare: number; // in ZAR
-  totalSharesOutstanding: number;
-}
+import type { SharesData } from "@/lib/shares-portfolio";
 
 /** Derive a printable display name from a Member record. */
 function memberDisplayName(member: Member | null): string {
@@ -247,26 +230,71 @@ export function SharesView() {
   const { currentMember } = useKasiStore();
   const [data, setData] = useState<SharesData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  async function load() {
-    if (!currentMember) return;
-    try {
-      const res = await fetch(`/api/shares?memberId=${currentMember.id}`, { cache: "no-store" });
-      if (res.ok) setData(await res.json());
-    } finally {
+  const load = useCallback(async (signal?: AbortSignal) => {
+    setLoading(true);
+    setError(null);
+    if (!currentMember) {
+      setData(null);
+      setError("Your member profile is not available in this session. Refresh the page or sign in again.");
       setLoading(false);
+      return;
     }
-  }
-
-  useEffect(() => {
-    load();
+    try {
+      const res = await fetch(`/api/shares?memberId=${encodeURIComponent(currentMember.id)}`, {
+        cache: "no-store",
+        signal,
+      });
+      const payload = await res.json().catch(() => null) as SharesData | { error?: string } | null;
+      if (!res.ok) {
+        const message = payload && "error" in payload && typeof payload.error === "string"
+          ? payload.error
+          : "The authoritative share portfolio is temporarily unavailable.";
+        throw new Error(message);
+      }
+      setData(payload as SharesData);
+    } catch (reason) {
+      if (reason instanceof DOMException && reason.name === "AbortError") return;
+      setData(null);
+      setError(reason instanceof Error ? reason.message : "The authoritative share portfolio is temporarily unavailable.");
+    } finally {
+      if (!signal?.aborted) setLoading(false);
+    }
   }, [currentMember]);
 
-  if (loading || !data) {
+  useEffect(() => {
+    const controller = new AbortController();
+    void load(controller.signal);
+    return () => controller.abort();
+  }, [load]);
+
+  if (loading) {
     return (
-      <div className="flex items-center justify-center py-24">
+      <div className="flex items-center justify-center gap-3 py-24" role="status" aria-live="polite">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        <span className="text-sm text-muted-foreground">Loading your authoritative share portfolio...</span>
       </div>
+    );
+  }
+
+  if (error || !data) {
+    return (
+      <Card className="mx-auto max-w-2xl border-rose-200 bg-rose-50/60 p-7 dark:border-rose-900 dark:bg-rose-950/20" role="alert">
+        <div className="flex items-start gap-4">
+          <div className="rounded-xl bg-rose-100 p-2.5 text-rose-700 dark:bg-rose-950 dark:text-rose-300">
+            <AlertTriangle className="h-6 w-6" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h2 className="text-xl font-black">Your shares could not be loaded</h2>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">{error ?? "The authoritative share portfolio is temporarily unavailable."}</p>
+            <p className="mt-2 text-xs leading-5 text-muted-foreground">No share values or certificates are being estimated while the register is unavailable.</p>
+            <Button type="button" className="mt-5" onClick={() => void load()}>
+              <RefreshCw className="mr-2 h-4 w-4" /> Retry portfolio
+            </Button>
+          </div>
+        </div>
+      </Card>
     );
   }
 
@@ -281,8 +309,7 @@ export function SharesView() {
   const aureusActiveCount = data.aureusShares.length;
   const aureusRetractedCount = data.retractedAureusShares.length;
 
-  // Purchase price (actual value) = sum of totalAmount across active KasiShares
-  const actualPurchaseValue = data.activeShares.reduce((s, x) => s + (x.totalAmount ?? 0), 0);
+  const purchaseAmount = data.activeShares.reduce((sum, share) => sum + (share.totalAmount ?? 0), 0);
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto">
@@ -371,12 +398,12 @@ export function SharesView() {
           <div className="rounded-lg bg-emerald-50 dark:bg-emerald-950/30 p-3 text-center border-2 border-emerald-200 dark:border-emerald-900">
             <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Total value</p>
             <p className="text-2xl font-black mt-0.5 text-emerald-600">{fmtUSD(data.totalValue)}</p>
-            <p className="text-[10px] text-muted-foreground">(actual value {fmtUSD(actualPurchaseValue)})</p>
+            <p className="text-[10px] text-muted-foreground">Purchase amount {fmtUSD(purchaseAmount)}</p>
           </div>
         </div>
 
-        {/* Daily profit share mini-row */}
-        <div className="grid grid-cols-2 gap-3 mt-3">
+        {/* Profit-share values are shown only when an authoritative distribution is available. */}
+        {data.profitShareAvailable ? <div className="grid grid-cols-2 gap-3 mt-3">
           <div className="rounded-lg bg-emerald-50/70 dark:bg-emerald-950/20 p-3 border border-emerald-100 dark:border-emerald-900/50">
             <div className="flex items-center justify-between">
               <p className="text-[10px] text-muted-foreground">Daily profit share</p>
@@ -392,11 +419,13 @@ export function SharesView() {
             <p className="text-lg font-black mt-0.5">{fmtZAR(data.dailyProfitSharePerShare)}</p>
             <p className="text-[9px] text-muted-foreground mt-0.5">{data.totalSharesOutstanding.toLocaleString()} shares outstanding</p>
           </div>
-        </div>
+        </div> : <div className="mt-3 rounded-lg border border-sky-200 bg-sky-50/70 p-3 text-xs leading-5 text-sky-900 dark:border-sky-900 dark:bg-sky-950/20 dark:text-sky-200">
+          Profit-share values will appear here after an authoritative distribution has been declared. No payout is estimated from placeholder data.
+        </div>}
       </Card>
 
       {/* Aureus Shares section */}
-      <Card className="p-5 border-2 border-orange-200 dark:border-orange-900 bg-gradient-to-br from-orange-50/60 via-amber-50/30 to-orange-50/60 dark:from-orange-950/20 dark:via-amber-950/10 dark:to-orange-950/20">
+      {(aureusActiveCount > 0 || aureusRetractedCount > 0) && <Card className="p-5 border-2 border-orange-200 dark:border-orange-900 bg-gradient-to-br from-orange-50/60 via-amber-50/30 to-orange-50/60 dark:from-orange-950/20 dark:via-amber-950/10 dark:to-orange-950/20">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-orange-500 to-amber-700 flex items-center justify-center">
@@ -432,7 +461,7 @@ export function SharesView() {
             <p className="text-[10px] text-muted-foreground">at current rate</p>
           </div>
         </div>
-      </Card>
+      </Card>}
 
       {/* Phases */}
       <Card className="p-5">
@@ -441,14 +470,16 @@ export function SharesView() {
             <h3 className="font-bold">Share phases</h3>
             <p className="text-xs text-muted-foreground">Each phase has a set number of shares at a fixed price. Next phase opens when current sells out.</p>
           </div>
-          <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
-            <Sparkles className="h-3 w-3 mr-1" /> Phase 1 BOGO
-          </Badge>
+          {data.phases.some((phase) => phase.bonusBuyOneGet) && (
+            <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
+              <Sparkles className="h-3 w-3 mr-1" /> Bonus phase available
+            </Badge>
+          )}
         </div>
 
         <div className="space-y-3">
           {data.phases.map((p) => {
-            const soldPct = (p.soldShares / p.totalShares) * 100;
+            const soldPct = p.totalShares > 0 ? (p.soldShares / p.totalShares) * 100 : 0;
             const isOpen = p.status === "OPEN";
             return (
               <motion.div
@@ -478,7 +509,7 @@ export function SharesView() {
                     <Badge variant={isOpen ? "default" : "outline"} className={isOpen ? "bg-amber-500" : ""}>
                       {p.status === "OPEN" && "Open"}
                       {p.status === "UPCOMING" && "Upcoming"}
-                      {p.status === "SOLD_OUT" && "Sold out"}
+                      {p.status === "SOLD_OUT" ? "Sold out" : p.status !== "OPEN" && p.status !== "UPCOMING" ? p.status.replaceAll("_", " ") : null}
                     </Badge>
                     {isOpen && <Button size="sm" asChild><Link href="/presale">Apply</Link></Button>}
                     {!isOpen && <Lock className="h-4 w-4 text-muted-foreground" />}
@@ -574,7 +605,7 @@ export function SharesView() {
                             <div className="grid grid-cols-2 gap-3 mb-4">
                               <div>
                                 <p className="text-[10px] text-muted-foreground">Phase</p>
-                                <p className="text-lg font-black">{s.phase}</p>
+                                <p className="text-lg font-black">{s.phase > 0 ? s.phase : "See register"}</p>
                               </div>
                               <div>
                                 <p className="text-[10px] text-muted-foreground">Shares</p>
@@ -722,7 +753,7 @@ export function SharesView() {
                           <div className="grid grid-cols-2 gap-3 mb-4">
                             <div>
                               <p className="text-[10px] text-muted-foreground">Phase</p>
-                              <p className="text-lg font-black text-muted-foreground line-through">{s.phase}</p>
+                                <p className="text-lg font-black text-muted-foreground line-through">{s.phase > 0 ? s.phase : "See register"}</p>
                             </div>
                             <div>
                               <p className="text-[10px] text-muted-foreground">Shares</p>

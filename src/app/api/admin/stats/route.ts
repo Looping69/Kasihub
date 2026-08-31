@@ -1,6 +1,7 @@
 // Author: Klaasvaakie ( |╲ )
 import { NextResponse } from "next/server";
 import { EncoreRequestError, encoreRequest, encoreSessionToken } from "@/lib/encore-client";
+import { mapSharePhase, type EncoreSharePhase } from "@/lib/shares-portfolio";
 
 type Member = { id: string; createdAt: string; membershipType: string; subscriptionStatus: string; kycStatus: string; instapayStatus: string; profileNumber: string; firstName: string | null; lastName: string | null; companyName: string | null };
 type Share = { quantity: number; totalAmount: number };
@@ -9,7 +10,6 @@ type MallTransaction = { amount: number };
 type Voucher = { value: number; status: string; expiryDate: string };
 type Referral = { status: string; rewardAmount: number };
 type Notification = { daysBefore: number };
-type Phase = { id: string; phaseNumber: number; quantityAvailable: number; pricePerShare: string; status: string };
 type Activity = { id: string; transactionType: string; profileId: string | null; amount: number; description: string; createdAt: string };
 
 export async function GET() {
@@ -26,7 +26,7 @@ export async function GET() {
       vouchers: { vouchers: Voucher[] };
       referrals: { referrals: Referral[] };
       notifications: { notifications: Notification[] };
-      phases: { phases: Phase[] };
+      phases: { phases: EncoreSharePhase[] };
       dividends: { dividends: unknown[] };
       activity: { transactions: Activity[] };
     }>("/admin/overview", {}, token);
@@ -59,7 +59,7 @@ export async function GET() {
     });
     let cumulative = Math.max(0, members.length - memberGrowth.reduce((sum, entry) => sum + entry.count, 0));
     const cumulativeGrowth = memberGrowth.map((entry) => ({ date: entry.date, count: cumulative += entry.count }));
-    const phases = phaseData.phases.map((phase) => ({ id: phase.id, phase: phase.phaseNumber, pricePerShare: Number(phase.pricePerShare), totalShares: phase.quantityAvailable, soldShares: 0, status: phase.status === "active" ? "OPEN" : phase.status.toUpperCase(), bonusBuyOneGet: phase.phaseNumber === 1 }));
+    const phases = phaseData.phases.map(mapSharePhase);
     const memberById = new Map(members.map((member) => [member.id, member]));
     const recentActivity = activityData.transactions.map((transaction) => {
       const member = transaction.profileId ? memberById.get(transaction.profileId) : undefined;

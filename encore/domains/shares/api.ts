@@ -29,10 +29,10 @@ interface SharePhaseResponse {
   pricePerShare: string;
   currency: string;
   status: string;
-  totalShares?: number;
-  bonusBuyOneGet?: boolean;
-  createdAt?: string;
-  updatedAt?: string;
+  totalShares: number;
+  bonusBuyOneGet: boolean;
+  createdAt: string;
+  updatedAt: string;
 }
 
 interface SharePurchaseResponse {
@@ -58,7 +58,8 @@ const sharePurchaseRequest = z.object({
 export const myShares = api<
   { profileId: string },
   { certificates: { certificateNumber: string; totalShares: number; status: string; issuedAt: string; revokedAt: string | null;
-    distinctiveFrom?: number; distinctiveTo?: number; paidShares?: number; bonusShares?: number;
+    phaseNumber?: number; distinctiveFrom?: number; distinctiveTo?: number; paidShares?: number; bonusShares?: number;
+    purchaseTotalAmount?: number; source?: string;
     issuePricePerShare?: number; issuePriceCurrency?: string; verificationId?: string;
     holderNameSnapshot?: string; holderAddressSnapshot?: string; profileNumberSnapshot?: string;
     integrityPayload?: string; integrityHash?: string }[] }
@@ -72,23 +73,28 @@ export const myShares = api<
       status: string;
       issued_at: string;
       revoked_at: string | null;
+      phase_number: number | null;
       distinctive_from: number | null;
       distinctive_to: number | null;
       paid_shares: number | null;
       bonus_shares: number | null;
       issue_price_per_share: string | null;
       issue_price_currency: string | null;
+      purchase_total_amount: string | null;
+      source: string;
       verification_id: string | null;
       holder_name_snapshot: string | null;
       holder_address_snapshot: string | null;
       profile_number_snapshot: string | null;
       certificate_payload: string | null;
       certificate_payload_sha256: string | null;
-    }>(`SELECT certificate_number, total_shares, status, issued_at, revoked_at,
+    }>(`SELECT certificate_number, certificate.total_shares, certificate.status, certificate.issued_at, certificate.revoked_at,
+              COALESCE(certificate.phase_number, phase.phase_number) AS phase_number,
               distinctive_from, distinctive_to, paid_shares, bonus_shares,
               COALESCE(certificate.issue_price_per_share_snapshot,
                 CASE WHEN sp.quantity > 0 THEN sp.total_amount / sp.quantity ELSE NULL END)::text AS issue_price_per_share,
               COALESCE(certificate.issue_price_currency_snapshot, phase.currency) AS issue_price_currency,
+              sp.total_amount::text AS purchase_total_amount, certificate.source,
               verification_id,holder_name_snapshot,holder_address_snapshot,profile_number_snapshot,
               certificate_payload,certificate_payload_sha256
          FROM share_certificates certificate
@@ -105,10 +111,13 @@ export const myShares = api<
         status: row.status,
         issuedAt: row.issued_at,
         revokedAt: row.revoked_at,
+        phaseNumber: row.phase_number ?? undefined,
         distinctiveFrom: row.distinctive_from ?? undefined,
         distinctiveTo: row.distinctive_to ?? undefined,
         paidShares: row.paid_shares ?? undefined,
         bonusShares: row.bonus_shares ?? undefined,
+        purchaseTotalAmount: row.purchase_total_amount === null ? undefined : Number(row.purchase_total_amount),
+        source: row.source,
         issuePricePerShare: row.issue_price_per_share === null ? undefined : Number(row.issue_price_per_share),
         issuePriceCurrency: row.issue_price_currency ?? undefined,
         verificationId: row.verification_id ?? undefined,
@@ -183,7 +192,7 @@ export const listSharePhases = api<
 >(
   { method: "GET", path: "/shares/phases", expose: true },
   async () => {
-    const cached = await cacheRead(sharePhaseCache, "all-v1");
+    const cached = await cacheRead(sharePhaseCache, "all-v2");
     if (cached) return cached;
     const rows = await sharesDb.rawQueryAll<{
       id: string;
@@ -192,11 +201,24 @@ export const listSharePhases = api<
       price_per_share: string;
       currency: string;
       status: string;
-    }>("SELECT id, phase_number, quantity_available, price_per_share::text AS price_per_share, currency, status FROM share_phases ORDER BY phase_number");
+      total_quantity: number;
+      bonus_buy_one_get: boolean;
+      created_at: string;
+      updated_at: string;
+    }>(`SELECT id, phase_number, quantity_available, price_per_share::text AS price_per_share, currency, status,
+              total_quantity, bonus_buy_one_get, created_at, updated_at
+         FROM share_phases ORDER BY phase_number`);
     if (rows.length === 0) {
-      await sharesDb.rawExec(`INSERT INTO share_phases (phase_number, quantity_available, price_per_share, currency, status, starts_at)
-         VALUES (1, 100000, 25.00, 'USD', 'active', now())
-         ON CONFLICT (phase_number) DO UPDATE SET quantity_available = EXCLUDED.quantity_available, price_per_share = EXCLUDED.price_per_share, currency = EXCLUDED.currency, status = EXCLUDED.status`,
+      await sharesDb.rawExec(`INSERT INTO share_phases
+           (phase_number, quantity_available, total_quantity, price_per_share, currency, status, bonus_buy_one_get, starts_at)
+         VALUES (1, 100000, 100000, 25.00, 'USD', 'active', true, now())
+         ON CONFLICT (phase_number) DO UPDATE SET
+           quantity_available = EXCLUDED.quantity_available,
+           total_quantity = EXCLUDED.total_quantity,
+           price_per_share = EXCLUDED.price_per_share,
+           currency = EXCLUDED.currency,
+           status = EXCLUDED.status,
+           bonus_buy_one_get = EXCLUDED.bonus_buy_one_get`,
       );
       const seeded = await sharesDb.rawQueryAll<{
         id: string;
@@ -205,7 +227,13 @@ export const listSharePhases = api<
         price_per_share: string;
         currency: string;
         status: string;
-      }>("SELECT id, phase_number, quantity_available, price_per_share::text AS price_per_share, currency, status FROM share_phases ORDER BY phase_number");
+        total_quantity: number;
+        bonus_buy_one_get: boolean;
+        created_at: string;
+        updated_at: string;
+      }>(`SELECT id, phase_number, quantity_available, price_per_share::text AS price_per_share, currency, status,
+                total_quantity, bonus_buy_one_get, created_at, updated_at
+           FROM share_phases ORDER BY phase_number`);
       const response = {
         phases: seeded.map((row) => ({
           id: row.id,
@@ -214,9 +242,13 @@ export const listSharePhases = api<
           pricePerShare: row.price_per_share,
           currency: row.currency,
           status: row.status,
+          totalShares: row.total_quantity,
+          bonusBuyOneGet: row.bonus_buy_one_get,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
         })),
       };
-      await cacheWrite(sharePhaseCache, "all-v1", response);
+      await cacheWrite(sharePhaseCache, "all-v2", response);
       return response;
     }
     const response = {
@@ -227,9 +259,13 @@ export const listSharePhases = api<
         pricePerShare: row.price_per_share,
         currency: row.currency,
         status: row.status,
+        totalShares: row.total_quantity,
+        bonusBuyOneGet: row.bonus_buy_one_get,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
       })),
     };
-    await cacheWrite(sharePhaseCache, "all-v1", response);
+    await cacheWrite(sharePhaseCache, "all-v2", response);
     return response;
   },
 );
@@ -371,7 +407,7 @@ export const purchaseShares = api<SharePurchaseRequest, SharePurchaseResponse>(
         bonusQuantity: purchase.bonus_quantity,
         certificateNumber: certificate.certificate_number,
       };
-      await cacheDelete(sharePhaseCache, "all-v1");
+      await cacheDelete(sharePhaseCache, "all-v2");
       return await completeOperation(operation, result);
     } catch (error) {
       let compensationRequired = false;
@@ -475,7 +511,7 @@ export const updateSharePhase = api<
       sold,
     );
     if (!row) throw new Error("phase_not_found");
-    await cacheDelete(sharePhaseCache, "all-v1");
+    await cacheDelete(sharePhaseCache, "all-v2");
     return { phase: { id: row.id, phaseNumber: row.phase_number, quantityAvailable: row.quantity_available, totalShares: row.total_quantity, pricePerShare: row.price_per_share, currency: row.currency, status: row.status, bonusBuyOneGet: row.bonus_buy_one_get, createdAt: row.created_at, updatedAt: row.updated_at } };
   },
 );
