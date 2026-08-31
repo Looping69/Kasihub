@@ -2,6 +2,8 @@
   "name": "kasihub-encore-backend",
   "private": true,
   "version": "0.1.0",
+  "license": "UNLICENSED",
+  "author": "Klaasvaakie / KaSiHub",
   "type": "module",
   "scripts": {
     "test": "vitest run --coverage",
