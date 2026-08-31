@@ -31,7 +31,7 @@ import { deriveApplicantContinuation, type ApplicantContinuationReason } from ".
 import { databaseBinaryToBuffer, type DatabaseBinary } from "./database-binary";
 import { resolveWebPayUnitPrice, WEBPAY_UNIT_PRICE_ZAR, verifyWebPayChecksum, verifyWebPayProcessChecksum, webPayChecksum, webPayMerchantFields, webPayOrderNumber, webPayTotalZar, type PresalePaymentRail } from "./webpay";
 import { buildShareholderPortfolio, type PresaleCertificate, type PresalePaidOrder } from "./shareholder-portfolio";
-import { internationalCellphoneSchema, physicalAddressLine, strongPasswordSchema } from "./applicant-validation";
+import { applicantLoginSchema, internationalCellphoneSchema, physicalAddressLine, strongPasswordSchema } from "./applicant-validation";
 import { solidusCertificateNumber } from "../shares/certificate-numbering";
 import { sealPresaleCertificate } from "../shares/certificate-integrity";
 import { deriveApplicantJourney, type ApplicantJourneyDecision } from "./applicant-journey";
@@ -1282,7 +1282,9 @@ export const loginPresaleApplicant = api<
   { email: string; password: string },
   { token: string; profileId: string; profileNumber: string }
 >({ method: "POST", path: "/presale/auth/login", expose: true }, async (request) => {
-  const payload = z.object({ email: z.string().email().max(254), password: z.string().min(12).max(128) }).parse(request);
+  const parsed = applicantLoginSchema.safeParse(request);
+  if (!parsed.success) throw APIError.invalidArgument("Enter a valid email address and password");
+  const payload = parsed.data;
   const user = await identityDb.rawQueryRow<{ id: string; password_hash: string | null; profile_id: string; profile_number: string }>(
     `SELECT u.id, u.password_hash, p.id AS profile_id, p.unique_profile_number AS profile_number
      FROM users u JOIN profiles p ON p.user_id = u.id
@@ -2536,9 +2538,17 @@ export const createPresaleInvitation = api<
   const invitationId = crypto.randomUUID();
   const row = await presaleDb.rawQueryRow<{ id: string }>(
     `INSERT INTO presale_invitations (id,campaign_id,token_hash,email,max_shares,expires_at)
-     SELECT $1,id,$2,$3,$4,$5 FROM presale_campaigns WHERE id = $6 RETURNING id`,
+     SELECT $1,id,$2,$3,$4,$5 FROM presale_campaigns
+      WHERE id = $6 AND status = 'active'
+        AND (starts_at IS NULL OR starts_at <= now())
+        AND (ends_at IS NULL OR ends_at > now())
+     RETURNING id`,
     invitationId, hashSecret(inviteToken), req.email ? normalizeEmail(req.email) : null, req.maxShares, req.expiresAt ?? null, req.campaignId);
-  if (!row) throw APIError.notFound("Presale campaign not found");
+  if (!row) {
+    const campaign = await presaleDb.rawQueryRow<{ id: string }>("SELECT id FROM presale_campaigns WHERE id = $1", req.campaignId);
+    if (!campaign) throw APIError.notFound("Presale campaign not found");
+    throw APIError.failedPrecondition("Invitations can only be created while the presale campaign is active");
+  }
   return { invitationId, inviteToken };
 });
 

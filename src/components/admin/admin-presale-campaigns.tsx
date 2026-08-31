@@ -32,7 +32,7 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import { privatePresaleInviteUrl } from "@/lib/presale-links";
-import { campaignSavePayload } from "@/lib/presale-campaign";
+import { campaignAcceptsInvitations, campaignSavePayload } from "@/lib/presale-campaign";
 
 type Campaign = {
   id: string;
@@ -297,7 +297,7 @@ export function AdminPresaleCampaigns() {
                       <Edit className="h-3.5 w-3.5 mr-1" />
                       Edit
                     </Button>
-                    {campaign.status === "active" && !campaign.isMock && (
+                    {campaignAcceptsInvitations(campaign) && !campaign.isMock && (
                       <Button
                         size="sm"
                         variant="outline"
