@@ -1,6 +1,6 @@
 // Author: Klaasvaakie ( |╲ )
 import { describe, expect, test } from "vitest";
-import { internationalCellphoneSchema, normalizeInternationalCellphone, physicalAddressLine, strongPasswordSchema } from "./applicant-validation";
+import { applicantLoginSchema, internationalCellphoneSchema, normalizeInternationalCellphone, physicalAddressLine, strongPasswordSchema } from "./applicant-validation";
 
 describe("KaSiShares applicant validation", () => {
   test("normalizes and validates cellphone length against the international country code", () => {
@@ -15,6 +15,12 @@ describe("KaSiShares applicant validation", () => {
     expect(strongPasswordSchema.safeParse("short-2!").success).toBe(false);
     expect(strongPasswordSchema.safeParse("LongPasswordOnly").success).toBe(false);
     expect(strongPasswordSchema.safeParse("LongPassword123").success).toBe(false);
+  });
+
+  test("validates login identity without reapplying account-creation password policy", () => {
+    expect(applicantLoginSchema.safeParse({ email: "applicant@example.test", password: "legacy" }).success).toBe(true);
+    expect(applicantLoginSchema.safeParse({ email: "applicant@localhost", password: "legacy" }).success).toBe(false);
+    expect(applicantLoginSchema.safeParse({ email: "applicant@example.test", password: "" }).success).toBe(false);
   });
 
   test("creates one stable legacy address line from the required structured fields", () => {

@@ -35,4 +35,16 @@ describe("existing member shareholder registration", () => {
     const source = readFileSync(apiPath, "utf8").replace(/\r\n/g, "\n");
     expect(source).toContain("bankSwift: z.string().trim().min(8).max(20).optional()");
   });
+
+  test("does not mint invitations outside the campaign's active window", () => {
+    const source = readFileSync(apiPath, "utf8").replace(/\r\n/g, "\n");
+    const start = source.indexOf("export const createPresaleInvitation");
+    const end = source.indexOf("export const listPresaleOrders", start);
+    const invitation = source.slice(start, end);
+
+    expect(invitation).toContain("status = 'active'");
+    expect(invitation).toContain("starts_at IS NULL OR starts_at <= now()");
+    expect(invitation).toContain("ends_at IS NULL OR ends_at > now()");
+    expect(invitation).toContain("APIError.failedPrecondition");
+  });
 });

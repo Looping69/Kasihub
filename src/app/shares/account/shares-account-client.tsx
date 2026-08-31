@@ -180,7 +180,7 @@ function LoginForm({ error, onSubmit }: { error: string; onSubmit: (event: FormE
     <h1 className="mt-3 text-3xl font-black">KaSiShares account</h1>
     <p className="mt-3 text-sm leading-6 text-slate-300">Sign in with the account created during Step 1. This space is separate from the normal KaSiHub member dashboard.</p>
     <form onSubmit={onSubmit} className="mt-7 space-y-5">
-      <label className="block text-sm">Email address<Input name="email" type="email" required autoComplete="email" className="mt-2 border-white/15 bg-black/20" /></label>
+      <label className="block text-sm">Email address<Input name="email" type="email" required pattern="[^\s@]+@[^\s@]+\.[^\s@]+" title="Enter a complete email address, including the domain ending" autoComplete="email" className="mt-2 border-white/15 bg-black/20" /></label>
       <label className="block text-sm">Password<Input name="password" type={showPassword ? "text" : "password"} required minLength={12} autoComplete="current-password" className="mt-2 border-white/15 bg-black/20" /></label>
       <label className="flex w-fit cursor-pointer items-center gap-2 text-sm text-slate-300">
         <input type="checkbox" checked={showPassword} onChange={(event) => setShowPassword(event.target.checked)} className="h-4 w-4 accent-amber-400" />

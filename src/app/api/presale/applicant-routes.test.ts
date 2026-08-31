@@ -57,9 +57,16 @@ describe("KaSiShares applicant BFF routes", () => {
   test("login returns a bounded authentication error", async () => {
     const { EncoreRequestError } = await import("@/lib/encore-client");
     mocks.encoreRequest.mockRejectedValue(new EncoreRequestError("upstream detail", 401, null));
-    const response = await login(request("/api/presale/auth/login", {}));
+    const response = await login(request("/api/presale/auth/login", { email: "buyer@example.test", password: "strong-password" }));
     expect(response.status).toBe(401);
     expect(await response.json()).toEqual({ error: "The email or password is incorrect." });
+  });
+
+  test("login rejects malformed input before it reaches Encore", async () => {
+    const response = await login(request("/api/presale/auth/login", { email: "buyer@localhost", password: "strong-password" }));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "Enter a valid email address and password." });
+    expect(mocks.encoreRequest).not.toHaveBeenCalled();
   });
 
   test("portal fails closed without a presale session and forwards only with one", async () => {
