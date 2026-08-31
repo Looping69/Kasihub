@@ -5,14 +5,16 @@ const ORDER_REFERENCE = "KSP-D53C93DF-MTESETBN";
 const TRANSACTION_HASH = `0x${"ab".repeat(32)}`;
 
 function portalPayload(settled: boolean) {
+  const status = settled ? "incorporated" : "payment_submitted";
+  const incorporationStatus = settled ? "incorporated" : "pending";
   return {
     applicant: { profileNumber: "KSI-E4F6B6E0C8", email: "buyer@example.test" },
     application: { applicationNumber: "KSA-CF095B03", campaignName: "Test", status: "completed", phaseCompleted: 4, completionPercent: 100, nextStep: 5, resumeUrl: null },
     kyc: { status: "approved", verified: true },
     order: {
       orderReference: ORDER_REFERENCE,
-      status: settled ? "incorporated" : "payment_submitted",
-      incorporationStatus: settled ? "incorporated" : "pending",
+      status,
+      incorporationStatus,
       paymentRail: "remitano_usdt",
       quantity: 1,
       totalUsdt: "1.000000",
@@ -22,6 +24,48 @@ function portalPayload(settled: boolean) {
       paymentVerificationStatus: settled ? "confirmed" : "submitted",
       paymentVerificationReason: settled ? undefined : "custody_temporarily_unavailable",
       paymentConfirmations: settled ? 12 : 0,
+      cancellation: { eligible: false, reason: "crypto_hash_submitted" },
+    },
+    reservation: {
+      orderReference: ORDER_REFERENCE,
+      phaseNumber: 1,
+      phaseLabel: "Phase 1",
+      campaignName: "Test",
+      issuerName: "Solidus Holdings (Pty) Ltd",
+      shareClass: "Class B",
+      paidShares: 1,
+      bonusShares: 1,
+      totalAllocatedShares: 2,
+      paymentMethod: "remitano_usdt",
+      unitPriceUsd: "1.00",
+      totalUsd: "1.00",
+      unitPriceUsdt: "1.000000",
+      totalUsdt: "1.000000",
+      network: "bsc",
+      receivingAddress: "0x1111111111111111111111111111111111111111",
+      requiredConfirmations: 3,
+      paymentDeadline: "2026-08-31T12:00:00.000Z",
+      termsVersion: "presale-reservation-v1",
+      status,
+      incorporationStatus,
+      cancellation: { eligible: false, reason: "crypto_hash_submitted" },
+    },
+    journey: settled ? {
+      state: "issued",
+      reason: "certificate_issued",
+      allowedActions: ["view_reservation", "download_certificate", "verify_certificate"],
+      applicationEditable: false,
+      reservationEditable: false,
+      polling: "none",
+      terminal: true,
+    } : {
+      state: "payment_submitted",
+      reason: "payment_hash_submitted",
+      allowedActions: ["view_reservation", "recheck_payment"],
+      applicationEditable: false,
+      reservationEditable: false,
+      polling: "payment",
+      terminal: false,
     },
     shareholder: settled ? {
       totalIssuedShares: 2,

@@ -446,6 +446,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error ?? "Transaction could not be submitted");
       await refreshOrder();
+      await loadApplicantPortal();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Transaction could not be submitted");
     } finally {

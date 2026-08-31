@@ -384,6 +384,16 @@ test("applicant portal continues signup at the first server-authoritative unfini
       },
       kyc: { status: "pending", verified: false },
       order: null,
+      reservation: null,
+      journey: {
+        state: "application_in_progress",
+        reason: "application_incomplete",
+        allowedActions: ["resume_application"],
+        applicationEditable: true,
+        reservationEditable: false,
+        polling: "none",
+        terminal: false,
+      },
       continuation: { nextStep: 4, reason: "resume", resumeUrl: `/presale?invite=${encodeURIComponent(invite)}` },
     }),
   }));
@@ -430,7 +440,26 @@ test("applicant portal does not open a second signup path for an active reservat
         phaseCompleted: 5, completionPercent: 100, nextStep: 5, resumeUrl: null,
       },
       kyc: { status: "approved", verified: true },
-      order: { orderReference: "KSP-RESERVED", status: "awaiting_payment", incorporationStatus: "pending" },
+      order: {
+        orderReference: "KSP-RESERVED", status: "awaiting_payment", incorporationStatus: "pending",
+        paymentRail: "remitano_usdt", quantity: 2, totalUsdt: "50.000000",
+        cancellation: { eligible: true, reason: "unpaid_no_payment_activity" },
+      },
+      reservation: {
+        orderReference: "KSP-RESERVED", phaseNumber: 1, phaseLabel: "Phase 1",
+        campaignName: "KaSiShares Private Allocation", issuerName: "Solidus Holdings (Pty) Ltd", shareClass: "Class B",
+        paidShares: 2, bonusShares: 2, totalAllocatedShares: 4, paymentMethod: "remitano_usdt",
+        unitPriceUsd: "25.00", totalUsd: "50.00", unitPriceUsdt: "25.000000", totalUsdt: "50.000000",
+        network: "TRON", receivingAddress: "TControlledReceiverAddress", requiredConfirmations: 20,
+        paymentDeadline: "2026-08-31T12:00:00.000Z", termsVersion: "presale-reservation-v1",
+        status: "awaiting_payment", incorporationStatus: "pending",
+        cancellation: { eligible: true, reason: "unpaid_no_payment_activity" },
+      },
+      journey: {
+        state: "awaiting_payment", reason: "reservation_awaiting_payment",
+        allowedActions: ["view_reservation", "submit_payment_hash", "cancel_reservation"],
+        applicationEditable: false, reservationEditable: false, polling: "none", terminal: false,
+      },
       continuation: { nextStep: null, reason: "reservation_in_progress", resumeUrl: null },
     }),
   }));
@@ -441,7 +470,7 @@ test("applicant portal does not open a second signup path for an active reservat
   await expect(page.getByRole("link", { name: "Continue signup" })).toHaveCount(0);
 });
 
-test("applicant portal reports no application against the legacy portal contract", async ({ page }) => {
+test("applicant portal fails closed against the legacy portal contract", async ({ page }) => {
   await page.route("**/api/presale/portal", (route) => route.fulfill({
     status: 200,
     contentType: "application/json",
@@ -457,17 +486,24 @@ test("applicant portal reports no application against the legacy portal contract
   await page.goto("/shares/account");
   await expect(page.getByRole("heading", { name: "No application to continue" })).toBeVisible();
   await expect(page.getByText(/private invitation is still required/)).toBeVisible();
-  await expect(page.getByRole("link", { name: "Open test invitation" })).toHaveAttribute("href", "/presale?invite=" + "a".repeat(72));
+  await expect(page.getByText("Applicant controls are safely locked")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Open test invitation" })).toHaveCount(0);
   await expect(page.getByRole("link", { name: "Continue signup" })).toHaveCount(0);
 });
 
 test("invited buyer can reserve shares without exposing the order access token in URLs", async ({ page }) => {
   // Author: Klaasvaakie ( |╲ )
+  test.setTimeout(60_000);
   const invite = "private-invitation-token-000000000001";
   const accessToken = "private-order-access-token-00000000001";
   const orderReference = "KSP-ORDER-001";
+  const transactionHash = "ab".repeat(32);
   let refreshUrl = "";
   let refreshAccessToken = "";
+  let memberCreated = false;
+  let kycVerified = false;
+  let orderCreated = false;
+  let paymentSubmitted = false;
 
   await page.route("**/api/presale/offer?invite=*", (route) => route.fulfill({
     status: 200,
@@ -477,6 +513,7 @@ test("invited buyer can reserve shares without exposing the order access token i
       issuerName: "Solidus Holdings (Pty) Ltd",
       shareClass: "Class B",
       priceUsdt: "25.000000",
+      priceUsd: "25.00",
       network: "TRON",
       tokenContract: "TRON-USDT-CONTRACT",
       receivingAddress: "TControlledReceiverAddress",
@@ -488,22 +525,86 @@ test("invited buyer can reserve shares without exposing the order access token i
       termsVersion: "presale-reservation-v1",
     } }),
   }));
-  await page.route("**/api/presale/portal", (route) => route.fulfill({
-    status: 401,
-    contentType: "application/json",
-    body: JSON.stringify({ error: "KaSiShares login is required" }),
-  }));
-  await page.route("**/api/presale/members", (route) => route.fulfill({
-    status: 201,
-    contentType: "application/json",
-    body: JSON.stringify({
-      profileId: "profile-1",
-      profileNumber: "KSI-ONE",
-      applicationId: "application-1",
-      created: true,
-      emailStatus: "sent",
-    }),
-  }));
+  await page.route("**/api/presale/portal", (route) => {
+    if (!memberCreated) return route.fulfill({
+      status: 401,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "KaSiShares login is required" }),
+    });
+    if (!orderCreated) return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        applicant: { profileNumber: "KSI-ONE", email: "buyer@example.test", legalName: "Private Buyer", phone: "+27820000000", country: "South Africa", physicalAddress: "1 Example Street" },
+        application: { applicationNumber: "KSA-ONE", campaignName: "KaSiShares Private Allocation", status: "draft", applicantType: "individual", phaseCompleted: 4, completionPercent: 80, nextStep: kycVerified ? 5 : 4, resumeUrl: null },
+        kyc: { status: kycVerified ? "approved" : "pending", verified: kycVerified },
+        order: null,
+        reservation: null,
+        journey: kycVerified ? {
+          state: "eligible_to_reserve", reason: "application_and_kyc_complete", allowedActions: ["resume_application", "create_reservation"],
+          applicationEditable: true, reservationEditable: true, polling: "none", terminal: false,
+        } : {
+          state: "kyc_pending", reason: "kyc_not_approved", allowedActions: ["resume_kyc", "refresh_kyc"],
+          applicationEditable: true, reservationEditable: false, polling: "kyc", terminal: false,
+        },
+        shareholder: { totalIssuedShares: 0, holdings: [] },
+        continuation: { nextStep: kycVerified ? 5 : 4, reason: "resume", resumeUrl: null },
+      }),
+    });
+    const status = paymentSubmitted ? "payment_submitted" : "awaiting_payment";
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        applicant: { profileNumber: "KSI-ONE", email: "buyer@example.test", legalName: "Private Buyer", phone: "+27820000000", country: "South Africa", physicalAddress: "1 Example Street" },
+        application: { applicationNumber: "KSA-ONE", campaignName: "KaSiShares Private Allocation", status: "draft", applicantType: "individual", phaseCompleted: 4, completionPercent: 100, nextStep: 5, resumeUrl: null },
+        kyc: { status: "approved", verified: true },
+        order: {
+          orderReference, status, incorporationStatus: "pending", paymentRail: "remitano_usdt", quantity: 2,
+          totalUsdt: "50.000000", paymentNetwork: "TRON", paymentMinConfirmations: 20,
+          transactionHash: paymentSubmitted ? transactionHash : undefined,
+          cancellation: paymentSubmitted
+            ? { eligible: false, reason: "crypto_hash_submitted" }
+            : { eligible: true, reason: "unpaid_no_payment_activity" },
+        },
+        reservation: {
+          orderReference, phaseNumber: 1, phaseLabel: "Phase 1", campaignName: "KaSiShares Private Allocation",
+          issuerName: "Solidus Holdings (Pty) Ltd", shareClass: "Class B", paidShares: 2, bonusShares: 2,
+          totalAllocatedShares: 4, paymentMethod: "remitano_usdt", unitPriceUsd: "25.00", totalUsd: "50.00",
+          unitPriceUsdt: "25.000000", totalUsdt: "50.000000", network: "TRON",
+          tokenContract: "TRON-USDT-CONTRACT", receivingAddress: "TControlledReceiverAddress", requiredConfirmations: 20,
+          paymentDeadline: "2026-08-31T12:00:00.000Z", termsVersion: "presale-reservation-v1",
+          status, incorporationStatus: "pending",
+          cancellation: paymentSubmitted
+            ? { eligible: false, reason: "crypto_hash_submitted" }
+            : { eligible: true, reason: "unpaid_no_payment_activity" },
+        },
+        journey: paymentSubmitted ? {
+          state: "payment_submitted", reason: "payment_hash_submitted", allowedActions: ["view_reservation", "recheck_payment"],
+          applicationEditable: false, reservationEditable: false, polling: "payment", terminal: false,
+        } : {
+          state: "awaiting_payment", reason: "reservation_awaiting_payment", allowedActions: ["view_reservation", "submit_payment_hash", "cancel_reservation"],
+          applicationEditable: false, reservationEditable: false, polling: "none", terminal: false,
+        },
+        shareholder: { totalIssuedShares: 0, holdings: [] },
+        continuation: { nextStep: null, reason: "reservation_in_progress", resumeUrl: null },
+      }),
+    });
+  });
+  await page.route("**/api/presale/members", async (route) => {
+    memberCreated = true;
+    await route.fulfill({
+      status: 201,
+      contentType: "application/json",
+      body: JSON.stringify({
+        profileId: "profile-1",
+        profileNumber: "KSI-ONE",
+        applicationId: "application-1",
+        created: true,
+        emailStatus: "sent",
+      }),
+    });
+  });
   await page.route("**/api/presale/progress", (route) => route.fulfill({
     status: 200,
     contentType: "application/json",
@@ -511,6 +612,7 @@ test("invited buyer can reserve shares without exposing the order access token i
   }));
   await page.route("**/api/presale/orders", async (route) => {
     if (route.request().method() !== "POST") return route.fallback();
+    orderCreated = true;
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -541,16 +643,19 @@ test("invited buyer can reserve shares without exposing the order access token i
     contentType: "application/json",
     body: JSON.stringify({ session: { id: crypto.randomUUID(), url: "https://verify.didit.me/test-session", status: "Not Started" } }),
   }));
-  await page.route("**/api/presale/kyc-status", (route) => route.fulfill({
-    status: 200,
-    contentType: "application/json",
-    body: JSON.stringify({ verification: { required: true, verified: true, status: "VERIFIED", caseId: crypto.randomUUID() } }),
-  }));
+  await page.route("**/api/presale/kyc-status", async (route) => {
+    kycVerified = true;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ verification: { required: true, verified: true, status: "VERIFIED", caseId: crypto.randomUUID() } }),
+    });
+  });
   await page.route(`**/api/presale/orders/${orderReference}/payment-proof`, (route) => route.fulfill({
     status: 200,
     contentType: "application/json",
-    body: JSON.stringify({ orderReference, status: "payment_submitted", transactionHash: "abcdef0123456789" }),
-  }));
+    body: JSON.stringify({ orderReference, status: "payment_submitted", transactionHash }),
+  }).then(() => { paymentSubmitted = true; }));
   await page.route(`**/api/presale/orders/${orderReference}`, async (route) => {
     refreshUrl = route.request().url();
     refreshAccessToken = route.request().headers()["x-presale-access-token"] ?? "";
@@ -574,7 +679,7 @@ test("invited buyer can reserve shares without exposing the order access token i
         receivingAddress: "TControlledReceiverAddress",
         minConfirmations: 20,
         paymentDeadline: "2026-08-11T00:00:00.000Z",
-        transactionHash: "abcdef0123456789",
+        transactionHash,
         confirmations: 0,
         incorporationStatus: "pending",
       } }),
@@ -603,7 +708,7 @@ test("invited buyer can reserve shares without exposing the order access token i
   await page.getByRole("button", { name: "Continue" }).click();
   await page.getByRole("button", { name: "Continue application" }).click();
 
-  await page.getByLabel("Phase 1 shares at $25 each *").fill("2");
+  await page.getByLabel("Paid Class B at $25 each *").fill("2");
   await page.getByRole("button", { name: "Continue" }).click();
 
   await page.getByLabel("Primary source").selectOption("salary");
@@ -622,18 +727,19 @@ test("invited buyer can reserve shares without exposing the order access token i
   await page.getByLabel(/I confirm that the investor information supplied/).check();
   await page.getByRole("button", { name: "Verify ID" }).click();
 
+  await expect(page.getByRole("heading", { name: "Terms and reservation" })).toBeVisible({ timeout: 15_000 });
   await page.getByLabel("Investor terms").evaluate((node) => { node.scrollTop = node.scrollHeight; node.dispatchEvent(new Event("scroll", { bubbles: true })); });
   await page.getByLabel(/I accept the presale reservation acknowledgement/).check();
   expect(await page.locator("form :invalid").evaluateAll((fields) => fields.map((field) => field.getAttribute("name")))).toEqual([]);
-  await page.getByRole("button", { name: "PAY NOW" }).click();
+  await page.getByRole("button", { name: "Create reservation" }).click();
 
   await expect(page.getByText("50.000000 USDT", { exact: true })).toBeVisible();
   await expect(page.getByText("TControlledReceiverAddress")).toBeVisible();
   await expect(page.getByText(/transaction hash is not accepted as settled/i)).toBeVisible();
 
-  await page.getByLabel("Transaction hash").fill("abcdef0123456789");
+  await page.getByLabel("Transaction hash").fill(transactionHash);
   await page.getByRole("button", { name: "Submit hash" }).click();
-  await expect(page.getByRole("heading", { name: "Transaction submitted" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Payment submitted" })).toBeVisible();
   expect(refreshUrl).not.toContain(accessToken);
   expect(refreshUrl).not.toContain("accessToken=");
   expect(refreshAccessToken).toBe(accessToken);
