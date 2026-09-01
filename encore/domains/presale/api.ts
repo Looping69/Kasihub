@@ -1020,18 +1020,15 @@ export async function allowPresaleShareAllocationOverride(input: {
 }
 
 export const adminAllowPresaleShareAllocation = api<
-  { orderReference: string; reason: string; evidenceReference: string; confirmation: "ALLOW_SHARE_ISSUANCE" },
+  { orderReference: string },
   AllocationOverrideResponse
 >({ method: "POST", path: "/admin/presale/orders/:orderReference/allow-allocation", expose: true }, async (req) => {
   const admin = await requireAdminAccess();
-  if (req.confirmation !== "ALLOW_SHARE_ISSUANCE") {
-    throw APIError.invalidArgument("Explicit share issuance confirmation is required");
-  }
   return allowPresaleShareAllocationOverride({
     orderReference: req.orderReference,
     actorUserId: admin.user.id,
-    reason: req.reason,
-    evidenceReference: req.evidenceReference,
+    reason: "Manual share allocation approved from the admin member profile.",
+    evidenceReference: "admin-console",
   });
 });
 

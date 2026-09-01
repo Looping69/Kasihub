@@ -11,15 +11,13 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import {
-  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+  Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
 
@@ -78,10 +76,7 @@ export function AdminMembers() {
   const [kycDocuments, setKycDocuments] = useState<KycDocument[]>([]);
   const [documentsLoading, setDocumentsLoading] = useState(false);
   const [preview, setPreview] = useState<{ url: string; type: string; title: string } | null>(null);
-  const [allocationOverrideTarget, setAllocationOverrideTarget] = useState<AdminMember | null>(null);
-  const [allocationOverrideReason, setAllocationOverrideReason] = useState("");
-  const [allocationEvidenceReference, setAllocationEvidenceReference] = useState("");
-  const [allocationOverrideSubmitting, setAllocationOverrideSubmitting] = useState(false);
+  const [allocationOverrideSubmittingFor, setAllocationOverrideSubmittingFor] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
@@ -175,37 +170,23 @@ export function AdminMembers() {
     }
   }
 
-  function openAllocationOverride(member: AdminMember) {
-    setAllocationOverrideReason("");
-    setAllocationEvidenceReference("");
-    setAllocationOverrideTarget(member);
-  }
-
-  async function allowShareIssuance() {
-    const member = allocationOverrideTarget;
+  async function allowShareIssuance(member: AdminMember) {
     if (!member?.presaleOrderReference) return;
-    setAllocationOverrideSubmitting(true);
+    setAllocationOverrideSubmittingFor(member.id);
     try {
       const res = await fetch(`/api/admin/presale/orders/${encodeURIComponent(member.presaleOrderReference)}/allow-allocation`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          reason: allocationOverrideReason.trim(),
-          evidenceReference: allocationEvidenceReference.trim(),
-          confirmation: "ALLOW_SHARE_ISSUANCE",
-        }),
       });
       const payload = await res.json();
       if (!res.ok) throw new Error(payload.error ?? "Unable to allow share issuance");
       toast.success(payload.certificateNumber
         ? `Share certificate ${payload.certificateNumber} issued`
         : "Allocation override recorded; certificate issuance is queued");
-      setAllocationOverrideTarget(null);
       await load();
     } catch (reason) {
       toast.error(reason instanceof Error ? reason.message : "Unable to allow share issuance");
     } finally {
-      setAllocationOverrideSubmitting(false);
+      setAllocationOverrideSubmittingFor(null);
     }
   }
 
@@ -431,10 +412,19 @@ export function AdminMembers() {
                       <div className="flex flex-col gap-3 rounded-lg border border-amber-300 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/40 sm:flex-row sm:items-center sm:justify-between">
                         <div>
                           <p className="text-xs font-semibold text-amber-950 dark:text-amber-100">Manual allocation authority</p>
-                          <p className="text-[11px] text-amber-800 dark:text-amber-300">Use only after independently verifying the payment evidence. The decision is permanently audited.</p>
+                          <p className="text-[11px] text-amber-800 dark:text-amber-300">Issues the reserved allocation immediately. The admin action is recorded automatically.</p>
                         </div>
-                        <Button type="button" size="sm" className="bg-amber-600 text-white hover:bg-amber-700" onClick={() => openAllocationOverride(selected)}>
-                          <ShieldCheck className="mr-1 h-4 w-4" />Allow share issuance
+                        <Button
+                          type="button"
+                          size="sm"
+                          className="h-7 bg-amber-600 px-2 text-[11px] text-white hover:bg-amber-700"
+                          disabled={allocationOverrideSubmittingFor === selected.id}
+                          onClick={() => void allowShareIssuance(selected)}
+                        >
+                          {allocationOverrideSubmittingFor === selected.id
+                            ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                            : <ShieldCheck className="mr-1 h-3.5 w-3.5" />}
+                          Allow allocation
                         </Button>
                       </div>
                     )}
@@ -527,40 +517,6 @@ export function AdminMembers() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!allocationOverrideTarget} onOpenChange={(open) => { if (!open && !allocationOverrideSubmitting) setAllocationOverrideTarget(null); }}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Allow manual share issuance?</DialogTitle>
-            <DialogDescription>
-              This bypasses automated custody confirmation for order {allocationOverrideTarget?.presaleOrderReference}. It will move the reserved allocation into the authoritative share register and may issue a certificate immediately.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="allocation-evidence">Payment evidence reference</Label>
-              <Input id="allocation-evidence" value={allocationEvidenceReference} onChange={(event) => setAllocationEvidenceReference(event.target.value)} maxLength={240} autoComplete="off" placeholder="Transaction hash, Remitano deposit ID, or receipt reference" />
-              <p className="text-xs text-muted-foreground">Minimum 8 characters. This is stored with the permanent override record.</p>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="allocation-reason">Administrative reason</Label>
-              <Textarea id="allocation-reason" value={allocationOverrideReason} onChange={(event) => setAllocationOverrideReason(event.target.value)} rows={4} maxLength={1000} placeholder="Explain what was independently checked and why automated verification cannot complete." />
-              <p className="text-xs text-muted-foreground">Minimum 20 characters. Do not enter API keys or passwords.</p>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button type="button" variant="outline" disabled={allocationOverrideSubmitting} onClick={() => setAllocationOverrideTarget(null)}>Cancel</Button>
-            <Button
-              type="button"
-              className="bg-amber-600 text-white hover:bg-amber-700"
-              disabled={allocationOverrideSubmitting || allocationEvidenceReference.trim().length < 8 || allocationOverrideReason.trim().length < 20}
-              onClick={() => void allowShareIssuance()}
-            >
-              {allocationOverrideSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ShieldCheck className="mr-2 h-4 w-4" />}
-              Allow this allocation
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

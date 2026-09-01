@@ -14,17 +14,16 @@ function overrideFailureMessage(error: EncoreRequestError): string {
 }
 
 export async function POST(
-  request: NextRequest,
+  _request: NextRequest,
   context: { params: Promise<{ orderReference: string }> },
 ) {
   const token = await encoreSessionToken();
   if (!token) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
   const { orderReference } = await context.params;
   try {
-    const payload = await request.json();
     return NextResponse.json(await encoreRequest(
       `/admin/presale/orders/${encodeURIComponent(orderReference)}/allow-allocation`,
-      { method: "POST", body: JSON.stringify(payload) },
+      { method: "POST" },
       token,
     ));
   } catch (error) {
