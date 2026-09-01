@@ -932,11 +932,11 @@ export async function allowPresaleShareAllocationOverride(input: {
   }>("SELECT id,external_profile_id,status FROM presale_orders WHERE order_reference=$1", payload.orderReference);
   if (!preflight) throw APIError.notFound("Presale order not found");
   if (!preflight.external_profile_id) throw APIError.failedPrecondition("The reservation has no authenticated member profile");
-  const profile = await identityDb.rawQueryRow<{ status: string }>(
-    "SELECT status FROM profiles WHERE id=$1", preflight.external_profile_id,
+  const profile = await identityDb.rawQueryRow<{ id: string }>(
+    "SELECT id FROM profiles WHERE id=$1", preflight.external_profile_id,
   );
-  if (!profile || profile.status !== "active") {
-    throw APIError.failedPrecondition("The member profile must be active before shares can be issued");
+  if (!profile) {
+    throw APIError.failedPrecondition("The member profile no longer exists");
   }
   await requireInternationalKycVerified(preflight.external_profile_id);
 

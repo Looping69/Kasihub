@@ -273,7 +273,7 @@ describe("isolated KaSiShares applicant portal", () => {
   test("uses the approved Solidus certificate with named signature attestations", () => {
     const certificate = source("src/lib/share-certificate-pdf.ts");
     expect(certificate).toContain("solidus-shareholder-certificate.pdf");
-    expect(certificate).toContain('const directorSignature = "/s/ Lelanie Retief"');
+    expect(certificate).toContain("lelanie-retief-signature.png");
     expect(certificate).toContain("tertius-du-plessis-signature.png");
     expect(certificate).toContain("pdf.embedPng");
     expect(certificate).toContain("LELANIE RETIEF - DIRECTOR");
@@ -282,5 +282,12 @@ describe("isolated KaSiShares applicant portal", () => {
     expect(certificate).toContain('data.distinctiveTo?.toLocaleString("en-ZA") ?? "N/A"');
     expect(certificate).toContain("data.issuePricePerShare.toLocaleString");
     expect(certificate).toContain("data.issuePriceCurrency!.trim().toUpperCase()");
+  });
+
+  test("offers issued shareholders a controlled additional-purchase route and completes their progress", () => {
+    const account = source("src/app/shares/account/shares-account-client.tsx");
+    expect(account).toContain("Buy more shares");
+    expect(account).toContain("additional%20purchase%20invitation");
+    expect(account).toContain('portal.authority.journey.state === "issued" ? 100');
   });
 });
