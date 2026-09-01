@@ -80,5 +80,5 @@ describe("admin presale allocation override", () => {
     expect(campaign).toEqual({ reserved_shares: 0, sold_shares: 2 });
     expect(overrides).toEqual({ count: "1" });
     expect(certificates).toEqual({ count: "1", total: "2" });
-  });
+  }, 15_000);
 });

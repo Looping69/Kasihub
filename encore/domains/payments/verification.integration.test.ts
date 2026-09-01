@@ -156,16 +156,22 @@ describe("product-neutral payment verification and settlement", () => {
     const state = await paymentsDb.rawQueryRow<{
       intent_status: string; obligation_status: string; verification_error_code: string | null;
       verified_at: string | null; confirmations: number | null; custody_rows: number; bypass_recorded: boolean;
+      history_evidence: unknown;
     }>(
       `SELECT i.status AS intent_status,o.status AS obligation_status,
               a.verification_error_code,a.verified_at,a.confirmations,
               (SELECT count(*)::int FROM payment_custody_evidence c WHERE c.payment_attempt_id=a.id) AS custody_rows,
               EXISTS(SELECT 1 FROM payment_state_history h WHERE h.payment_intent_id=i.id
-                AND h.evidence->>'reason'='remitano_custody_temporarily_bypassed') AS bypass_recorded
+                AND h.evidence->>'reason'='remitano_custody_temporarily_bypassed') AS bypass_recorded,
+              (SELECT jsonb_agg(h.evidence ORDER BY h.created_at) FROM payment_state_history h
+                WHERE h.payment_intent_id=i.id) AS history_evidence
        FROM payment_intents i
        JOIN payment_obligations o ON o.id=i.order_id
        JOIN payment_attempts a ON a.payment_intent_id=i.id
        WHERE i.id=$1`, seeded.intentId);
+    expect(state?.history_evidence).toEqual(expect.arrayContaining([
+      expect.objectContaining({ reason: "remitano_custody_temporarily_bypassed" }),
+    ]));
     expect(state).toMatchObject({
       intent_status: "settled",
       obligation_status: "settled",
@@ -177,15 +183,20 @@ describe("product-neutral payment verification and settlement", () => {
     expect(state?.verified_at).toBeTruthy();
   });
 
-  it("sends custody mismatches to manual review without duplicating evidence", async () => {
+  it("does not read or manufacture mismatched Remitano evidence while the bypass is active", async () => {
     const seeded = await seedSubmittedPayment(true);
-    const reader = async () => custodyEvidence(seeded.hash, "24");
+    let custodyReads = 0;
+    const reader = async () => {
+      custodyReads += 1;
+      return custodyEvidence(seeded.hash, "24");
+    };
     const result = await verifyAndSettlePaymentAttempt(seeded.attemptId, async () => evidence(seeded.hash), reader);
-    expect(result).toMatchObject({ status: "manual_review", reason: "custody_amount_mismatch" });
+    expect(result).toMatchObject({ status: "settled", reason: "remitano_custody_temporarily_bypassed" });
+    expect(custodyReads).toBe(0);
     const evidenceRows = await paymentsDb.rawQueryRow<{ count: number }>(
       "SELECT count(*)::int AS count FROM payment_custody_evidence WHERE payment_attempt_id = $1",
       seeded.attemptId,
     );
-    expect(evidenceRows?.count).toBe(1);
+    expect(evidenceRows?.count).toBe(0);
   });
 });
