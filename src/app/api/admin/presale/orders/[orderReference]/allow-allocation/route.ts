@@ -23,7 +23,7 @@ export async function POST(
   try {
     return NextResponse.json(await encoreRequest(
       `/admin/presale/orders/${encodeURIComponent(orderReference)}/allow-allocation`,
-      { method: "POST" },
+      { method: "POST", body: "{}" },
       token,
     ));
   } catch (error) {
