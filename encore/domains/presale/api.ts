@@ -25,7 +25,7 @@ import {
   verifyPaymentEvent,
 } from "./model";
 import { exceedsInvitationShareLimit } from "./invitation-policy";
-import { issuedSharesForPresale, quotedUsdtAmount } from "./settlement";
+import { issuedSharesForPresale, quotedUsdtAmount, resolveCryptoTestSettlement } from "./settlement";
 import { INVESTOR_APPLICATION_SCHEMA_VERSION, phaseOneApplicantSchema, type PhaseOneApplicant } from "./application";
 import { deriveApplicantContinuation, type ApplicantContinuationReason } from "./applicant-continuation";
 import { databaseBinaryToBuffer, type DatabaseBinary } from "./database-binary";
@@ -499,6 +499,7 @@ interface PresaleOfferResponse {
   priceUsdt: string;
   priceUsd: string;
   webPayUnitPriceZar: string;
+  cryptoPaymentUnitPriceUsdt: string;
   usdtPerUsd: string;
   network: string;
   tokenContract?: string;
@@ -1857,21 +1858,40 @@ export const getPresaleOffer = api<
   { offer: PresaleOfferResponse }
 >({ method: "GET", path: "/presale/offer", expose: true }, async (req) => {
   if (!req.inviteToken || req.inviteToken.length < 32) throw APIError.permissionDenied("A valid private invitation is required");
-  const row = await presaleDb.rawQueryRow<CampaignRow & { max_shares: number; used_shares: number; invitation_email: string | null; webpay_unit_price_zar: string }>(
+  const row = await presaleDb.rawQueryRow<CampaignRow & {
+    max_shares: number; used_shares: number; invitation_email: string | null;
+    webpay_unit_price_zar: string; crypto_payment_unit_price_usdt: string;
+  }>(
     `SELECT c.*, i.max_shares, i.used_shares, i.email AS invitation_email,
             COALESCE(i.webpay_unit_price_zar_override,
               CASE WHEN c.webpay_test_orders_remaining > 0 THEN c.webpay_test_unit_price_zar END,
-              $2::numeric)::text AS webpay_unit_price_zar
+              $2::numeric)::text AS webpay_unit_price_zar,
+            COALESCE(
+              CASE WHEN c.crypto_test_orders_remaining > 0 THEN c.crypto_test_unit_price_usdt END,
+              c.price_usdt
+            )::text AS crypto_payment_unit_price_usdt
      FROM presale_invitations i JOIN presale_campaigns c ON c.id = i.campaign_id
      WHERE i.token_hash = $1 AND i.status = 'active' AND (i.expires_at IS NULL OR i.expires_at > now())
        AND c.status = 'active' AND (c.starts_at IS NULL OR c.starts_at <= now()) AND (c.ends_at IS NULL OR c.ends_at > now())`,
     hashSecret(req.inviteToken), WEBPAY_UNIT_PRICE_ZAR,
   );
   if (!row) throw APIError.permissionDenied("This invitation is invalid, expired, or the presale is not active");
-  return { offer: offerResponse(row, row.max_shares - row.used_shares, row.invitation_email, row.webpay_unit_price_zar) };
+  return { offer: offerResponse(
+    row,
+    row.max_shares - row.used_shares,
+    row.invitation_email,
+    row.webpay_unit_price_zar,
+    row.crypto_payment_unit_price_usdt,
+  ) };
 });
 
-function offerResponse(campaign: CampaignRow, invitationSharesRemaining: number, invitationEmail?: string | null, webPayUnitPriceZar = WEBPAY_UNIT_PRICE_ZAR): PresaleOfferResponse {
+function offerResponse(
+  campaign: CampaignRow,
+  invitationSharesRemaining: number,
+  invitationEmail?: string | null,
+  webPayUnitPriceZar = WEBPAY_UNIT_PRICE_ZAR,
+  cryptoPaymentUnitPriceUsdt = campaign.price_usdt,
+): PresaleOfferResponse {
   return {
     slug: campaign.slug,
     name: campaign.name,
@@ -1880,6 +1900,7 @@ function offerResponse(campaign: CampaignRow, invitationSharesRemaining: number,
     priceUsdt: campaign.price_usdt,
     priceUsd: campaign.price_usd,
     webPayUnitPriceZar,
+    cryptoPaymentUnitPriceUsdt,
     usdtPerUsd: campaign.usdt_per_usd,
     network: campaign.network,
     // Payment instructions are issued only after reservation by the locked
@@ -1981,8 +2002,10 @@ export const createPresaleOrder = api<CreatePresaleOrderRequest, { order: Presal
       if (exceedsInvitationShareLimit(invitation.used_shares, payload.quantity, invitation.max_shares)) throw APIError.failedPrecondition("The invitation share limit would be exceeded");
       const campaignBefore = await tx.rawQueryRow<Pick<CampaignRow, "bonus_buy_one_get_one" | "share_phase_number"> & {
         webpay_test_unit_price_zar: string | null; webpay_test_orders_remaining: number;
+        crypto_test_unit_price_usdt: string | null; crypto_test_orders_remaining: number;
       }>(`SELECT bonus_buy_one_get_one,share_phase_number,
-                 webpay_test_unit_price_zar::text AS webpay_test_unit_price_zar,webpay_test_orders_remaining
+                 webpay_test_unit_price_zar::text AS webpay_test_unit_price_zar,webpay_test_orders_remaining,
+                 crypto_test_unit_price_usdt::text AS crypto_test_unit_price_usdt,crypto_test_orders_remaining
           FROM presale_campaigns WHERE id = $1 FOR UPDATE`, invitation.campaign_id);
       if (!campaignBefore) throw APIError.notFound("Presale campaign not found");
       const issuedQuantity = issuedSharesForPresale(payload.quantity, campaignBefore.bonus_buy_one_get_one);
@@ -1992,20 +2015,36 @@ export const createPresaleOrder = api<CreatePresaleOrderRequest, { order: Presal
         campaignTestPrice: campaignBefore.webpay_test_unit_price_zar,
         campaignTestOrdersRemaining: campaignBefore.webpay_test_orders_remaining,
       });
+      const {
+        settlementUnitUsdtOverride,
+        campaignTestPriceApplied: cryptoTestPriceApplied,
+      } = resolveCryptoTestSettlement({
+        paymentRail: payload.paymentRail,
+        campaignTestUnitPriceUsdt: campaignBefore.crypto_test_unit_price_usdt,
+        campaignTestOrdersRemaining: campaignBefore.crypto_test_orders_remaining,
+      });
       const campaign = await tx.rawQueryRow<CampaignRow>(
         `UPDATE presale_campaigns SET reserved_shares = reserved_shares + $2,
            webpay_test_orders_remaining = webpay_test_orders_remaining - $3,
+           crypto_test_orders_remaining = crypto_test_orders_remaining - $4,
            updated_at = now()
          WHERE id = $1 AND status = 'active' AND (starts_at IS NULL OR starts_at <= now()) AND (ends_at IS NULL OR ends_at > now())
             AND reserved_shares + sold_shares + $2 <= total_shares
-            AND webpay_test_orders_remaining >= $3 RETURNING *`, invitation.campaign_id, issuedQuantity, campaignTestPriceApplied ? 1 : 0);
+            AND webpay_test_orders_remaining >= $3
+            AND crypto_test_orders_remaining >= $4 RETURNING *`,
+        invitation.campaign_id, issuedQuantity, campaignTestPriceApplied ? 1 : 0, cryptoTestPriceApplied ? 1 : 0);
       if (!campaign) throw APIError.failedPrecondition("The presale is closed or does not have enough shares remaining");
       await tx.rawExec(`UPDATE presale_invitations SET used_shares = used_shares + $2,
         status = CASE WHEN used_shares + $2 = max_shares THEN 'exhausted' ELSE status END WHERE id = $1`, invitation.id, payload.quantity);
       const orderId = crypto.randomUUID();
       const orderReference = `KSP-${crypto.randomUUID().slice(0, 8).toUpperCase()}-${Date.now().toString(36).toUpperCase()}`;
-      const quote = quotedUsdtAmount(campaign.price_usd, campaign.usdt_per_usd, payload.quantity);
-      const quoteReference = `campaign:${campaign.id}:rate:${campaign.usdt_per_usd}`;
+      const quote = quotedUsdtAmount(
+        campaign.price_usd,
+        campaign.usdt_per_usd,
+        payload.quantity,
+        settlementUnitUsdtOverride,
+      );
+      const quoteReference = `campaign:${campaign.id}:rate:${campaign.usdt_per_usd}${cryptoTestPriceApplied ? ":crypto-test" : ""}`;
       const encryptedApplication = encryptInvestorApplication(payload.investorApplication);
       const applicationSummary = {
         applicantType: payload.investorApplication.applicantType,
@@ -2036,13 +2075,14 @@ export const createPresaleOrder = api<CreatePresaleOrderRequest, { order: Presal
       const totalZar = payload.paymentRail === "webpay_card" ? webPayTotalZar(payload.quantity, webPayUnitPriceZar) : null;
       await tx.rawExec(
         `UPDATE presale_orders SET payment_rail = $2, unit_price_zar = $3::numeric, total_zar = $4::numeric,
-           webpay_test_price_applied = $5
+           webpay_test_price_applied = $5, crypto_test_price_applied = $6
           WHERE id = $1`,
         order.id,
         payload.paymentRail,
         payload.paymentRail === "webpay_card" ? webPayUnitPriceZar : null,
         totalZar,
         campaignTestPriceApplied,
+        cryptoTestPriceApplied,
       );
       order.payment_rail = payload.paymentRail;
       order.unit_price_zar = payload.paymentRail === "webpay_card" ? webPayUnitPriceZar : null;
@@ -2345,9 +2385,10 @@ export const cancelPresaleOrder = api<
       id: string; campaign_id: string; invitation_id: string; quantity: number;
       payment_obligation_id: string | null; bonus_buy_one_get_one: boolean;
       webpay_test_price_applied: boolean;
+      crypto_test_price_applied: boolean;
     }>(
       `SELECT o.id,o.campaign_id,o.invitation_id,o.quantity,o.payment_obligation_id,c.bonus_buy_one_get_one,
-              o.webpay_test_price_applied
+              o.webpay_test_price_applied,o.crypto_test_price_applied
        FROM presale_orders o JOIN presale_campaigns c ON c.id = o.campaign_id
        WHERE o.invitation_id = $1 AND o.external_profile_id::text = $2::text
          AND o.status = 'awaiting_payment' AND o.webpay_transaction_id IS NULL
@@ -2359,9 +2400,10 @@ export const cancelPresaleOrder = api<
       const issuedQuantity = issuedSharesForPresale(order.quantity, order.bonus_buy_one_get_one);
       const released = await tx.rawQueryRow<{ id: string }>(
         `UPDATE presale_campaigns SET reserved_shares = reserved_shares - $2,
-           webpay_test_orders_remaining = webpay_test_orders_remaining + $3,updated_at = now()
+           webpay_test_orders_remaining = webpay_test_orders_remaining + $3,
+           crypto_test_orders_remaining = crypto_test_orders_remaining + $4,updated_at = now()
          WHERE id = $1 AND reserved_shares >= $2 RETURNING id`,
-        order.campaign_id, issuedQuantity, order.webpay_test_price_applied ? 1 : 0,
+        order.campaign_id, issuedQuantity, order.webpay_test_price_applied ? 1 : 0, order.crypto_test_price_applied ? 1 : 0,
       );
       if (!released) throw APIError.failedPrecondition("Reservation accounting is inconsistent; contact support");
       const invitation = await tx.rawQueryRow<{ id: string }>(
@@ -2658,15 +2700,20 @@ export const expirePresaleOrders = api<void, { expired: number }>(
   async () => {
     const tx = await presaleDb.begin();
     try {
-      const rows = await tx.rawQueryAll<{ id: string; campaign_id: string; invitation_id: string; quantity: number; bonus_buy_one_get_one: boolean; webpay_test_price_applied: boolean }>(
+      const rows = await tx.rawQueryAll<{
+        id: string; campaign_id: string; invitation_id: string; quantity: number;
+        bonus_buy_one_get_one: boolean; webpay_test_price_applied: boolean; crypto_test_price_applied: boolean;
+      }>(
         `UPDATE presale_orders SET status = 'expired', updated_at = now()
          WHERE status = 'awaiting_payment' AND payment_deadline < now()
-         RETURNING id,campaign_id,invitation_id,quantity,webpay_test_price_applied,
+         RETURNING id,campaign_id,invitation_id,quantity,webpay_test_price_applied,crypto_test_price_applied,
            (SELECT bonus_buy_one_get_one FROM presale_campaigns WHERE id = presale_orders.campaign_id) AS bonus_buy_one_get_one`);
       for (const row of rows) {
         await tx.rawExec(`UPDATE presale_campaigns SET reserved_shares = reserved_shares - $2,
-          webpay_test_orders_remaining = webpay_test_orders_remaining + $3,updated_at = now() WHERE id = $1`,
-        row.campaign_id, issuedSharesForPresale(row.quantity, row.bonus_buy_one_get_one), row.webpay_test_price_applied ? 1 : 0);
+          webpay_test_orders_remaining = webpay_test_orders_remaining + $3,
+          crypto_test_orders_remaining = crypto_test_orders_remaining + $4,updated_at = now() WHERE id = $1`,
+        row.campaign_id, issuedSharesForPresale(row.quantity, row.bonus_buy_one_get_one),
+        row.webpay_test_price_applied ? 1 : 0, row.crypto_test_price_applied ? 1 : 0);
         await tx.rawExec(`UPDATE presale_invitations SET used_shares = used_shares - $2,
           status = CASE WHEN status = 'exhausted' THEN 'active' ELSE status END WHERE id = $1`, row.invitation_id, row.quantity);
       }

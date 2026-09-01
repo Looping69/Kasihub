@@ -527,6 +527,7 @@ test("invited buyer can reserve shares without exposing the order access token i
       shareClass: "Class B",
       priceUsdt: "25.000000",
       priceUsd: "25.00",
+      cryptoPaymentUnitPriceUsdt: "1.000000",
       network: "TRON",
       tokenContract: "TRON-USDT-CONTRACT",
       receivingAddress: "TControlledReceiverAddress",
@@ -574,7 +575,7 @@ test("invited buyer can reserve shares without exposing the order access token i
         kyc: { status: "approved", verified: true },
         order: {
           orderReference, status, incorporationStatus: "pending", paymentRail: "remitano_usdt", quantity: 2,
-          totalUsdt: "50.000000", paymentNetwork: "TRON", paymentMinConfirmations: 20,
+          totalUsdt: "2.000000", paymentNetwork: "TRON", paymentMinConfirmations: 20,
           transactionHash: paymentSubmitted ? transactionHash : undefined,
           cancellation: paymentSubmitted
             ? { eligible: false, reason: "crypto_hash_submitted" }
@@ -584,7 +585,7 @@ test("invited buyer can reserve shares without exposing the order access token i
           orderReference, phaseNumber: 1, phaseLabel: "Phase 1", campaignName: "KaSiShares Private Allocation",
           issuerName: "Solidus Holdings (Pty) Ltd", shareClass: "Class B", paidShares: 2, bonusShares: 2,
           totalAllocatedShares: 4, paymentMethod: "remitano_usdt", unitPriceUsd: "25.00", totalUsd: "50.00",
-          unitPriceUsdt: "25.000000", totalUsdt: "50.000000", network: "TRON",
+          unitPriceUsdt: "1.000000", totalUsdt: "2.000000", network: "TRON",
           tokenContract: "TRON-USDT-CONTRACT", receivingAddress: "TControlledReceiverAddress", requiredConfirmations: 20,
           paymentDeadline: "2026-08-31T12:00:00.000Z", termsVersion: "presale-reservation-v1",
           status, incorporationStatus: "pending",
@@ -639,8 +640,8 @@ test("invited buyer can reserve shares without exposing the order access token i
         buyerEmail: "buyer@example.test",
         quantity: 2,
         paymentRail: "remitano_usdt",
-        unitPriceUsdt: "25.000000",
-        totalUsdt: "50.000000",
+        unitPriceUsdt: "1.000000",
+        totalUsdt: "2.000000",
         status: "awaiting_payment",
         network: "TRON",
         tokenContract: "TRON-USDT-CONTRACT",
@@ -685,8 +686,8 @@ test("invited buyer can reserve shares without exposing the order access token i
         buyerEmail: "buyer@example.test",
         quantity: 2,
         paymentRail: "remitano_usdt",
-        unitPriceUsdt: "25.000000",
-        totalUsdt: "50.000000",
+        unitPriceUsdt: "1.000000",
+        totalUsdt: "2.000000",
         status: "payment_submitted",
         network: "TRON",
         tokenContract: "TRON-USDT-CONTRACT",
@@ -735,6 +736,7 @@ test("invited buyer can reserve shares without exposing the order access token i
   await page.getByRole("button", { name: "Verify ID" }).click();
 
   await expect(page.getByRole("heading", { name: "Terms and reservation" })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText("Bounded test payment if reserved now: 2 USDT", { exact: true })).toBeVisible();
   await page.getByLabel("Investor terms").evaluate((node) => { node.scrollTop = node.scrollHeight; node.dispatchEvent(new Event("scroll", { bubbles: true })); });
   await page.getByLabel(/I accept the presale reservation acknowledgement/).check();
   expect(await page.locator("form :invalid").evaluateAll((fields) => fields.map((field) => field.getAttribute("name")))).toEqual([]);
@@ -746,7 +748,7 @@ test("invited buyer can reserve shares without exposing the order access token i
     expect(submittedApplication).not.toHaveProperty(field);
   }
 
-  await expect(page.getByText("50.000000 USDT", { exact: true })).toBeVisible();
+  await expect(page.getByText("2.000000 USDT", { exact: true })).toBeVisible();
   await expect(page.getByText("TControlledReceiverAddress")).toBeVisible();
   await expect(page.getByText(/transaction hash is not accepted as settled/i)).toBeVisible();
 
