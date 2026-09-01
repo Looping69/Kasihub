@@ -245,6 +245,8 @@ type AdminMemberResponse = {
   presaleCompletionPercent: number | null; presaleApplicationNumber: string | null;
   presaleReservationStatus: string | null; presaleOrderReference: string | null;
   presaleReservationQuantity: number | null; presaleIncorporationStatus: string | null;
+  presaleAllocationOverrideAt: string | null; presaleAllocationOverrideReason: string | null;
+  presaleAllocationOverrideEvidenceReference: string | null;
   presalePaymentRail: string | null; presalePaymentAmountZar: number | null;
   presaleWebPayReference: string | null; presaleWebPayTransactionId: string | null;
   presaleWebPaySystemReference: string | null; presaleWebPayPaymentMethod: string | null;
@@ -320,18 +322,24 @@ export const adminMemberProfiles = api<
         presaleDb.rawQueryAll<{
           external_profile_id: string; order_reference: string; status: string; quantity: number;
           incorporation_status: string; payment_rail: string; total_zar: string | null;
+          allocation_override_at: string | null; allocation_override_reason: string | null;
+          allocation_override_evidence_reference: string | null;
           webpay_order_number: string | null; webpay_transaction_id: string | null;
           webpay_system_reference: string | null; webpay_payment_method: string | null;
           payment_settled_at: string | null;
         }>(
-          `SELECT external_profile_id::text AS external_profile_id,
-                  order_reference, status, quantity, incorporation_status, payment_rail,
+          `SELECT o.external_profile_id::text AS external_profile_id,
+                  o.order_reference, o.status, o.quantity, o.incorporation_status, o.payment_rail,
+                  allocation_override.created_at::text AS allocation_override_at,
+                  allocation_override.reason AS allocation_override_reason,
+                  allocation_override.evidence_reference AS allocation_override_evidence_reference,
                   total_zar::text AS total_zar, webpay_order_number,
                   webpay_transaction_id::text AS webpay_transaction_id,
                   webpay_system_reference, webpay_payment_method, payment_settled_at
-           FROM presale_orders
-           WHERE external_profile_id = ANY($1::uuid[])
-           ORDER BY external_profile_id, created_at DESC`, profileIds,
+           FROM presale_orders o
+           LEFT JOIN presale_allocation_overrides allocation_override ON allocation_override.order_id=o.id
+           WHERE o.external_profile_id = ANY($1::uuid[])
+           ORDER BY o.external_profile_id, o.created_at DESC`, profileIds,
         ),
       ]);
     const subscriptionByProfile = new Map(subscriptions.map((item) => [item.profile_id, item]));
@@ -375,6 +383,9 @@ export const adminMemberProfiles = api<
         presaleOrderReference: presaleOrder?.order_reference ?? null,
         presaleReservationQuantity: presaleOrder?.quantity ?? null,
         presaleIncorporationStatus: presaleOrder?.incorporation_status ?? null,
+        presaleAllocationOverrideAt: presaleOrder?.allocation_override_at ?? null,
+        presaleAllocationOverrideReason: presaleOrder?.allocation_override_reason ?? null,
+        presaleAllocationOverrideEvidenceReference: presaleOrder?.allocation_override_evidence_reference ?? null,
         presalePaymentRail: presaleOrder?.payment_rail ?? null,
         presalePaymentAmountZar: presaleOrder?.total_zar === null || presaleOrder?.total_zar === undefined ? null : Number(presaleOrder.total_zar),
         presaleWebPayReference: presaleOrder?.webpay_order_number ?? null,
