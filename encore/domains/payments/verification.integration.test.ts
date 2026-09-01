@@ -125,44 +125,54 @@ describe("product-neutral payment verification and settlement", () => {
     expect(state).toEqual({ intent_status: "rejected", obligation_status: "open" });
   });
 
-  it("requires matching custody evidence only for an explicitly gated route", async () => {
+  it("temporarily bypasses the Remitano custody reader after canonical confirmation", async () => {
     const seeded = await seedSubmittedPayment(true);
+    let custodyReads = 0;
     const result = await verifyAndSettlePaymentAttempt(
       seeded.attemptId,
       async () => evidence(seeded.hash),
-      async () => custodyEvidence(seeded.hash),
+      async () => {
+        custodyReads += 1;
+        return custodyEvidence(seeded.hash);
+      },
     );
-    expect(result).toMatchObject({ status: "settled", reason: "custody_evidence_satisfied" });
+    expect(result).toMatchObject({ status: "settled", reason: "remitano_custody_temporarily_bypassed" });
+    expect(custodyReads).toBe(0);
     const custody = await paymentsDb.rawQueryRow<{ count: number }>(
       "SELECT count(*)::int AS count FROM payment_custody_evidence WHERE payment_attempt_id = $1",
       seeded.attemptId,
     );
-    expect(custody?.count).toBe(1);
+    expect(custody?.count).toBe(0);
   });
 
-  it("fails closed without a custody adapter and leaves the obligation open", async () => {
+  it("temporarily settles confirmed Remitano chain evidence without custody credit confirmation", async () => {
     const seeded = await seedSubmittedPayment(true);
     const result = await verifyAndSettlePaymentAttempt(
       seeded.attemptId,
       async () => evidence(seeded.hash),
       async () => { throw new CustodyProviderUnavailable("remitano", "custody_temporarily_unavailable"); },
     );
-    expect(result).toMatchObject({ status: "retryable", reason: "custody_temporarily_unavailable" });
+    expect(result).toMatchObject({ status: "settled", reason: "remitano_custody_temporarily_bypassed", confirmations: 3 });
     const state = await paymentsDb.rawQueryRow<{
       intent_status: string; obligation_status: string; verification_error_code: string | null;
-      verified_at: string | null; confirmations: number | null;
+      verified_at: string | null; confirmations: number | null; custody_rows: number; bypass_recorded: boolean;
     }>(
       `SELECT i.status AS intent_status,o.status AS obligation_status,
-              a.verification_error_code,a.verified_at,a.confirmations
+              a.verification_error_code,a.verified_at,a.confirmations,
+              (SELECT count(*)::int FROM payment_custody_evidence c WHERE c.payment_attempt_id=a.id) AS custody_rows,
+              EXISTS(SELECT 1 FROM payment_state_history h WHERE h.payment_intent_id=i.id
+                AND h.evidence->>'reason'='remitano_custody_temporarily_bypassed') AS bypass_recorded
        FROM payment_intents i
        JOIN payment_obligations o ON o.id=i.order_id
        JOIN payment_attempts a ON a.payment_intent_id=i.id
        WHERE i.id=$1`, seeded.intentId);
     expect(state).toMatchObject({
-      intent_status: "submitted",
-      obligation_status: "open",
-      verification_error_code: "custody_temporarily_unavailable",
+      intent_status: "settled",
+      obligation_status: "settled",
+      verification_error_code: null,
       confirmations: 3,
+      custody_rows: 0,
+      bypass_recorded: true,
     });
     expect(state?.verified_at).toBeTruthy();
   });

@@ -47,6 +47,13 @@ type VerificationRow = {
   custody_reconciliation_required: boolean;
 };
 
+// Temporary production recovery switch. Canonical BSC evidence remains
+// mandatory; only the secondary Remitano custody lookup is bypassed. Keep the
+// explicit reason in durable payment history so this cannot masquerade as
+// provider-confirmed evidence.
+const TEMPORARY_REMITANO_CUSTODY_BYPASS = true;
+const TEMPORARY_REMITANO_CUSTODY_BYPASS_REASON = "remitano_custody_temporarily_bypassed";
+
 function targetStatus(evaluation: PaymentEvidenceEvaluation): PaymentStatus | "retryable" {
   switch (evaluation.decision) {
     case "confirmed": return "confirmed";
@@ -165,7 +172,11 @@ export async function verifyAndSettlePaymentAttempt(
   if (decision === "retryable") return persistRetryableResult(row, evaluation.reason, evaluation);
   let custodyEvidence: CustodyEvidence | null = null;
   let custodyDecision: CustodyDecision | null = null;
-  if (decision === "confirmed" && row.custody_reconciliation_required) {
+  const custodyTemporarilyBypassed = decision === "confirmed"
+    && row.custody_reconciliation_required
+    && row.provider.toLowerCase() === "remitano"
+    && TEMPORARY_REMITANO_CUSTODY_BYPASS;
+  if (decision === "confirmed" && row.custody_reconciliation_required && !custodyTemporarilyBypassed) {
     try {
       custodyEvidence = await custodyReader({
         provider: row.provider,
@@ -193,7 +204,9 @@ export async function verifyAndSettlePaymentAttempt(
     if (custodyDecision.decision === "retryable") return persistRetryableResult(row, custodyDecision.reason, evaluation);
     if (custodyDecision.decision === "manual_review") decision = "manual_review";
   }
-  const decisionReason = custodyDecision?.reason ?? evaluation.reason;
+  const decisionReason = custodyTemporarilyBypassed
+    ? TEMPORARY_REMITANO_CUSTODY_BYPASS_REASON
+    : custodyDecision?.reason ?? evaluation.reason;
 
   const tx = await paymentsDb.begin();
   try {
@@ -244,12 +257,21 @@ export async function verifyAndSettlePaymentAttempt(
         ($1,'verifying','confirmed','system','chain.verify',$2::jsonb),
         ($1,'confirmed','settling','system','payment.settle','{}'::jsonb),
         ($1,'settling','settled','system','payment.settle',$3::jsonb)`, row.payment_intent_id,
-      JSON.stringify({ attemptId: row.attempt_id, confirmations: evaluation.confirmations }),
+      JSON.stringify({
+        attemptId: row.attempt_id,
+        confirmations: evaluation.confirmations,
+        reason: decisionReason,
+        custodyTemporarilyBypassed,
+      }),
       JSON.stringify({ obligationId: row.obligation_id, subjectType: row.subject_type, subjectReference: row.subject_reference }));
       await tx.rawExec(`INSERT INTO payment_events (payment_intent_id,event_key,event_type,payload) VALUES
         ($1,$2,'payment.confirmed',$3::jsonb),($1,$4,'payment.settled',$5::jsonb)
         ON CONFLICT (event_key) DO NOTHING`, row.payment_intent_id,
-      `payment-intent:${row.payment_intent_id}:confirmed`, JSON.stringify({ attemptId: row.attempt_id }),
+      `payment-intent:${row.payment_intent_id}:confirmed`, JSON.stringify({
+        attemptId: row.attempt_id,
+        reason: decisionReason,
+        custodyTemporarilyBypassed,
+      }),
       `payment-intent:${row.payment_intent_id}:settled`, JSON.stringify({ obligationId: row.obligation_id, subjectType: row.subject_type, subjectReference: row.subject_reference }));
     } else {
       assertPaymentTransition("verifying", decision);
