@@ -752,7 +752,7 @@ test("invited buyer can reserve shares without exposing the order access token i
   await expect(page.getByLabel("TRON (TRC20)").getByText("2.000000 USDT", { exact: true })).toBeVisible();
   await expect(page.getByText("TJRyWwFs9wTFGZg3JbrVriFbNfCug5tDeC")).toBeVisible();
   await expect(page.getByRole("heading", { name: "TRON (TRC20)" })).toBeVisible();
-  await expect(page.getByAltText(/wallet payment qr/i)).toBeVisible();
+  await expect(page.getByLabel("TRON (TRC20)").getByRole("img")).toBeVisible();
   await expect(page.getByText("address only", { exact: false })).toBeVisible();
   await expect(page.getByRole("list", { name: "Crypto payment verification progress" })).toBeVisible();
   await expect(page.getByText(/transaction hash is not accepted as settled/i)).toBeVisible();
