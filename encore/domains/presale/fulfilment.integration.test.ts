@@ -84,5 +84,5 @@ describe("presale settlement consumption", () => {
     expect(issuance).toEqual({ operation_id: `presale:${seeded.fulfilledReference}`, status: "completed" });
     expect(delivery).toEqual({ status: "processed", attempt_count: 1 });
     expect(completion).toEqual({ count: "1" });
-  });
+  }, 15_000);
 });

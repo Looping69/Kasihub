@@ -254,24 +254,18 @@ export async function verifyAndSettlePaymentAttempt(
         updated_at = now() WHERE id = $1 AND status = 'open'`, row.obligation_id);
       await tx.rawExec(`INSERT INTO payment_state_history
         (payment_intent_id, prior_status, new_status, actor_type, actor_reference, evidence) VALUES
-        ($1,'verifying','confirmed','system','chain.verify',$2::jsonb),
+        ($1,'verifying','confirmed','system','chain.verify',jsonb_build_object(
+          'attemptId',$2::text,'confirmations',$3::int,'reason',$4::text,'custodyTemporarilyBypassed',$5::boolean)),
         ($1,'confirmed','settling','system','payment.settle','{}'::jsonb),
-        ($1,'settling','settled','system','payment.settle',$3::jsonb)`, row.payment_intent_id,
-      JSON.stringify({
-        attemptId: row.attempt_id,
-        confirmations: evaluation.confirmations,
-        reason: decisionReason,
-        custodyTemporarilyBypassed,
-      }),
+        ($1,'settling','settled','system','payment.settle',$6::jsonb)`, row.payment_intent_id,
+      row.attempt_id, evaluation.confirmations, decisionReason, custodyTemporarilyBypassed,
       JSON.stringify({ obligationId: row.obligation_id, subjectType: row.subject_type, subjectReference: row.subject_reference }));
       await tx.rawExec(`INSERT INTO payment_events (payment_intent_id,event_key,event_type,payload) VALUES
-        ($1,$2,'payment.confirmed',$3::jsonb),($1,$4,'payment.settled',$5::jsonb)
+        ($1,$2,'payment.confirmed',jsonb_build_object(
+          'attemptId',$3::text,'reason',$4::text,'custodyTemporarilyBypassed',$5::boolean)),
+        ($1,$6,'payment.settled',$7::jsonb)
         ON CONFLICT (event_key) DO NOTHING`, row.payment_intent_id,
-      `payment-intent:${row.payment_intent_id}:confirmed`, JSON.stringify({
-        attemptId: row.attempt_id,
-        reason: decisionReason,
-        custodyTemporarilyBypassed,
-      }),
+      `payment-intent:${row.payment_intent_id}:confirmed`, row.attempt_id, decisionReason, custodyTemporarilyBypassed,
       `payment-intent:${row.payment_intent_id}:settled`, JSON.stringify({ obligationId: row.obligation_id, subjectType: row.subject_type, subjectReference: row.subject_reference }));
     } else {
       assertPaymentTransition("verifying", decision);
