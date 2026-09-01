@@ -2307,11 +2307,13 @@ export const createPresaleWebPayCheckout = api<
     payment_deadline: string; webpay_transaction_id: string | null; webpay_order_number: string | null;
     application_number: string;
   }>(
-    `SELECT id,order_reference,buyer_name,buyer_email,buyer_phone,quantity,payment_rail,
-            total_zar::text AS total_zar,status,payment_deadline,
-            webpay_transaction_id::text AS webpay_transaction_id,webpay_order_number,
-            application_number
-       FROM presale_orders WHERE order_reference = $1 AND access_token_hash = $2`,
+    `SELECT o.id,o.order_reference,o.buyer_name,o.buyer_email,o.buyer_phone,o.quantity,o.payment_rail,
+            o.total_zar::text AS total_zar,o.status,o.payment_deadline,
+            o.webpay_transaction_id::text AS webpay_transaction_id,o.webpay_order_number,
+            a.application_number
+       FROM presale_orders o
+       JOIN presale_applications a ON a.id = o.application_id
+      WHERE o.order_reference = $1 AND o.access_token_hash = $2`,
     req.orderReference, hashSecret(accessToken),
   );
   if (!order) throw APIError.notFound("Presale order not found");

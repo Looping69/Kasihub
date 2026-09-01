@@ -297,5 +297,7 @@ describe("isolated KaSiShares applicant portal", () => {
     expect(backend).toContain("...webPayReconciliationFields({");
     expect(backend).toContain("orderReference: order.order_reference");
     expect(backend).toContain("applicationNumber: order.application_number");
+    expect(backend).toContain("JOIN presale_applications a ON a.id = o.application_id");
+    expect(backend).toContain("a.application_number");
   });
 });
