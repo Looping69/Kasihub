@@ -21,7 +21,7 @@ async function seedSubmittedOverrideOrder() {
   await identityDb.rawExec("INSERT INTO users (id,email,status) VALUES ($1,$2,'active')", userId, `override-${crypto.randomUUID()}@example.test`);
   await identityDb.rawExec(`INSERT INTO profiles
     (id,user_id,profile_type,unique_profile_number,first_name,surname,status,onboarding_authority)
-    VALUES ($1,$2,'individual',$3,'Override','Investor','active','instapay')`,
+    VALUES ($1,$2,'individual',$3,'Override','Investor','pending','instapay')`,
   profileId, userId, `KSI-${crypto.randomUUID()}`);
   await sharesDb.rawExec(`INSERT INTO share_phases
     (phase_number,quantity_available,total_quantity,price_per_share,currency,status,bonus_buy_one_get,starts_at)
@@ -49,7 +49,7 @@ async function seedSubmittedOverrideOrder() {
 }
 
 describe("admin presale allocation override", () => {
-  it("records one human override and issues through the authoritative idempotent pipeline", async () => {
+  it("allows a non-active member profile and issues through the authoritative idempotent pipeline", async () => {
     const seeded = await seedSubmittedOverrideOrder();
     const request = {
       orderReference: seeded.orderReference,

@@ -4,7 +4,7 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { CheckCircle2, Clock3, Download, FileCheck2, Layers3, LoaderCircle, LogOut, RefreshCw, ShieldCheck } from "lucide-react";
+import { CheckCircle2, Clock3, Download, FileCheck2, Layers3, LoaderCircle, LogOut, PlusCircle, RefreshCw, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CryptoVerificationProgress } from "@/components/presale/crypto-verification-progress";
@@ -275,7 +275,12 @@ function ShareholderPortfolio({ shareholder }: { shareholder: Shareholder }) {
   return <section className="rounded-2xl border border-amber-300/20 bg-[#0f2744] p-7">
     <div className="flex flex-wrap items-end justify-between gap-4">
       <div><p className="text-xs font-bold uppercase tracking-[.18em] text-amber-300">Shareholder dashboard</p><h2 className="mt-2 text-2xl font-black">Your KaSiShares</h2><p className="mt-2 text-sm text-slate-300">Campaign allocations and certificates are read directly from the authoritative share register.</p></div>
-      <div className="rounded-xl border border-emerald-300/20 bg-emerald-400/10 px-5 py-3 text-right"><p className="text-xs uppercase tracking-wider text-emerald-200">Issued shares</p><p className="text-2xl font-black text-white">{shareholder.totalIssuedShares.toLocaleString()}</p></div>
+      <div className="flex flex-wrap items-center gap-3">
+        <Button asChild variant="outline" className="border-amber-300/40 bg-amber-400/10 font-bold text-amber-100 hover:bg-amber-400/20 hover:text-white">
+          <a href="mailto:support@kasihub.co.za?subject=KaSiShares%20additional%20purchase%20invitation"><PlusCircle className="mr-2 h-4 w-4" />Buy more shares</a>
+        </Button>
+        <div className="rounded-xl border border-emerald-300/20 bg-emerald-400/10 px-5 py-3 text-right"><p className="text-xs uppercase tracking-wider text-emerald-200">Issued shares</p><p className="text-2xl font-black text-white">{shareholder.totalIssuedShares.toLocaleString()}</p></div>
+      </div>
     </div>
     <div className="mt-6 grid gap-4">
       {shareholder.holdings.map((holding) => <article key={holding.orderReference} className="rounded-xl border border-white/10 bg-black/15 p-5">
@@ -370,8 +375,8 @@ function ContinuationPanel({ portal, error, onCancel }: { portal: Portal; error:
       </Button> : null}
     </div>
     {error ? <p role="alert" className="mt-4 text-sm text-red-300">{error}</p> : null}
-    {portal.application ? <div className="mt-6 h-2 overflow-hidden rounded-full bg-slate-800" aria-label={`${portal.application.completionPercent}% of signup milestones saved`}>
-      <div className="h-full bg-amber-400" style={{ width: `${portal.application.completionPercent}%` }} />
+    {portal.application ? <div className="mt-6 h-2 overflow-hidden rounded-full bg-slate-800" aria-label={`${portal.authority.journey.state === "issued" ? 100 : portal.application.completionPercent}% of signup milestones saved`}>
+      <div className="h-full bg-amber-400" style={{ width: `${portal.authority.journey.state === "issued" ? 100 : portal.application.completionPercent}%` }} />
     </div> : null}
   </section>;
 }

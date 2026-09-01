@@ -24,6 +24,7 @@ export type ShareCertificatePdfData = {
 };
 
 const TEMPLATE_PATH = path.join(process.cwd(), "public", "certificate-templates", "solidus-shareholder-certificate.pdf");
+const DIRECTOR_SIGNATURE_PATH = path.join(process.cwd(), "public", "certificate-templates", "lelanie-retief-signature.png");
 const CFO_SIGNATURE_PATH = path.join(process.cwd(), "public", "certificate-templates", "tertius-du-plessis-signature.png");
 const NAVY = rgb(0.035, 0.105, 0.2);
 const WHITE = rgb(1, 1, 1);
@@ -94,10 +95,10 @@ export async function generateShareCertificatePdf(data: ShareCertificatePdfData)
 
   const pdf = await PDFDocument.load(await readFile(TEMPLATE_PATH));
   const page = pdf.getPage(0);
+  const directorSignature = await pdf.embedPng(await readFile(DIRECTOR_SIGNATURE_PATH));
   const cfoSignature = await pdf.embedPng(await readFile(CFO_SIGNATURE_PATH));
   const regular = await pdf.embedFont(StandardFonts.Helvetica);
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
-  const italic = await pdf.embedFont(StandardFonts.HelveticaOblique);
   const issueLabel = new Intl.DateTimeFormat("en-ZA", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "UTC" }).format(issuedDate);
   const issueLongLabel = new Intl.DateTimeFormat("en-ZA", { day: "2-digit", month: "long", year: "numeric", timeZone: "UTC" }).format(issuedDate);
   const validationCode = (data.integrityHash ?? createHash("sha256")
@@ -107,9 +108,19 @@ export async function generateShareCertificatePdf(data: ShareCertificatePdfData)
     .toUpperCase();
   const revoked = data.status.toLowerCase() === "revoked";
 
-  centeredInBox(page, data.distinctiveFrom?.toLocaleString("en-ZA") ?? "N/A", 617, 53, 470, bold, 8);
-  centeredInBox(page, data.distinctiveTo?.toLocaleString("en-ZA") ?? "N/A", 670, 54, 470, bold, 8);
-  centeredInBox(page, data.totalShares.toLocaleString("en-ZA"), 724, 53, 470, bold, 8);
+  // The approved artwork contains a redundant empty second range row. Mask it
+  // and redraw one clear data row so the certificate has no unexplained blank
+  // fields below the authoritative distinctive-number range.
+  page.drawRectangle({ x: 612, y: 340, width: 170, height: 82, color: WHITE });
+  page.drawLine({ start: { x: 616, y: 421 }, end: { x: 777, y: 421 }, thickness: 0.8, color: NAVY });
+  page.drawLine({ start: { x: 616, y: 491 }, end: { x: 777, y: 491 }, thickness: 0.8, color: NAVY });
+  page.drawLine({ start: { x: 616, y: 421 }, end: { x: 616, y: 491 }, thickness: 0.8, color: NAVY });
+  page.drawLine({ start: { x: 670, y: 421 }, end: { x: 670, y: 491 }, thickness: 0.8, color: NAVY });
+  page.drawLine({ start: { x: 724, y: 421 }, end: { x: 724, y: 491 }, thickness: 0.8, color: NAVY });
+  page.drawLine({ start: { x: 777, y: 421 }, end: { x: 777, y: 491 }, thickness: 0.8, color: NAVY });
+  centeredInBox(page, data.distinctiveFrom?.toLocaleString("en-ZA") ?? "N/A", 617, 53, 452, bold, 8);
+  centeredInBox(page, data.distinctiveTo?.toLocaleString("en-ZA") ?? "N/A", 670, 54, 452, bold, 8);
+  centeredInBox(page, data.totalShares.toLocaleString("en-ZA"), 724, 53, 452, bold, 8);
 
   const owner = fitText(data.holderName.trim().toUpperCase(), bold, 9, 158);
   page.drawText(owner.value, { x: 82, y: 178, size: owner.size, font: bold, color: NAVY });
@@ -126,22 +137,22 @@ export async function generateShareCertificatePdf(data: ShareCertificatePdfData)
   centeredInBox(page, data.certificateNumber, 603, 86, 165, bold, 7);
   centeredInBox(page, data.totalShares.toLocaleString("en-ZA"), 689, 87, 165, bold, 10);
 
+  // Keep allocation, verification and execution text out of the owner-address
+  // table. The strip below the table is reserved for these certificate facts.
+  page.drawRectangle({ x: 78, y: 88, width: 568, height: 43, color: WHITE });
   if (data.paidShares !== undefined && data.bonusShares !== undefined) {
     page.drawText(`ALLOCATION: ${data.paidShares.toLocaleString("en-ZA")} PAID + ${data.bonusShares.toLocaleString("en-ZA")} BONUS`, {
-      x: 105, y: 124, size: 6.5, font: bold, color: NAVY,
+      x: 84, y: 119, size: 6.5, font: bold, color: NAVY,
     });
   }
   if (data.verificationId) {
     const verificationUrl = `shares.kasihub.net/api/shares/certificates/verify/${data.verificationId}`;
-    const fitted = fitText(`VERIFY: ${verificationUrl}`, regular, 6.5, 480, 5);
-    page.drawText(fitted.value, { x: 105, y: 114, size: fitted.size, font: regular, color: NAVY });
+    const fitted = fitText(`VERIFY: ${verificationUrl}`, regular, 6.5, 540, 5);
+    page.drawText(fitted.value, { x: 84, y: 109, size: fitted.size, font: regular, color: NAVY });
   }
+  page.drawText(`Given on behalf of the company electronically on ${issueLongLabel}.`, { x: 84, y: 96, size: 8, font: regular, color: NAVY });
 
-  page.drawRectangle({ x: 95, y: 91, width: 550, height: 24, color: WHITE });
-  page.drawText(`Given on behalf of the company electronically on ${issueLongLabel}.`, { x: 105, y: 100, size: 8.5, font: regular, color: NAVY });
-
-  const directorSignature = "/s/ Lelanie Retief";
-  page.drawText(directorSignature, { x: 106, y: 64, size: 10, font: italic, color: NAVY });
+  page.drawImage(directorSignature, { x: 106, y: 49, width: 95, height: 40 });
   page.drawImage(cfoSignature, { x: 410, y: 52, width: 92, height: 61 });
   page.drawRectangle({ x: 102, y: 37, width: 150, height: 16, color: WHITE });
   page.drawRectangle({ x: 397, y: 37, width: 145, height: 16, color: WHITE });
