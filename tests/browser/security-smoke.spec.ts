@@ -749,7 +749,7 @@ test("invited buyer can reserve shares without exposing the order access token i
     expect(submittedApplication).not.toHaveProperty(field);
   }
 
-  await expect(page.getByText("2.000000 USDT", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("TRON (TRC20)").getByText("2.000000 USDT", { exact: true })).toBeVisible();
   await expect(page.getByText("TJRyWwFs9wTFGZg3JbrVriFbNfCug5tDeC")).toBeVisible();
   await expect(page.getByRole("heading", { name: "TRON (TRC20)" })).toBeVisible();
   await expect(page.getByAltText(/wallet payment qr/i)).toBeVisible();
