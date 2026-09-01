@@ -135,7 +135,7 @@ export function AdminPresaleCampaigns() {
       ...blankDraft(),
       issuerName: defaults.presale_default_issuer_name ?? "",
       shareClass: defaults.presale_default_share_class ?? "",
-      network: defaults.presale_default_network === "tron" ? "tron" : "bsc",
+      network: "bsc",
       receivingAddress: defaults.presale_default_receiving_address ?? "",
       tokenContract: defaults.presale_default_token_contract ?? "",
       usdtPerUsd: Number(defaults.presale_default_usdt_per_usd ?? 1),
@@ -150,6 +150,7 @@ export function AdminPresaleCampaigns() {
   function edit(campaign: Campaign) {
     setDraft({
       ...campaign,
+      network: "bsc",
       startsAt: localDate(campaign.startsAt),
       endsAt: localDate(campaign.endsAt),
     });
@@ -386,20 +387,7 @@ export function AdminPresaleCampaigns() {
               </div>
               <div>
                 <Label>Network</Label>
-                <Select
-                  value={draft.network}
-                  onValueChange={(value) =>
-                    update("network", value as Draft["network"])
-                  }
-                >
-                  <SelectTrigger className="mt-1">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="bsc">BNB Smart Chain (BSC)</SelectItem>
-                    <SelectItem value="tron">TRON</SelectItem>
-                  </SelectContent>
-                </Select>
+                <div className="mt-1 flex h-10 items-center rounded-md border bg-muted/30 px-3 text-sm font-medium">BNB Smart Chain (BSC / BEP20)</div>
               </div>
               <Field
                 label="Receiving address"

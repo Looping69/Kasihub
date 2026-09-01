@@ -3,6 +3,7 @@ import { api, APIError } from "encore.dev/api";
 import { secret } from "encore.dev/config";
 import { CronJob } from "encore.dev/cron";
 import * as log from "encore.dev/log";
+import { Subscription, Topic } from "encore.dev/pubsub";
 import { createCipheriv, createDecipheriv, createHash as createNodeHash, randomBytes } from "node:crypto";
 import { z } from "zod";
 import { identityDb, kycDb, membershipDb, paymentsDb, presaleDb, sharesDb } from "../../resources";
@@ -40,6 +41,7 @@ import {
   type PresaleReservationContract,
   type ReservationCancellationPolicy,
 } from "./reservation-contract";
+import { shouldRetryPresaleCryptoReconciliation } from "./crypto-reconciliation-retry";
 
 const PresaleWebhookSecret = secret("PresaleWebhookSecret");
 const InvestorApplicationEncryptionKey = secret("InvestorApplicationEncryptionKey");
@@ -299,7 +301,7 @@ const campaignInput = z.object({
   priceUsd: z.number().positive(),
   usdtPerUsd: z.number().positive().max(10),
   sharePhaseNumber: z.number().int().positive().max(10_000).default(1),
-  network: z.enum(["tron", "bsc"]),
+  network: z.literal("bsc"),
   tokenContract: z.string().trim().max(160).optional(),
   receivingAddress: z.string().trim().min(8).max(200).optional(),
   minConfirmations: z.number().int().positive().max(10_000),
@@ -722,6 +724,7 @@ function orderResponse(order: OrderRow, campaign: CampaignRow, txHash?: string |
 
 async function ensurePresalePaymentIntent(order: OrderRow, campaign: CampaignRow): Promise<PaymentIntentResponse> {
   if (!order.external_profile_id) throw APIError.failedPrecondition("Presale order is not bound to an authenticated profile");
+  if (campaign.network !== "bsc") throw APIError.failedPrecondition("KaSiShares crypto payments are available on BSC only");
   const obligation = await createPaymentObligation({
     subjectType: "presale_order",
     subjectReference: order.order_reference,
@@ -734,7 +737,7 @@ async function ensurePresalePaymentIntent(order: OrderRow, campaign: CampaignRow
   const intent = await createPaymentIntent({
     profileId: order.external_profile_id,
     obligationId: obligation.id,
-    network: campaign.network as "tron" | "bsc",
+    network: "bsc",
   });
   await presaleDb.rawExec(`UPDATE presale_orders SET payment_obligation_id = $2, payment_intent_id = $3,
     payment_network = $4, payment_receiving_address = $5, payment_token_contract = $6,
@@ -2239,6 +2242,29 @@ type PresalePaymentReconciliation = {
   reason: string;
 };
 
+type PresaleCryptoReconciliationTask = {
+  orderReference: string;
+  orderId: string;
+  attemptId: string;
+};
+
+const presaleCryptoReconciliationQueue = new Topic<PresaleCryptoReconciliationTask>("presale-crypto-reconciliation", {
+  deliveryGuarantee: "at-least-once",
+});
+
+async function queuePresaleCryptoReconciliation(task: PresaleCryptoReconciliationTask): Promise<void> {
+  try {
+    await presaleCryptoReconciliationQueue.publish(task);
+  } catch (error) {
+    // The submitted attempt is already durable. The hourly database sweep remains
+    // the recovery path if the broker is temporarily unavailable.
+    log.error(error, "presale crypto reconciliation could not be queued", {
+      orderReference: task.orderReference,
+      attemptId: task.attemptId,
+    });
+  }
+}
+
 async function applyPresalePaymentVerification(
   orderReference: string,
   orderId: string,
@@ -2292,9 +2318,58 @@ export const submitPresalePaymentProof = api<PresalePaymentProofRequest, Presale
     });
     await presaleDb.rawExec(`UPDATE presale_orders SET status = CASE WHEN status = 'awaiting_payment' THEN 'payment_submitted' ELSE status END,
       updated_at = now() WHERE id = $1`, order.id);
-    return reconcilePresalePaymentAttempt({ orderReference: payload.orderReference, orderId: order.id, attemptId: attempt.id });
+    const task = { orderReference: payload.orderReference, orderId: order.id, attemptId: attempt.id };
+    try {
+      const result = await reconcilePresalePaymentAttempt(task);
+      if (shouldRetryPresaleCryptoReconciliation(result.status)) await queuePresaleCryptoReconciliation(task);
+      return result;
+    } catch (error) {
+      await queuePresaleCryptoReconciliation(task);
+      throw error;
+    }
   },
 );
+
+async function processPresaleCryptoReconciliation(task: PresaleCryptoReconciliationTask): Promise<void> {
+  const order = await presaleDb.rawQueryRow<{
+    status: string;
+    payment_rail: PresalePaymentRail;
+    payment_intent_id: string | null;
+  }>(
+    `SELECT o.status, o.payment_rail, o.payment_intent_id
+       FROM presale_orders o
+      WHERE o.id = $1 AND o.order_reference = $2`,
+    task.orderId,
+    task.orderReference,
+  );
+  if (!order || order.payment_rail !== "remitano_usdt") return;
+  if (!["payment_submitted", "payment_detected"].includes(order.status)) return;
+  if (!order.payment_intent_id) return;
+  const latestAttempt = await paymentsDb.rawQueryRow<{ id: string }>(
+    "SELECT id FROM payment_attempts WHERE payment_intent_id = $1 ORDER BY created_at DESC LIMIT 1",
+    order.payment_intent_id,
+  );
+  if (latestAttempt?.id !== task.attemptId) return;
+
+  const result = await reconcilePresalePaymentAttempt(task);
+  if (shouldRetryPresaleCryptoReconciliation(result.status)) {
+    throw new Error(`presale_crypto_verification_${result.status}`);
+  }
+}
+
+const presaleCryptoReconciliationWorker = new Subscription(
+  presaleCryptoReconciliationQueue,
+  "verify-presale-crypto-payment",
+  {
+    handler: processPresaleCryptoReconciliation,
+    retryPolicy: {
+      minBackoff: "10s",
+      maxBackoff: "1m",
+      maxRetries: 120,
+    },
+  },
+);
+void presaleCryptoReconciliationWorker;
 
 export const recheckPresalePayment = api<{ orderReference: string }, PresalePaymentReconciliation>(
   { method: "POST", path: "/presale/orders/:orderReference/payment-recheck", expose: true },
