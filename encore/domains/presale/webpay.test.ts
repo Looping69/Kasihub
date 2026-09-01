@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { resolveWebPayUnitPrice, verifyWebPayChecksum, verifyWebPayProcessChecksum, webPayChecksum, webPayMerchantFields, webPayOrderNumber, webPayProcessChecksum, webPayTotalZar } from "./webpay";
+import { resolveWebPayUnitPrice, verifyWebPayChecksum, verifyWebPayProcessChecksum, webPayChecksum, webPayItemDescription, webPayMerchantFields, webPayOrderNumber, webPayProcessChecksum, webPayReconciliationFields, webPayTotalZar } from "./webpay";
 
 describe("WebPay presale contract", () => {
   test("posts the merchant site identifier required by hosted checkout", () => {
@@ -71,5 +71,36 @@ describe("WebPay presale contract", () => {
     expect(value).toHaveLength(20);
     expect(value.startsWith("KSH")).toBe(true);
     expect(webPayOrderNumber("KSH", "KSP-ORDER-1")).toBe(value);
+  });
+
+  test("puts the exact KaSiHub order reference in the visible provider description", () => {
+    const description = webPayItemDescription(2, "KSP-036504F4-MTIE10BX");
+    expect(description).toBe("KaSiShares 2 paid | KSP-036504F4-MTIE10BX");
+    expect(description.length).toBeLessThanOrEqual(60);
+  });
+
+  test("rejects unsafe or oversized references instead of truncating reconciliation data", () => {
+    expect(() => webPayItemDescription(1, "ORDER-1")).toThrow("invalid_presale_order_reference");
+    expect(() => webPayItemDescription(1, `KSP-${"A".repeat(50)}`)).toThrow("webpay_item_description_too_long");
+  });
+
+  test("maps exact order and application identifiers into documented InstaPay fields", () => {
+    expect(webPayReconciliationFields({
+      orderReference: "KSP-036504F4-MTIE10BX",
+      applicationNumber: "KSA-3115C1FE-MTICOP3B",
+    })).toEqual({
+      m_site_reference: "KSP-036504F4-MTIE10BX",
+      m_tx_invoice_nr: "KSA-3115C1FE-MTICOP3B",
+      m_category_1: "KASISHARES PRESALE",
+      m_category_2: "KSP-036504F4-MTIE10BX",
+      m_category_3: "KSA-3115C1FE-MTICOP3B",
+    });
+  });
+
+  test("fails closed when provider metadata cannot preserve the complete reference", () => {
+    expect(() => webPayReconciliationFields({ orderReference: "KSP-1", applicationNumber: "APPLICATION-1" }))
+      .toThrow("invalid_presale_application_number");
+    expect(() => webPayReconciliationFields({ orderReference: `KSP-${"A".repeat(40)}`, applicationNumber: "KSA-1" }))
+      .toThrow("invalid_presale_order_reference");
   });
 });
