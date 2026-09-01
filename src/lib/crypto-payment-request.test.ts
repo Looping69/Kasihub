@@ -40,18 +40,12 @@ describe("crypto payment requests", () => {
     })).toThrow("Receiving address is not a valid BSC address");
   });
 
-  it("uses a conservative address-only QR request on TRON", () => {
-    const receivingAddress = "TJRyWwFs9wTFGZg3JbrVriFbNfCug5tDeC";
-    expect(createCryptoPaymentRequest({
-      network: "tron",
-      receivingAddress,
-      tokenContract: "irrelevant-to-address-qr",
+  it("rejects payment networks outside the BSC-only presale policy", () => {
+    expect(() => createCryptoPaymentRequest({
+      network: "unsupported",
+      receivingAddress: RECEIVER,
+      tokenContract: TOKEN,
       amountUsdt: "1",
-    })).toMatchObject({
-      payload: receivingAddress,
-      networkLabel: "TRON (TRC20)",
-      includesExactAmount: false,
-      guidance: expect.stringContaining("address only"),
-    });
+    })).toThrow("BSC payments only");
   });
 });

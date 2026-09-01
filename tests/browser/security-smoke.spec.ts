@@ -509,7 +509,9 @@ test("invited buyer can reserve shares without exposing the order access token i
   const invite = "private-invitation-token-000000000001";
   const accessToken = "private-order-access-token-00000000001";
   const orderReference = "KSP-ORDER-001";
-  const transactionHash = "ab".repeat(32);
+  const receivingAddress = `0x${"22".repeat(20)}`;
+  const tokenContract = `0x${"11".repeat(20)}`;
+  const transactionHash = `0x${"ab".repeat(32)}`;
   let refreshUrl = "";
   let refreshAccessToken = "";
   let memberCreated = false;
@@ -528,13 +530,13 @@ test("invited buyer can reserve shares without exposing the order access token i
       priceUsdt: "25.000000",
       priceUsd: "25.00",
       cryptoPaymentUnitPriceUsdt: "1.000000",
-      network: "TRON",
-      tokenContract: "TRON-USDT-CONTRACT",
-      receivingAddress: "TJRyWwFs9wTFGZg3JbrVriFbNfCug5tDeC",
+      network: "BSC",
+      tokenContract,
+      receivingAddress,
       sharesRemaining: 100,
       invitationSharesRemaining: 5,
       invitationEmail: "buyer@example.test",
-      minConfirmations: 20,
+      minConfirmations: 3,
       paymentWindowMinutes: 30,
       termsVersion: "presale-reservation-v1",
     } }),
@@ -575,7 +577,7 @@ test("invited buyer can reserve shares without exposing the order access token i
         kyc: { status: "approved", verified: true },
         order: {
           orderReference, status, incorporationStatus: "pending", paymentRail: "remitano_usdt", quantity: 2,
-          totalUsdt: "2.000000", paymentNetwork: "TRON", paymentMinConfirmations: 20,
+          totalUsdt: "2.000000", paymentNetwork: "BSC", paymentMinConfirmations: 3,
           transactionHash: paymentSubmitted ? transactionHash : undefined,
           paymentConfirmations: paymentSubmitted ? 1 : 0,
           cancellation: paymentSubmitted
@@ -586,8 +588,8 @@ test("invited buyer can reserve shares without exposing the order access token i
           orderReference, phaseNumber: 1, phaseLabel: "Phase 1", campaignName: "KaSiShares Private Allocation",
           issuerName: "Solidus Holdings (Pty) Ltd", shareClass: "Class B", paidShares: 2, bonusShares: 2,
           totalAllocatedShares: 4, paymentMethod: "remitano_usdt", unitPriceUsd: "25.00", totalUsd: "50.00",
-          unitPriceUsdt: "1.000000", totalUsdt: "2.000000", network: "TRON",
-          tokenContract: "TRON-USDT-CONTRACT", receivingAddress: "TJRyWwFs9wTFGZg3JbrVriFbNfCug5tDeC", requiredConfirmations: 20,
+          unitPriceUsdt: "1.000000", totalUsdt: "2.000000", network: "BSC",
+          tokenContract, receivingAddress, requiredConfirmations: 3,
           paymentDeadline: "2026-08-31T12:00:00.000Z", termsVersion: "presale-reservation-v1",
           status, incorporationStatus: "pending",
           cancellation: paymentSubmitted
@@ -644,10 +646,10 @@ test("invited buyer can reserve shares without exposing the order access token i
         unitPriceUsdt: "1.000000",
         totalUsdt: "2.000000",
         status: "awaiting_payment",
-        network: "TRON",
-        tokenContract: "TRON-USDT-CONTRACT",
-        receivingAddress: "TJRyWwFs9wTFGZg3JbrVriFbNfCug5tDeC",
-        minConfirmations: 20,
+        network: "BSC",
+        tokenContract,
+        receivingAddress,
+        minConfirmations: 3,
         paymentDeadline: "2026-08-11T00:00:00.000Z",
         confirmations: 0,
         incorporationStatus: "pending",
@@ -690,10 +692,10 @@ test("invited buyer can reserve shares without exposing the order access token i
         unitPriceUsdt: "1.000000",
         totalUsdt: "2.000000",
         status: "payment_submitted",
-        network: "TRON",
-        tokenContract: "TRON-USDT-CONTRACT",
-        receivingAddress: "TJRyWwFs9wTFGZg3JbrVriFbNfCug5tDeC",
-        minConfirmations: 20,
+        network: "BSC",
+        tokenContract,
+        receivingAddress,
+        minConfirmations: 3,
         paymentDeadline: "2026-08-11T00:00:00.000Z",
         transactionHash,
         confirmations: 0,
@@ -749,11 +751,11 @@ test("invited buyer can reserve shares without exposing the order access token i
     expect(submittedApplication).not.toHaveProperty(field);
   }
 
-  await expect(page.getByLabel("TRON (TRC20)").getByText("2.000000 USDT", { exact: true })).toBeVisible();
-  await expect(page.getByText("TJRyWwFs9wTFGZg3JbrVriFbNfCug5tDeC")).toBeVisible();
-  await expect(page.getByRole("heading", { name: "TRON (TRC20)" })).toBeVisible();
-  await expect(page.getByLabel("TRON (TRC20)").getByRole("img")).toBeVisible();
-  await expect(page.getByText("address only", { exact: false })).toBeVisible();
+  await expect(page.getByLabel("BNB Smart Chain (BEP20)").getByText("2.000000 USDT", { exact: true })).toBeVisible();
+  await expect(page.getByText(receivingAddress)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "BNB Smart Chain (BEP20)" })).toBeVisible();
+  await expect(page.getByLabel("BNB Smart Chain (BEP20)").getByRole("img")).toBeVisible();
+  await expect(page.getByText("exact reserved amount", { exact: false })).toBeVisible();
   await expect(page.getByRole("list", { name: "Crypto payment verification progress" })).toBeVisible();
   await expect(page.getByText(/transaction hash is not accepted as settled/i)).toBeVisible();
 
@@ -766,6 +768,6 @@ test("invited buyer can reserve shares without exposing the order access token i
 
   await page.reload();
   await expect(page.getByRole("heading", { name: "Payment submitted" })).toBeVisible();
-  await expect(page.getByText("1/20 confirmations", { exact: true })).toBeVisible();
+  await expect(page.getByText("1/3 confirmations", { exact: true })).toBeVisible();
   await expect(page.getByText(transactionHash, { exact: true })).toBeVisible();
 });

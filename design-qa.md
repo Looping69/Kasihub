@@ -55,7 +55,7 @@ final result: passed
 - Replaced the source's generic minimum-deposit treatment with the reservation's exact amount due. The BSC QR encodes the verified token contract, receiver, and reserved amount; the UI still tells the user to confirm every wallet field.
 - Kept the copy control and added a four-stage visual verification tracker: exact transfer, hash submission, chain verification, and certificate readiness.
 - Did not copy the source's `History` action because this journey already has an authoritative applicant account and reservation history surface.
-- TRON deliberately uses an address-only QR because there is no safe universal wallet URI for this token transfer; amount, token, and network remain explicit beside the QR.
+- The wallet request is deliberately BSC/BEP20-only, matching the active presale payment policy; unsupported networks fail closed without rendering a QR.
 
 ## Findings and fixes
 

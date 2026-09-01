@@ -23,12 +23,6 @@ function bscAddress(value: string, label: string): string {
   return address;
 }
 
-function tronAddress(value: string): string {
-  const address = value.trim();
-  if (!/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(address)) throw new Error("Receiving address is not a valid TRON address");
-  return address;
-}
-
 export function createCryptoPaymentRequest(input: {
   network: string;
   receivingAddress: string;
@@ -48,14 +42,5 @@ export function createCryptoPaymentRequest(input: {
     };
   }
 
-  if (network === "tron") {
-    return {
-      payload: tronAddress(input.receivingAddress),
-      networkLabel: "TRON (TRC20)",
-      includesExactAmount: false,
-      guidance: "Scanning enters the verified receiving address only. Select TRC20 USDT and enter the exact reserved amount in your wallet before sending.",
-    };
-  }
-
-  throw new Error("This payment network does not support a wallet QR request");
+  throw new Error("Wallet QR requests are available for BSC payments only");
 }
