@@ -25,3 +25,36 @@ export const applicantLoginSchema = z.object({
 export const internationalCellphoneSchema = z.string().trim().min(8).max(40)
   .refine((value) => normalizeInternationalCellphone(value) !== null, "Enter a valid cellphone number including its country code")
   .transform((value) => normalizeInternationalCellphone(value)!);
+
+export const REQUIRED_NON_INDIVIDUAL_FUNDING_FIELDS = [
+  "sourceOfFunds",
+  "fundsOwnership",
+  "bankAccountHolder",
+  "bankName",
+  "bankBranch",
+  "bankAccountNumber",
+  "bankAccountType",
+] as const;
+
+type FundingRequirementInput = {
+  applicantType: "individual" | "company" | "trust";
+  sourceOfFunds?: string;
+  sourceOfFundsDetails?: string;
+  fundsOwnership?: string;
+  bankAccountHolder?: string;
+  bankName?: string;
+  bankBranch?: string;
+  bankAccountNumber?: string;
+  bankAccountType?: string;
+};
+
+export function missingRequiredFundingFields(value: FundingRequirementInput): string[] {
+  if (value.applicantType === "individual") return [];
+
+  const missing: string[] = REQUIRED_NON_INDIVIDUAL_FUNDING_FIELDS
+    .filter((field) => !value[field]?.trim());
+  if (value.sourceOfFunds === "other" && !value.sourceOfFundsDetails?.trim()) {
+    missing.push("sourceOfFundsDetails");
+  }
+  return missing;
+}

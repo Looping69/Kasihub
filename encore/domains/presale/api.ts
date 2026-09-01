@@ -31,7 +31,7 @@ import { deriveApplicantContinuation, type ApplicantContinuationReason } from ".
 import { databaseBinaryToBuffer, type DatabaseBinary } from "./database-binary";
 import { resolveWebPayUnitPrice, WEBPAY_UNIT_PRICE_ZAR, verifyWebPayChecksum, verifyWebPayProcessChecksum, webPayChecksum, webPayMerchantFields, webPayOrderNumber, webPayTotalZar, type PresalePaymentRail } from "./webpay";
 import { buildShareholderPortfolio, type PresaleCertificate, type PresalePaidOrder } from "./shareholder-portfolio";
-import { applicantLoginSchema, internationalCellphoneSchema, physicalAddressLine, strongPasswordSchema } from "./applicant-validation";
+import { applicantLoginSchema, internationalCellphoneSchema, missingRequiredFundingFields, physicalAddressLine, strongPasswordSchema } from "./applicant-validation";
 import { issueShares } from "../shares/issuance";
 import { deriveApplicantJourney, type ApplicantJourneyDecision } from "./applicant-journey";
 import {
@@ -341,14 +341,14 @@ const orderInput = z.object({
     authorisedRepresentativePosition: z.string().trim().max(160).optional(),
     beneficialOwnerName: z.string().trim().min(2).max(200).optional(),
     beneficialOwnerRelationship: z.string().trim().max(160).optional(),
-    sourceOfFunds: z.enum(["salary", "business", "investment", "property_sale", "inheritance", "pension", "savings", "company", "trust", "other"]),
+    sourceOfFunds: z.enum(["salary", "business", "investment", "property_sale", "inheritance", "pension", "savings", "company", "trust", "other"]).optional(),
     sourceOfFundsDetails: z.string().trim().min(2).max(1000).optional(),
-    fundsOwnership: z.enum(["own", "company", "trust", "other"]),
-    bankAccountHolder: z.string().trim().min(2).max(200),
-    bankName: z.string().trim().min(2).max(160),
-    bankBranch: z.string().trim().min(2).max(160),
-    bankAccountNumber: z.string().trim().min(4).max(100),
-    bankAccountType: z.string().trim().min(2).max(80),
+    fundsOwnership: z.enum(["own", "company", "trust", "other"]).optional(),
+    bankAccountHolder: z.string().trim().min(2).max(200).optional(),
+    bankName: z.string().trim().min(2).max(160).optional(),
+    bankBranch: z.string().trim().min(2).max(160).optional(),
+    bankAccountNumber: z.string().trim().min(4).max(100).optional(),
+    bankAccountType: z.string().trim().min(2).max(80).optional(),
     bankSwift: z.string().trim().min(8).max(20).optional(),
     amlDeclarationAccepted: z.literal(true),
     suitabilityDeclarationAccepted: z.literal(true),
@@ -378,8 +378,12 @@ const orderInput = z.object({
     }
   }
 
-  if (value.investorApplication.sourceOfFunds === "other" && !value.investorApplication.sourceOfFundsDetails?.trim()) {
-    context.addIssue({ code: "custom", path: ["investorApplication", "sourceOfFundsDetails"], message: "Describe the other source of funds" });
+  for (const field of missingRequiredFundingFields(value.investorApplication)) {
+    context.addIssue({
+      code: "custom",
+      path: ["investorApplication", field],
+      message: field === "sourceOfFundsDetails" ? "Describe the other source of funds" : "This field is required",
+    });
   }
 });
 
@@ -572,14 +576,14 @@ interface CreatePresaleOrderRequest {
     authorisedRepresentativePosition?: string;
     beneficialOwnerName?: string;
     beneficialOwnerRelationship?: string;
-    sourceOfFunds: "salary" | "business" | "investment" | "property_sale" | "inheritance" | "pension" | "savings" | "company" | "trust" | "other";
+    sourceOfFunds?: "salary" | "business" | "investment" | "property_sale" | "inheritance" | "pension" | "savings" | "company" | "trust" | "other";
     sourceOfFundsDetails?: string;
-    fundsOwnership: "own" | "company" | "trust" | "other";
-    bankAccountHolder: string;
-    bankName: string;
-    bankBranch: string;
-    bankAccountNumber: string;
-    bankAccountType: string;
+    fundsOwnership?: "own" | "company" | "trust" | "other";
+    bankAccountHolder?: string;
+    bankName?: string;
+    bankBranch?: string;
+    bankAccountNumber?: string;
+    bankAccountType?: string;
     bankSwift?: string;
     amlDeclarationAccepted: boolean;
     suitabilityDeclarationAccepted: boolean;

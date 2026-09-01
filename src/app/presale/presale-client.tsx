@@ -294,6 +294,8 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
   const webPayTotalZar = webPayUnitPriceZar ? multiplyDecimalByWhole(webPayUnitPriceZar, quantity || "0") : null;
   const validatedPhoneNumber = validatedInternationalCellphone(phoneCountryCode, phoneNumber);
   const validatedConfirmPhoneNumber = validatedInternationalCellphone(confirmPhoneCountryCode, confirmPhoneNumber);
+  const fundingDetailsRequired = applicantType !== "individual";
+  const sourceOfFundsDetailsRequired = fundingDetailsRequired && sourceOfFunds === "other";
   const phoneNumberValid = Boolean(validatedPhoneNumber);
   const confirmPhoneNumberValid = Boolean(
     validatedConfirmPhoneNumber
@@ -707,18 +709,19 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
               </div>
               <div data-application-phase="3" hidden={applicationPhase !== 3} className="space-y-5">
               <SectionTitle>Source of funds</SectionTitle>
+              {!fundingDetailsRequired ? <p className="rounded-lg border border-emerald-300/30 bg-emerald-400/10 p-3 text-xs leading-5 text-emerald-100">Funding and investor banking information is optional for individual applications. You may continue without completing this section.</p> : null}
               <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="Primary source *"><Select name="sourceOfFunds" options={SOURCE_OF_FUNDS} required value={sourceOfFunds} onChange={setSourceOfFunds} /></Field>
-                <Field label="Whose funds? *"><Select name="fundsOwnership" options={[["own","Applicant's own"],["company","Company"],["trust","Trust"],["other","Other"]]} required /></Field>
+                <Field label={`Primary source${fundingDetailsRequired ? " *" : " (optional)"}`}><Select name="sourceOfFunds" options={SOURCE_OF_FUNDS} required={fundingDetailsRequired} value={sourceOfFunds} onChange={setSourceOfFunds} /></Field>
+                <Field label={`Whose funds?${fundingDetailsRequired ? " *" : " (optional)"}`}><Select name="fundsOwnership" options={[["own","Applicant's own"],["company","Company"],["trust","Trust"],["other","Other"]]} required={fundingDetailsRequired} /></Field>
               </div>
-              <Field label={`Source-of-funds details${sourceOfFunds === "other" ? " *" : ""}`}><textarea name="sourceOfFundsDetails" required={sourceOfFunds === "other"} rows={3} className="w-full rounded-md border border-white/15 bg-black/20 px-3 py-2 text-sm" /></Field>
+              <Field label={`Source-of-funds details${sourceOfFundsDetailsRequired ? " *" : " (optional)"}`}><textarea name="sourceOfFundsDetails" required={sourceOfFundsDetailsRequired} rows={3} className="w-full rounded-md border border-white/15 bg-black/20 px-3 py-2 text-sm" /></Field>
               <SectionTitle>Investor banking</SectionTitle>
               <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="Account holder *"><Input name="bankAccountHolder" required className="border-white/15 bg-black/20" /></Field>
-                <Field label="Bank *"><Input name="bankName" required className="border-white/15 bg-black/20" /></Field>
-                <Field label="Branch *"><Input name="bankBranch" required className="border-white/15 bg-black/20" /></Field>
-                <Field label="Account number *"><Input name="bankAccountNumber" required className="border-white/15 bg-black/20" /></Field>
-                <Field label="Account type *"><Input name="bankAccountType" required className="border-white/15 bg-black/20" /></Field>
+                <Field label={`Account holder${fundingDetailsRequired ? " *" : " (optional)"}`}><Input name="bankAccountHolder" required={fundingDetailsRequired} className="border-white/15 bg-black/20" /></Field>
+                <Field label={`Bank${fundingDetailsRequired ? " *" : " (optional)"}`}><Input name="bankName" required={fundingDetailsRequired} className="border-white/15 bg-black/20" /></Field>
+                <Field label={`Branch${fundingDetailsRequired ? " *" : " (optional)"}`}><Input name="bankBranch" required={fundingDetailsRequired} className="border-white/15 bg-black/20" /></Field>
+                <Field label={`Account number${fundingDetailsRequired ? " *" : " (optional)"}`}><Input name="bankAccountNumber" required={fundingDetailsRequired} className="border-white/15 bg-black/20" /></Field>
+                <Field label={`Account type${fundingDetailsRequired ? " *" : " (optional)"}`}><Input name="bankAccountType" required={fundingDetailsRequired} className="border-white/15 bg-black/20" /></Field>
                 <Field label="SWIFT/BIC (optional)"><Input name="bankSwift" minLength={8} className="border-white/15 bg-black/20" /></Field>
               </div>
               </div>

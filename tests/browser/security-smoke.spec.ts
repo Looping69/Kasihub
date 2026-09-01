@@ -249,7 +249,7 @@ test("private USDT shares page fails closed without an invitation", async ({ pag
   await expect(page.locator('meta[name="referrer"]')).toHaveAttribute("content", "no-referrer");
 });
 
-test("shareholder application enforces required banking details while keeping SWIFT/BIC optional", async ({ page }) => {
+test("shareholder application keeps funding optional for individuals and required for entities", async ({ page }) => {
   const invite = "private-form-review-token-0000000000000001";
   let registrationBody: Record<string, unknown> = {};
   await page.route("**/api/presale/portal", (route) => route.fulfill({
@@ -330,21 +330,15 @@ test("shareholder application enforces required banking details while keeping SW
   await page.getByRole("button", { name: /^Continue$/ }).click();
   await expect(page.getByRole("heading", { name: "Funding details" })).toBeVisible();
 
-  for (const label of ["Account holder *", "Bank *", "Branch *", "Account number *", "Account type *"]) {
-    await expect(page.getByLabel(label)).toHaveAttribute("required", "");
+  await expect(page.getByText("Funding and investor banking information is optional for individual applications.", { exact: false })).toBeVisible();
+  for (const label of ["Primary source (optional)", "Whose funds? (optional)", "Account holder (optional)", "Bank (optional)", "Branch (optional)", "Account number (optional)", "Account type (optional)"]) {
+    await expect(page.getByLabel(label)).not.toHaveAttribute("required", "");
   }
   await expect(page.getByLabel("SWIFT/BIC (optional)")).not.toHaveAttribute("required", "");
-  const sourceDetails = page.getByLabel("Source-of-funds details");
+  const sourceDetails = page.getByLabel("Source-of-funds details (optional)");
   await expect(sourceDetails).not.toHaveAttribute("required", "");
-  await page.getByLabel("Primary source *").selectOption("other", { force: true });
-  await expect(page.getByLabel("Source-of-funds details *")).toHaveAttribute("required", "");
-  await page.getByLabel("Whose funds? *").selectOption("own");
-  await page.getByLabel("Source-of-funds details *").fill("Employment and savings");
-  await page.getByLabel("Account holder *").fill("Test Shareholder");
-  await page.getByLabel("Bank *").fill("Test Bank");
-  await page.getByLabel("Branch *").fill("123456");
-  await page.getByLabel("Account number *").fill("1234567890");
-  await page.getByLabel("Account type *").fill("Cheque");
+  await page.getByLabel("Primary source (optional)").selectOption("other", { force: true });
+  await expect(page.getByLabel("Source-of-funds details (optional)")).not.toHaveAttribute("required", "");
   await page.getByLabel("SWIFT/BIC (optional)").fill("SHORT");
   await page.getByRole("button", { name: /^Continue$/ }).click();
   await expect(page.getByRole("heading", { name: "Funding details" })).toBeVisible();
@@ -352,6 +346,24 @@ test("shareholder application enforces required banking details while keeping SW
   await page.getByLabel("SWIFT/BIC (optional)").fill("");
   await page.getByRole("button", { name: /^Continue$/ }).click();
   await expect(page.getByRole("heading", { name: "Identity evidence" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Back" }).click();
+  await page.getByRole("button", { name: "Back" }).click();
+  await page.getByRole("button", { name: "Back" }).click();
+  await expect(page.getByRole("heading", { name: "Shareholder profile", exact: true })).toBeVisible();
+  await page.getByLabel("Application type *").selectOption("company");
+  await page.getByLabel("Company registration number *").fill("2026/000001/07");
+  await page.getByLabel("Authorised representative *").fill("Test Shareholder");
+  await page.getByLabel("Representative position *").fill("Director");
+  await page.getByRole("button", { name: /^Continue$/ }).click();
+  await expect(page.getByRole("heading", { name: "Choose your investment" })).toBeVisible();
+  await page.getByRole("button", { name: /^Continue$/ }).click();
+  await expect(page.getByRole("heading", { name: "Funding details" })).toBeVisible();
+  await expect(page.getByText("Funding and investor banking information is optional for individual applications.", { exact: false })).not.toBeVisible();
+  for (const label of ["Primary source *", "Whose funds? *", "Account holder *", "Bank *", "Branch *", "Account number *", "Account type *"]) {
+    await expect(page.getByLabel(label)).toHaveAttribute("required", "");
+  }
+  await expect(page.getByLabel("Source-of-funds details *")).toHaveAttribute("required", "");
 });
 
 test("applicant portal continues signup at the first server-authoritative unfinished step", async ({ page }) => {
@@ -504,6 +516,7 @@ test("invited buyer can reserve shares without exposing the order access token i
   let kycVerified = false;
   let orderCreated = false;
   let paymentSubmitted = false;
+  let orderBody: Record<string, unknown> = {};
 
   await page.route("**/api/presale/offer?invite=*", (route) => route.fulfill({
     status: 200,
@@ -612,6 +625,7 @@ test("invited buyer can reserve shares without exposing the order access token i
   }));
   await page.route("**/api/presale/orders", async (route) => {
     if (route.request().method() !== "POST") return route.fallback();
+    orderBody = route.request().postDataJSON() as Record<string, unknown>;
     orderCreated = true;
     await route.fulfill({
       status: 200,
@@ -711,14 +725,7 @@ test("invited buyer can reserve shares without exposing the order access token i
   await page.getByLabel("Paid Class B at $25 each *").fill("2");
   await page.getByRole("button", { name: "Continue" }).click();
 
-  await page.getByLabel("Primary source").selectOption("salary");
-  await page.getByLabel("Whose funds?").selectOption("own");
-  await page.getByLabel("Source-of-funds details").fill("Employment income");
-  await page.getByLabel("Account holder").fill("Private Buyer");
-  await page.getByLabel("Bank").fill("Test Bank");
-  await page.getByLabel("Branch *").fill("123456");
-  await page.getByLabel("Account number").fill("1234567890");
-  await page.getByLabel("Account type").fill("Cheque");
+  await expect(page.getByText("You may continue without completing this section.", { exact: false })).toBeVisible();
   await page.getByRole("button", { name: "Continue" }).click();
 
   await expect(page.getByRole("heading", { name: "Identity evidence" })).toBeVisible();
@@ -732,6 +739,12 @@ test("invited buyer can reserve shares without exposing the order access token i
   await page.getByLabel(/I accept the presale reservation acknowledgement/).check();
   expect(await page.locator("form :invalid").evaluateAll((fields) => fields.map((field) => field.getAttribute("name")))).toEqual([]);
   await page.getByRole("button", { name: "Create reservation" }).click();
+
+  const submittedApplication = orderBody.investorApplication as Record<string, unknown>;
+  expect(submittedApplication).toMatchObject({ applicantType: "individual" });
+  for (const field of ["sourceOfFunds", "fundsOwnership", "bankAccountHolder", "bankName", "bankBranch", "bankAccountNumber", "bankAccountType"]) {
+    expect(submittedApplication).not.toHaveProperty(field);
+  }
 
   await expect(page.getByText("50.000000 USDT", { exact: true })).toBeVisible();
   await expect(page.getByText("TControlledReceiverAddress")).toBeVisible();
