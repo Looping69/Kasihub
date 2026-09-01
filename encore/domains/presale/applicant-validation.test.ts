@@ -1,6 +1,13 @@
 // Author: Klaasvaakie ( |╲ )
 import { describe, expect, test } from "vitest";
-import { applicantLoginSchema, internationalCellphoneSchema, normalizeInternationalCellphone, physicalAddressLine, strongPasswordSchema } from "./applicant-validation";
+import {
+  applicantLoginSchema,
+  internationalCellphoneSchema,
+  missingRequiredFundingFields,
+  normalizeInternationalCellphone,
+  physicalAddressLine,
+  strongPasswordSchema,
+} from "./applicant-validation";
 
 describe("KaSiShares applicant validation", () => {
   test("normalizes and validates cellphone length against the international country code", () => {
@@ -26,5 +33,32 @@ describe("KaSiShares applicant validation", () => {
   test("creates one stable legacy address line from the required structured fields", () => {
     expect(physicalAddressLine({ streetAddress: "1 Main Road", suburb: "Sunnyside", city: "Pretoria", postalCode: "0002" }))
       .toBe("1 Main Road, Sunnyside, Pretoria, 0002");
+  });
+
+  test("keeps funding and banking optional for individual applicants", () => {
+    expect(missingRequiredFundingFields({ applicantType: "individual" })).toEqual([]);
+    expect(missingRequiredFundingFields({ applicantType: "individual", sourceOfFunds: "other" })).toEqual([]);
+  });
+
+  test("retains complete funding and banking requirements for companies and trusts", () => {
+    expect(missingRequiredFundingFields({ applicantType: "company" })).toEqual([
+      "sourceOfFunds",
+      "fundsOwnership",
+      "bankAccountHolder",
+      "bankName",
+      "bankBranch",
+      "bankAccountNumber",
+      "bankAccountType",
+    ]);
+    expect(missingRequiredFundingFields({
+      applicantType: "trust",
+      sourceOfFunds: "other",
+      fundsOwnership: "trust",
+      bankAccountHolder: "Example Trust",
+      bankName: "Example Bank",
+      bankBranch: "123456",
+      bankAccountNumber: "1234567890",
+      bankAccountType: "Trust account",
+    })).toEqual(["sourceOfFundsDetails"]);
   });
 });

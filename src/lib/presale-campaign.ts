@@ -2,8 +2,11 @@
 
 export type PresaleCampaignSaveInput = {
   priceUsd: number;
+  usdtPerUsd?: number;
   startsAt?: string;
   endsAt?: string;
+  tokenContract?: string;
+  receivingAddress?: string;
   [key: string]: unknown;
 };
 
@@ -25,10 +28,14 @@ export function campaignAcceptsInvitations(campaign: PresaleCampaignAvailability
  * The USD price is authoritative: USDT is quoted server-side at order creation.
  */
 export function campaignSavePayload<T extends PresaleCampaignSaveInput>(draft: T): T & { startsAt?: string; endsAt?: string } {
+  const usdtPerUsd = Number(draft.usdtPerUsd);
   return {
     ...draft,
     priceUsd: draft.priceUsd,
+    usdtPerUsd: Number.isFinite(usdtPerUsd) && usdtPerUsd > 0 ? usdtPerUsd : 1,
     startsAt: draft.startsAt ? new Date(draft.startsAt).toISOString() : undefined,
     endsAt: draft.endsAt ? new Date(draft.endsAt).toISOString() : undefined,
+    tokenContract: draft.tokenContract?.trim() || undefined,
+    receivingAddress: draft.receivingAddress?.trim() || undefined,
   };
 }

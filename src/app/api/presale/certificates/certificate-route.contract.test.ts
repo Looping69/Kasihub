@@ -43,6 +43,22 @@ describe("presale shareholder certificate PDF", () => {
     expect((await PDFDocument.load(await response.arrayBuffer())).getPageCount()).toBe(1);
   });
 
+  test("derives a legacy bonus allocation from the immutable certificate total", async () => {
+    mocks.presaleSessionToken.mockResolvedValue("presale-token");
+    mocks.encoreRequest.mockResolvedValue({
+      applicant: { profileNumber: "KSI-1", legalName: "Test Holder" },
+      shareholder: { holdings: [{
+        campaignName: "Legacy Campaign", paidShares: 2, bonusShares: 2,
+        issuePricePerShare: 25, issuePriceCurrency: "USD",
+        certificate: { certificateNumber: "CERT-LEGACY", totalShares: 3, status: "issued", issuedAt: "2026-08-26T00:00:00Z" },
+      }] },
+    });
+
+    const response = await GET(new Request("http://localhost"), context("CERT-LEGACY"));
+    expect(response.status).toBe(200);
+    expect((await PDFDocument.load(await response.arrayBuffer())).getPageCount()).toBe(1);
+  });
+
   test("does not expose another shareholder's certificate", async () => {
     mocks.presaleSessionToken.mockResolvedValue("presale-token");
     mocks.encoreRequest.mockResolvedValue({ applicant: { profileNumber: "KSI-1", legalName: "Test Holder" }, shareholder: { holdings: [] } });

@@ -14,14 +14,14 @@ function topic(address: string): string {
   return `0x${"0".repeat(24)}${address.replace(/^0x/, "")}`;
 }
 
-function evidence(hash: string, receiver = RECEIVER): ChainTransactionEvidence {
+function evidence(hash: string, receiver = RECEIVER, latestBlockNumber = 102n): ChainTransactionEvidence {
   return {
     network: "bsc",
     transactionHash: hash,
     visible: true,
     execution: "success",
     blockNumber: 100n,
-    latestBlockNumber: 102n,
+    latestBlockNumber,
     sender: SENDER,
     logs: [{
       address: TOKEN,
@@ -81,6 +81,36 @@ describe("product-neutral payment verification and settlement", () => {
         (SELECT count(*)::int FROM payment_events e WHERE e.payment_intent_id=i.id AND e.event_type='payment.settled') AS settled_events
        FROM payment_intents i JOIN payment_obligations o ON o.id=i.order_id WHERE i.id=$1`, seeded.intentId);
     expect(state).toEqual({ intent_status: "settled", obligation_status: "settled", settled_events: 1 });
+  });
+
+  it("keeps polling a valid transfer until confirmation depth is met, then settles exactly once", async () => {
+    const seeded = await seedSubmittedPayment();
+    const pending = await verifyAndSettlePaymentAttempt(
+      seeded.attemptId,
+      async () => evidence(seeded.hash, RECEIVER, 100n),
+    );
+    expect(pending).toMatchObject({ status: "pending_confirmations", confirmations: 1 });
+
+    const settled = await verifyAndSettlePaymentAttempt(
+      seeded.attemptId,
+      async () => evidence(seeded.hash),
+    );
+    const retry = await verifyAndSettlePaymentAttempt(seeded.attemptId, async () => evidence(seeded.hash));
+    expect(settled).toMatchObject({ status: "settled", confirmations: 3 });
+    expect(retry).toMatchObject({ status: "settled", reason: "already_settled" });
+
+    const state = await paymentsDb.rawQueryRow<{
+      intent_status: string; obligation_status: string; confirmations: number; settled_events: number;
+    }>(
+      `SELECT i.status AS intent_status,o.status AS obligation_status,a.confirmations,
+        (SELECT count(*)::int FROM payment_events e WHERE e.payment_intent_id=i.id AND e.event_type='payment.settled') AS settled_events
+       FROM payment_intents i
+       JOIN payment_obligations o ON o.id=i.order_id
+       JOIN payment_attempts a ON a.payment_intent_id=i.id
+       WHERE i.id=$1`,
+      seeded.intentId,
+    );
+    expect(state).toEqual({ intent_status: "settled", obligation_status: "settled", confirmations: 3, settled_events: 1 });
   });
 
   it("rejects wrong-destination evidence without settling the obligation", async () => {

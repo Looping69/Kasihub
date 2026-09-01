@@ -7,15 +7,21 @@ describe("presale campaign editor contract", () => {
     const payload = campaignSavePayload({
       name: "Phase 1",
       priceUsd: 25,
+      usdtPerUsd: Number.NaN,
       priceUsdt: 0,
       startsAt: "2026-08-12T10:00:00.000Z",
       endsAt: "",
+      tokenContract: "  ",
+      receivingAddress: "",
     });
 
     expect(payload.priceUsd).toBe(25);
+    expect(payload.usdtPerUsd).toBe(1);
     expect(payload.priceUsdt).toBe(0);
     expect(payload.startsAt).toBe("2026-08-12T10:00:00.000Z");
     expect(payload.endsAt).toBeUndefined();
+    expect(payload.tokenContract).toBeUndefined();
+    expect(payload.receivingAddress).toBeUndefined();
   });
 
   test("only offers invitations while an active campaign is inside its configured window", () => {

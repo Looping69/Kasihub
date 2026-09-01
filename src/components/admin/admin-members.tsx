@@ -35,6 +35,15 @@ interface AdminMember {
   presaleCompletionPercent: number | null; presaleApplicationNumber: string | null;
   presaleReservationStatus: string | null; presaleOrderReference: string | null;
   presaleReservationQuantity: number | null; presaleIncorporationStatus: string | null;
+  presalePaymentRail: string | null; presalePaymentAmountZar: number | null;
+  presaleWebPayReference: string | null; presaleWebPayTransactionId: string | null;
+  presaleWebPaySystemReference: string | null; presaleWebPayPaymentMethod: string | null;
+  presalePaymentSettledAt: string | null;
+  presalePaymentReconciliations: {
+    orderReference: string; status: string; quantity: number; amountZar: number | null;
+    webPayReference: string | null; transactionId: string | null; systemReference: string | null;
+    paymentMethod: string | null; settledAt: string | null;
+  }[];
 }
 
 interface KycDocument {
@@ -193,7 +202,7 @@ export function AdminMembers() {
         <div className="flex flex-col sm:flex-row gap-3">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input placeholder="Search by name, email, profile number, mobile..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-10" />
+            <Input placeholder="Search name, profile, KSH InstaPay or KSP order reference..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-10" />
           </div>
           <div className="flex gap-2">
             <Select value={kycFilter} onValueChange={setKycFilter}>
@@ -366,6 +375,24 @@ export function AdminMembers() {
                       <Detail icon={CreditCard} label="Order reference" value={selected.presaleOrderReference || "—"} mono />
                       <Detail icon={ShieldCheck} label="Incorporation" value={formatStatus(selected.presaleIncorporationStatus)} />
                     </div>
+                    {selected.presalePaymentReconciliations.map((payment) => (
+                      <div key={payment.orderReference} className="space-y-3 rounded-lg border border-sky-300 bg-white p-3 dark:border-sky-800 dark:bg-sky-950/70">
+                        <div>
+                          <p className="text-xs font-semibold text-sky-950 dark:text-sky-100">InstaPay payment reconciliation</p>
+                          <p className="text-[11px] text-sky-700 dark:text-sky-300">
+                            Match the exact KSH reference below to the “My reference” column in InstaPay.
+                          </p>
+                        </div>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <Detail icon={CreditCard} label="InstaPay My reference" value={payment.webPayReference || "Not assigned yet"} mono />
+                          <Detail icon={CreditCard} label="KaSiHub order" value={payment.orderReference} mono />
+                          <Detail icon={Coins} label="Shares and amount" value={`${payment.quantity} shares · ${payment.amountZar === null ? "—" : fmt(payment.amountZar)}`} />
+                          <Detail icon={CreditCard} label="Payment status" value={formatStatus(payment.status)} />
+                          <Detail icon={ShieldCheck} label="Provider system reference" value={payment.systemReference || "Pending settlement"} mono />
+                          <Detail icon={Calendar} label="Settled at" value={payment.settledAt ? new Date(payment.settledAt).toLocaleString("en-ZA") : "Not settled"} />
+                        </div>
+                      </div>
+                    ))}
                     {selected.presaleCompletionPercent !== null && (
                       <div>
                         <div className="mb-1 flex justify-between text-[10px] text-sky-700 dark:text-sky-400"><span>Application progress</span><span>{selected.presaleCompletionPercent}%</span></div>

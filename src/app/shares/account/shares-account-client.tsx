@@ -7,6 +7,7 @@ import Link from "next/link";
 import { CheckCircle2, Clock3, Download, FileCheck2, Layers3, LoaderCircle, LogOut, RefreshCw, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { CryptoVerificationProgress } from "@/components/presale/crypto-verification-progress";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -109,6 +110,19 @@ export function SharesAccountClient() {
     };
   }, [loadPortal, portal?.authority.available, portal?.authority.journey.state, portal?.authority.reservation?.paymentMethod]);
 
+  useEffect(() => {
+    if (!portal?.authority.available || !["payment", "incorporation"].includes(portal.authority.journey.polling)) return;
+    const refresh = () => {
+      if (document.visibilityState === "visible") void loadPortal().catch((reason) => setError(reason.message));
+    };
+    const interval = window.setInterval(refresh, 5_000);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, [loadPortal, portal?.authority.available, portal?.authority.journey.polling]);
+
   async function login(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
@@ -151,7 +165,7 @@ export function SharesAccountClient() {
       const body = await response.json();
       if (!response.ok) throw new Error(body.error ?? "Payment verification is temporarily unavailable");
       setPaymentNotice(body.status === "settled"
-        ? "Payment verified. Your share allocation and certificate have been issued."
+        ? "Payment verified. Share issuance has started; this page will update when the certificate is ready."
         : paymentStatusMessage(body.status, body.reason));
       await loadPortal();
     } catch (reason) {
@@ -211,7 +225,7 @@ function PortalView({ portal, error, confirmingPayment, recheckingPayment, payme
     {!portal.authority.available ? <p role="alert" className="rounded-xl border border-rose-300/30 bg-rose-400/10 p-4 text-sm leading-6 text-rose-100"><strong className="block text-white">Applicant controls are safely locked</strong>The server authority contract is unavailable or incomplete. No payment, cancellation, or continuation action has been enabled.</p> : null}
     {portal.order?.webPayProcessStatus && ["FAILED", "REJECTED", "EXPIRED", "REVERSED"].includes(portal.order.webPayProcessStatus) ? <p role="status" className="rounded-xl border border-rose-300/30 bg-rose-400/10 p-4 text-sm text-rose-100">The last WebPay attempt was {portal.order.webPayProcessStatus.toLowerCase()}. No successful card payment was recorded and no shares were allocated.</p> : null}
     {confirmingPayment ? <p role="status" className="rounded-xl border border-sky-300/30 bg-sky-400/10 p-4 text-sm text-sky-100">WebPay returned successfully. We are waiting for the signed payment notification before confirming your shares.</p> : null}
-    {portal.order?.paymentRail === "remitano_usdt" && reservation && allowsApplicantAction(portal.authority, "recheck_payment") ? <CryptoPaymentRecovery order={portal.order} reservation={reservation} rechecking={recheckingPayment} notice={paymentNotice} onRecheck={onRecheck} /> : null}
+    {portal.order?.paymentRail === "remitano_usdt" && reservation && allowsApplicantAction(portal.authority, "recheck_payment") ? <CryptoPaymentRecovery order={portal.order} reservation={reservation} journeyState={portal.authority.journey.state} rechecking={recheckingPayment} notice={paymentNotice} onRecheck={onRecheck} /> : null}
     {shareholder.holdings.length > 0 ? <ShareholderPortfolio shareholder={shareholder} /> : null}
     <ContinuationPanel portal={portal} error={error} onCancel={onCancel} />
     <p className="flex items-center gap-2 text-xs text-slate-400"><ShieldCheck className="h-4 w-4" />KaSiShares access remains separate. Normal dashboard and matrix access require an activated membership subscription.</p>
@@ -226,12 +240,12 @@ function paymentStatusMessage(status?: string, reason?: string): string {
   if (status === "underpaid") return "The transfer was found, but the verified amount is below the reserved amount. Support must review it.";
   if (status === "rejected") return "The submitted transaction does not match the reservation and was rejected.";
   if (reason === "chain_provider_unavailable") return "The blockchain verifier is temporarily unavailable. Your hash is saved and automatic retries remain active.";
-  if (reason?.includes("custody") || reason?.includes("provider")) return "The transfer is visible on-chain, but custody reconciliation is temporarily unavailable. Your hash is saved and will be retried.";
+  if (reason?.includes("custody") || reason?.includes("provider")) return "Blockchain verification passed. Remitano credit confirmation is still pending; your hash is saved and automatic retries remain active.";
   return "Verification is still pending. Your submitted hash is saved and automatic retries remain active.";
 }
 
-function CryptoPaymentRecovery({ order, reservation, rechecking, notice, onRecheck }: {
-  order: PortalOrder; reservation: PresaleReservationContract; rechecking: boolean; notice: string; onRecheck: (orderReference: string) => Promise<void>;
+function CryptoPaymentRecovery({ order, reservation, journeyState, rechecking, notice, onRecheck }: {
+  order: PortalOrder; reservation: PresaleReservationContract; journeyState: ApplicantAuthority["journey"]["state"]; rechecking: boolean; notice: string; onRecheck: (orderReference: string) => Promise<void>;
 }) {
   const statusMessage = paymentStatusMessage(order.paymentVerificationStatus, order.paymentVerificationReason);
   return <section className="rounded-2xl border border-amber-300/30 bg-[#0f2744] p-7" aria-labelledby="crypto-payment-heading">
@@ -246,6 +260,7 @@ function CryptoPaymentRecovery({ order, reservation, rechecking, notice, onReche
         {rechecking ? "Checking payment…" : "Recheck payment"}
       </Button>
     </div>
+    <div className="mt-6"><CryptoVerificationProgress journeyState={journeyState} transactionHash={order.transactionHash} confirmations={order.paymentConfirmations} requiredConfirmations={order.paymentMinConfirmations ?? reservation.requiredConfirmations} verificationReason={order.paymentVerificationReason} /></div>
     <dl className="mt-6 grid gap-4 rounded-xl border border-white/10 bg-black/15 p-5 sm:grid-cols-2">
       <div><dt className="text-xs uppercase tracking-wider text-slate-400">Transaction hash</dt><dd className="mt-2 break-all font-mono text-sm text-slate-100">{order.transactionHash ?? "No hash has been submitted"}</dd></div>
       <div><dt className="text-xs uppercase tracking-wider text-slate-400">Verification</dt><dd className="mt-2 text-sm font-semibold text-amber-100">{order.paymentVerificationStatus ?? "submitted"}{typeof order.paymentConfirmations === "number" ? ` · ${order.paymentConfirmations}/${order.paymentMinConfirmations ?? "required"} confirmations` : ""}</dd></div>

@@ -9,6 +9,8 @@ import { getCountries, getCountryCallingCode, parsePhoneNumberFromString } from 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { CryptoPaymentQr } from "@/components/presale/crypto-payment-qr";
+import { CryptoVerificationProgress } from "@/components/presale/crypto-verification-progress";
 import { PRESALE_DEV_PREVIEW_OFFER, type PresaleDevPreviewOffer } from "@/lib/presale-dev-preview";
 import { availablePaidShares, formatUsdt, multiplyDecimalByWhole } from "@/lib/presale-display";
 import { submittedTransactionHashMessage, submittedTransactionHashPattern, validSubmittedTransactionHash, type SupportedPaymentNetwork } from "@/lib/payment-transaction-hash";
@@ -22,6 +24,7 @@ import {
 type Offer = PresaleDevPreviewOffer & {
   invitationEmail?: string;
   webPayUnitPriceZar?: string;
+  cryptoPaymentUnitPriceUsdt?: string;
 };
 
 type Order = {
@@ -60,6 +63,18 @@ type ResumePortal = {
   applicant: { profileNumber: string; email: string; legalName: string; phone: string; country: string; physicalAddress: string };
   application: null | { applicantType: "individual" | "company" | "trust"; nextStep: number; draft: Record<string, string | boolean> | null };
   kyc: { status: string; verified: boolean };
+  order?: null | {
+    orderReference: string;
+    status: string;
+    incorporationStatus: string;
+    paymentRail: "remitano_usdt" | "webpay_card";
+    quantity: number;
+    totalUsdt: string;
+    paymentNetwork?: string;
+    paymentMinConfirmations?: number;
+    transactionHash?: string;
+    paymentConfirmations?: number;
+  };
   continuation?: { nextStep: number | null; reason: string; resumeUrl: string | null };
   journey?: unknown;
   reservation?: unknown;
@@ -73,10 +88,10 @@ const APPLICATION_PHASES = [
   { title: "Terms and reserve", description: "Read and accept the terms before reservation", icon: ShieldCheck },
 ] as const;
 
-const TERMS_PDF_PATH = "/legal/solidus-class-b-investor-terms-2026-08-16.pdf";
+const TERMS_PDF_PATH = "/legal/solidus-class-b-investor-terms-2026-08-29-v1.1.pdf";
 const TERMS_PAGE_PATHS = Array.from(
-  { length: 10 },
-  (_, index) => `/legal/solidus-class-b-investor-terms-2026-08-16/page-${String(index + 1).padStart(2, "0")}.png`,
+  { length: 11 },
+  (_, index) => `/legal/solidus-class-b-investor-terms-2026-08-29-v1.1/page-${String(index + 1).padStart(2, "0")}.png`,
 );
 
 const COUNTRY_CALLING_CODES = getCountries().map((country) => ({ country, code: `+${getCountryCallingCode(country)}` }));
@@ -170,6 +185,32 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
     setMemberProfileNumber(portal.applicant.profileNumber);
     setKycVerification({ required: true, verified: portal.kyc.verified, status: portal.kyc.status, caseId: null });
     if (portal.kyc.verified || portal.kyc.status.toLowerCase() !== "pending") setVerificationStarted(true);
+    if (portal.order && authority.reservation) {
+      const reservation = authority.reservation;
+      setOrder({
+        orderReference: portal.order.orderReference,
+        campaign: reservation.campaignName,
+        issuerName: reservation.issuerName,
+        shareClass: reservation.shareClass,
+        buyerName: portal.applicant.legalName,
+        buyerEmail: portal.applicant.email,
+        quantity: portal.order.quantity,
+        paymentRail: portal.order.paymentRail,
+        unitPriceZar: reservation.unitPriceZar,
+        totalZar: reservation.totalZar,
+        unitPriceUsdt: reservation.unitPriceUsdt,
+        totalUsdt: portal.order.totalUsdt,
+        status: portal.order.status,
+        network: portal.order.paymentNetwork ?? reservation.network ?? "",
+        tokenContract: reservation.tokenContract,
+        receivingAddress: reservation.receivingAddress ?? "",
+        minConfirmations: portal.order.paymentMinConfirmations ?? reservation.requiredConfirmations ?? 0,
+        paymentDeadline: reservation.paymentDeadline,
+        transactionHash: portal.order.transactionHash,
+        confirmations: portal.order.paymentConfirmations ?? 0,
+        incorporationStatus: portal.order.incorporationStatus,
+      });
+    }
     const shouldHydrate = !portalHydratedRef.current;
     if (shouldHydrate) {
       portalHydratedRef.current = true;
@@ -292,8 +333,20 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
     ? offer.webPayUnitPriceZar
     : null;
   const webPayTotalZar = webPayUnitPriceZar ? multiplyDecimalByWhole(webPayUnitPriceZar, quantity || "0") : null;
+  const cryptoPaymentUnitPriceUsdt = offer?.cryptoPaymentUnitPriceUsdt && /^\d+(?:\.\d+)?$/.test(offer.cryptoPaymentUnitPriceUsdt)
+    ? offer.cryptoPaymentUnitPriceUsdt
+    : offer?.priceUsdt ?? null;
+  const cryptoPaymentTotalUsdt = cryptoPaymentUnitPriceUsdt
+    ? multiplyDecimalByWhole(cryptoPaymentUnitPriceUsdt, quantity || "0")
+    : null;
+  const cryptoTestPricingActive = Boolean(
+    offer && cryptoPaymentUnitPriceUsdt
+    && Number(cryptoPaymentUnitPriceUsdt) !== Number(offer.priceUsdt),
+  );
   const validatedPhoneNumber = validatedInternationalCellphone(phoneCountryCode, phoneNumber);
   const validatedConfirmPhoneNumber = validatedInternationalCellphone(confirmPhoneCountryCode, confirmPhoneNumber);
+  const fundingDetailsRequired = applicantType !== "individual";
+  const sourceOfFundsDetailsRequired = fundingDetailsRequired && sourceOfFunds === "other";
   const phoneNumberValid = Boolean(validatedPhoneNumber);
   const confirmPhoneNumberValid = Boolean(
     validatedConfirmPhoneNumber
@@ -707,18 +760,19 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
               </div>
               <div data-application-phase="3" hidden={applicationPhase !== 3} className="space-y-5">
               <SectionTitle>Source of funds</SectionTitle>
+              {!fundingDetailsRequired ? <p className="rounded-lg border border-emerald-300/30 bg-emerald-400/10 p-3 text-xs leading-5 text-emerald-100">Funding and investor banking information is optional for individual applications. You may continue without completing this section.</p> : null}
               <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="Primary source *"><Select name="sourceOfFunds" options={SOURCE_OF_FUNDS} required value={sourceOfFunds} onChange={setSourceOfFunds} /></Field>
-                <Field label="Whose funds? *"><Select name="fundsOwnership" options={[["own","Applicant's own"],["company","Company"],["trust","Trust"],["other","Other"]]} required /></Field>
+                <Field label={`Primary source${fundingDetailsRequired ? " *" : " (optional)"}`}><Select name="sourceOfFunds" options={SOURCE_OF_FUNDS} required={fundingDetailsRequired} value={sourceOfFunds} onChange={setSourceOfFunds} /></Field>
+                <Field label={`Whose funds?${fundingDetailsRequired ? " *" : " (optional)"}`}><Select name="fundsOwnership" options={[["own","Applicant's own"],["company","Company"],["trust","Trust"],["other","Other"]]} required={fundingDetailsRequired} /></Field>
               </div>
-              <Field label={`Source-of-funds details${sourceOfFunds === "other" ? " *" : ""}`}><textarea name="sourceOfFundsDetails" required={sourceOfFunds === "other"} rows={3} className="w-full rounded-md border border-white/15 bg-black/20 px-3 py-2 text-sm" /></Field>
+              <Field label={`Source-of-funds details${sourceOfFundsDetailsRequired ? " *" : " (optional)"}`}><textarea name="sourceOfFundsDetails" required={sourceOfFundsDetailsRequired} rows={3} className="w-full rounded-md border border-white/15 bg-black/20 px-3 py-2 text-sm" /></Field>
               <SectionTitle>Investor banking</SectionTitle>
               <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="Account holder *"><Input name="bankAccountHolder" required className="border-white/15 bg-black/20" /></Field>
-                <Field label="Bank *"><Input name="bankName" required className="border-white/15 bg-black/20" /></Field>
-                <Field label="Branch *"><Input name="bankBranch" required className="border-white/15 bg-black/20" /></Field>
-                <Field label="Account number *"><Input name="bankAccountNumber" required className="border-white/15 bg-black/20" /></Field>
-                <Field label="Account type *"><Input name="bankAccountType" required className="border-white/15 bg-black/20" /></Field>
+                <Field label={`Account holder${fundingDetailsRequired ? " *" : " (optional)"}`}><Input name="bankAccountHolder" required={fundingDetailsRequired} className="border-white/15 bg-black/20" /></Field>
+                <Field label={`Bank${fundingDetailsRequired ? " *" : " (optional)"}`}><Input name="bankName" required={fundingDetailsRequired} className="border-white/15 bg-black/20" /></Field>
+                <Field label={`Branch${fundingDetailsRequired ? " *" : " (optional)"}`}><Input name="bankBranch" required={fundingDetailsRequired} className="border-white/15 bg-black/20" /></Field>
+                <Field label={`Account number${fundingDetailsRequired ? " *" : " (optional)"}`}><Input name="bankAccountNumber" required={fundingDetailsRequired} className="border-white/15 bg-black/20" /></Field>
+                <Field label={`Account type${fundingDetailsRequired ? " *" : " (optional)"}`}><Input name="bankAccountType" required={fundingDetailsRequired} className="border-white/15 bg-black/20" /></Field>
                 <Field label="SWIFT/BIC (optional)"><Input name="bankSwift" minLength={8} className="border-white/15 bg-black/20" /></Field>
               </div>
               </div>
@@ -740,7 +794,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
               <fieldset className="space-y-3">
                 <legend className="text-sm font-semibold text-white">Choose how you want to pay</legend>
                 <label className={`block cursor-pointer rounded-xl border p-4 transition ${paymentRail === "remitano_usdt" ? "border-amber-300 bg-amber-300/10" : "border-white/15 bg-black/20"}`}>
-                  <span className="flex items-start gap-3"><input name="paymentRail" type="radio" value="remitano_usdt" checked={paymentRail === "remitano_usdt"} onChange={() => setPaymentRail("remitano_usdt")} className="mt-1" required /><span><strong className="block text-white">International payment — Remitano</strong><span className="mt-1 block text-xs leading-5 text-slate-300">Pay the locked USDT amount using the displayed blockchain network and receiving address.</span></span></span>
+                  <span className="flex items-start gap-3"><input name="paymentRail" type="radio" value="remitano_usdt" checked={paymentRail === "remitano_usdt"} onChange={() => setPaymentRail("remitano_usdt")} className="mt-1" required /><span><strong className="block text-white">International payment — Remitano</strong><span className="mt-1 block text-xs leading-5 text-slate-300">Pay the locked USDT amount using the displayed blockchain network and receiving address.</span>{cryptoPaymentTotalUsdt ? <span className="mt-2 block font-bold text-amber-100">{cryptoTestPricingActive ? "Bounded test payment" : "Payment amount"} if reserved now: {formatUsdt(cryptoPaymentTotalUsdt)} USDT</span> : null}</span></span>
                 </label>
                 {webPayUnitPriceZar && webPayTotalZar ? <label className={`block cursor-pointer rounded-xl border p-4 transition ${paymentRail === "webpay_card" ? "border-sky-300 bg-sky-300/10" : "border-white/15 bg-black/20"}`}>
                   <span className="flex items-start gap-3"><input name="paymentRail" type="radio" value="webpay_card" checked={paymentRail === "webpay_card"} onChange={() => setPaymentRail("webpay_card")} className="mt-1" required /><span><strong className="block text-white">Debit or credit card — WebPay</strong><span className="mt-1 block text-xs leading-5 text-slate-300">R{webPayUnitPriceZar} per paid share. Your card details are entered only on the secure WebPay checkout.</span><span className="mt-2 block font-bold text-sky-100">Estimated total: R{webPayTotalZar}</span></span></span>
@@ -818,23 +872,29 @@ function ReservationStateCard({ authority, order, accessToken, error, submitting
         <p className="mt-1 text-sm text-sky-100/80">R{reservation.unitPriceZar} per paid share · bonus shares are free</p>
         <p className="mt-3 border-t border-sky-200/20 pt-3 text-sm text-sky-50">Pay before <time dateTime={reservation.paymentDeadline} className="font-semibold">{new Date(reservation.paymentDeadline).toLocaleString()}</time>.</p>
       </div> : <>
-        <div className="rounded-xl border border-amber-400/20 bg-amber-400/10 p-4">
-          <p className="text-xs uppercase tracking-wider text-amber-200">USDT payment obligation</p><p className="mt-1 text-3xl font-black text-white">{reservation.totalUsdt} USDT</p>
-          <p className="mt-1 text-sm text-amber-100/80">using {reservation.network} only</p>
-          <p className="mt-3 border-t border-amber-200/20 pt-3 text-sm text-amber-50">Pay before <time dateTime={reservation.paymentDeadline} className="font-semibold">{new Date(reservation.paymentDeadline).toLocaleString()}</time>. Do not send funds after this deadline.</p>
+        <div className="grid gap-5">
+          <div className="space-y-4">
+            <div className="rounded-xl border border-amber-400/20 bg-amber-400/10 p-4">
+              <p className="text-xs uppercase tracking-wider text-amber-200">USDT payment obligation</p><p className="mt-1 text-3xl font-black text-white">{reservation.totalUsdt} USDT</p>
+              <p className="mt-1 text-sm text-amber-100/80">using {reservation.network} only</p>
+              <p className="mt-3 border-t border-amber-200/20 pt-3 text-sm text-amber-50">Pay before <time dateTime={reservation.paymentDeadline} className="font-semibold">{new Date(reservation.paymentDeadline).toLocaleString()}</time>. Do not send funds after this deadline.</p>
+            </div>
+            {reservation.receivingAddress ? <div><p className="mb-2 text-xs uppercase tracking-wider text-slate-400">Verified receiving address</p><div className="flex gap-2"><code className="min-w-0 flex-1 break-all rounded-lg bg-black/30 p-3 text-xs text-slate-200">{reservation.receivingAddress}</code><Button type="button" variant="outline" size="icon" onClick={() => void onCopyAddress()} aria-label="Copy receiving address"><Copy className="h-4 w-4" /></Button></div>{copied ? <p className="mt-1 text-xs text-emerald-300">Address copied</p> : null}</div> : null}
+            {reservation.tokenContract ? <div><p className="mb-1 text-xs uppercase tracking-wider text-slate-400">Verified USDT contract</p><code className="break-all text-xs text-slate-300">{reservation.tokenContract}</code></div> : null}
+          </div>
+          {reservation.receivingAddress ? <CryptoPaymentQr network={reservation.network ?? ""} receivingAddress={reservation.receivingAddress} tokenContract={reservation.tokenContract} amountUsdt={reservation.totalUsdt} /> : null}
         </div>
         <div className="rounded-xl border border-rose-400/30 bg-rose-400/10 p-4 text-sm leading-6 text-rose-50">
           <p className="font-semibold">The receiving address must get exactly {reservation.totalUsdt} USDT.</p>
           <p className="mt-1 text-rose-100/85">Exchange withdrawal fees and network fees are additional. If your wallet deducts fees from the amount, increase the amount sent so the recipient still receives exactly {reservation.totalUsdt} USDT.</p>
           <p className="mt-1 text-rose-100/85">Send USDT on {reservation.network} only. Do not send BNB or another token, even if it uses the same network.</p>
         </div>
-        {reservation.receivingAddress ? <div><p className="mb-2 text-xs uppercase tracking-wider text-slate-400">Receiving address</p><div className="flex gap-2"><code className="min-w-0 flex-1 break-all rounded-lg bg-black/30 p-3 text-xs text-slate-200">{reservation.receivingAddress}</code><Button type="button" variant="outline" size="icon" onClick={() => void onCopyAddress()} aria-label="Copy receiving address"><Copy className="h-4 w-4" /></Button></div>{copied ? <p className="mt-1 text-xs text-emerald-300">Address copied</p> : null}</div> : null}
-        {reservation.tokenContract ? <div><p className="mb-1 text-xs uppercase tracking-wider text-slate-400">Verified USDT contract</p><code className="break-all text-xs text-slate-300">{reservation.tokenContract}</code></div> : null}
       </>}
       {canStartCard ? <div className="space-y-3"><div className="rounded-xl border border-sky-400/20 bg-sky-400/10 p-4 text-sm leading-6 text-sky-100">Your reservation is locked to WebPay. You will enter card details only on WebPay&apos;s secure hosted checkout.</div><Button type="button" className="w-full bg-sky-300 font-bold text-slate-950 hover:bg-sky-200" disabled={submitting} onClick={() => void onStartWebPay()}>{submitting ? "Opening WebPay…" : "Continue to secure WebPay checkout"}</Button></div> : null}
-      {canSubmitHash ? <form className="space-y-3" onSubmit={(event) => void onSubmitProof(event)}><Field label="Transaction hash"><Input value={txHash} onChange={(event) => onTxHashChange(event.target.value)} required minLength={64} maxLength={66} pattern={submittedTransactionHashPattern(paymentNetwork)} title={submittedTransactionHashMessage(paymentNetwork)} placeholder="Paste the blockchain transaction hash" className="border-white/15 bg-black/20" /></Field><Button className="w-full" disabled={submitting}>{submitting ? "Submitting…" : "Submit hash"}</Button></form> : null}
-      {order?.transactionHash ? <div className="text-xs text-slate-400">Confirmations: {order.confirmations}/{reservation.requiredConfirmations ?? order.minConfirmations}<br /><span className="break-all">{order.transactionHash}</span></div> : null}
-      {needsAccountAction ? <Button asChild variant="outline" className="w-full border-white/20 bg-transparent text-white hover:bg-white/10"><Link href="/shares/account">Open applicant account for the next authorised action</Link></Button> : null}
+      {reservation.paymentMethod === "remitano_usdt" ? <CryptoVerificationProgress journeyState={authority.journey.state} transactionHash={order?.transactionHash} confirmations={order?.confirmations} requiredConfirmations={reservation.requiredConfirmations ?? order?.minConfirmations} /> : null}
+      {canSubmitHash ? <form className="space-y-4 rounded-xl border border-sky-300/25 bg-sky-400/10 p-5" onSubmit={(event) => void onSubmitProof(event)}><div><p className="text-xs font-bold uppercase tracking-[.16em] text-sky-200">After your wallet broadcasts</p><h3 className="mt-1 text-lg font-black text-white">Submit the transaction hash</h3><p className="mt-2 text-sm leading-6 text-sky-100/80">We save the hash, check the chain automatically, and keep polling until the configured confirmation depth is met.</p></div><Field label="Transaction hash"><Input value={txHash} onChange={(event) => onTxHashChange(event.target.value)} required minLength={64} maxLength={66} pattern={submittedTransactionHashPattern(paymentNetwork)} title={submittedTransactionHashMessage(paymentNetwork)} placeholder="Paste the blockchain transaction hash" spellCheck={false} autoComplete="off" className="border-white/15 bg-black/20 font-mono" /></Field><Button className="w-full" disabled={submitting}>{submitting ? "Saving hash…" : "Start verification"}</Button></form> : null}
+      {order?.transactionHash ? <div className="rounded-xl border border-white/10 bg-black/15 p-4 text-xs text-slate-400"><p className="font-semibold text-slate-200">Submitted transaction</p><p className="mt-2">Confirmations: {order.confirmations}/{reservation.requiredConfirmations ?? order.minConfirmations}</p><code className="mt-2 block break-all text-slate-300">{order.transactionHash}</code></div> : null}
+      {needsAccountAction ? <Button asChild variant="outline" className="w-full border-white/20 bg-transparent text-white hover:bg-white/10"><Link href="/shares/account">Open applicant account</Link></Button> : null}
       {error ? <p role="alert" className="text-sm text-red-300">{error}</p> : null}
       <p className="text-xs leading-5 text-slate-500">Never send assets on another network. A transaction hash is not accepted as settled until the configured blockchain verifier confirms the receiver, token contract, amount, and confirmation depth.</p>
     </CardContent>

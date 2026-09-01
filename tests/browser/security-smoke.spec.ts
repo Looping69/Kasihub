@@ -249,7 +249,7 @@ test("private USDT shares page fails closed without an invitation", async ({ pag
   await expect(page.locator('meta[name="referrer"]')).toHaveAttribute("content", "no-referrer");
 });
 
-test("shareholder application enforces required banking details while keeping SWIFT/BIC optional", async ({ page }) => {
+test("shareholder application keeps funding optional for individuals and required for entities", async ({ page }) => {
   const invite = "private-form-review-token-0000000000000001";
   let registrationBody: Record<string, unknown> = {};
   await page.route("**/api/presale/portal", (route) => route.fulfill({
@@ -330,21 +330,15 @@ test("shareholder application enforces required banking details while keeping SW
   await page.getByRole("button", { name: /^Continue$/ }).click();
   await expect(page.getByRole("heading", { name: "Funding details" })).toBeVisible();
 
-  for (const label of ["Account holder *", "Bank *", "Branch *", "Account number *", "Account type *"]) {
-    await expect(page.getByLabel(label)).toHaveAttribute("required", "");
+  await expect(page.getByText("Funding and investor banking information is optional for individual applications.", { exact: false })).toBeVisible();
+  for (const label of ["Primary source (optional)", "Whose funds? (optional)", "Account holder (optional)", "Bank (optional)", "Branch (optional)", "Account number (optional)", "Account type (optional)"]) {
+    await expect(page.getByLabel(label)).not.toHaveAttribute("required", "");
   }
   await expect(page.getByLabel("SWIFT/BIC (optional)")).not.toHaveAttribute("required", "");
-  const sourceDetails = page.getByLabel("Source-of-funds details");
+  const sourceDetails = page.getByLabel("Source-of-funds details (optional)");
   await expect(sourceDetails).not.toHaveAttribute("required", "");
-  await page.getByLabel("Primary source *").selectOption("other", { force: true });
-  await expect(page.getByLabel("Source-of-funds details *")).toHaveAttribute("required", "");
-  await page.getByLabel("Whose funds? *").selectOption("own");
-  await page.getByLabel("Source-of-funds details *").fill("Employment and savings");
-  await page.getByLabel("Account holder *").fill("Test Shareholder");
-  await page.getByLabel("Bank *").fill("Test Bank");
-  await page.getByLabel("Branch *").fill("123456");
-  await page.getByLabel("Account number *").fill("1234567890");
-  await page.getByLabel("Account type *").fill("Cheque");
+  await page.getByLabel("Primary source (optional)").selectOption("other", { force: true });
+  await expect(page.getByLabel("Source-of-funds details (optional)")).not.toHaveAttribute("required", "");
   await page.getByLabel("SWIFT/BIC (optional)").fill("SHORT");
   await page.getByRole("button", { name: /^Continue$/ }).click();
   await expect(page.getByRole("heading", { name: "Funding details" })).toBeVisible();
@@ -352,6 +346,24 @@ test("shareholder application enforces required banking details while keeping SW
   await page.getByLabel("SWIFT/BIC (optional)").fill("");
   await page.getByRole("button", { name: /^Continue$/ }).click();
   await expect(page.getByRole("heading", { name: "Identity evidence" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Back" }).click();
+  await page.getByRole("button", { name: "Back" }).click();
+  await page.getByRole("button", { name: "Back" }).click();
+  await expect(page.getByRole("heading", { name: "Shareholder profile", exact: true })).toBeVisible();
+  await page.getByLabel("Application type *").selectOption("company");
+  await page.getByLabel("Company registration number *").fill("2026/000001/07");
+  await page.getByLabel("Authorised representative *").fill("Test Shareholder");
+  await page.getByLabel("Representative position *").fill("Director");
+  await page.getByRole("button", { name: /^Continue$/ }).click();
+  await expect(page.getByRole("heading", { name: "Choose your investment" })).toBeVisible();
+  await page.getByRole("button", { name: /^Continue$/ }).click();
+  await expect(page.getByRole("heading", { name: "Funding details" })).toBeVisible();
+  await expect(page.getByText("Funding and investor banking information is optional for individual applications.", { exact: false })).not.toBeVisible();
+  for (const label of ["Primary source *", "Whose funds? *", "Account holder *", "Bank *", "Branch *", "Account number *", "Account type *"]) {
+    await expect(page.getByLabel(label)).toHaveAttribute("required", "");
+  }
+  await expect(page.getByLabel("Source-of-funds details *")).toHaveAttribute("required", "");
 });
 
 test("applicant portal continues signup at the first server-authoritative unfinished step", async ({ page }) => {
@@ -497,13 +509,16 @@ test("invited buyer can reserve shares without exposing the order access token i
   const invite = "private-invitation-token-000000000001";
   const accessToken = "private-order-access-token-00000000001";
   const orderReference = "KSP-ORDER-001";
-  const transactionHash = "ab".repeat(32);
+  const receivingAddress = `0x${"22".repeat(20)}`;
+  const tokenContract = `0x${"11".repeat(20)}`;
+  const transactionHash = `0x${"ab".repeat(32)}`;
   let refreshUrl = "";
   let refreshAccessToken = "";
   let memberCreated = false;
   let kycVerified = false;
   let orderCreated = false;
   let paymentSubmitted = false;
+  let orderBody: Record<string, unknown> = {};
 
   await page.route("**/api/presale/offer?invite=*", (route) => route.fulfill({
     status: 200,
@@ -514,13 +529,14 @@ test("invited buyer can reserve shares without exposing the order access token i
       shareClass: "Class B",
       priceUsdt: "25.000000",
       priceUsd: "25.00",
-      network: "TRON",
-      tokenContract: "TRON-USDT-CONTRACT",
-      receivingAddress: "TControlledReceiverAddress",
+      cryptoPaymentUnitPriceUsdt: "1.000000",
+      network: "BSC",
+      tokenContract,
+      receivingAddress,
       sharesRemaining: 100,
       invitationSharesRemaining: 5,
       invitationEmail: "buyer@example.test",
-      minConfirmations: 20,
+      minConfirmations: 3,
       paymentWindowMinutes: 30,
       termsVersion: "presale-reservation-v1",
     } }),
@@ -561,8 +577,9 @@ test("invited buyer can reserve shares without exposing the order access token i
         kyc: { status: "approved", verified: true },
         order: {
           orderReference, status, incorporationStatus: "pending", paymentRail: "remitano_usdt", quantity: 2,
-          totalUsdt: "50.000000", paymentNetwork: "TRON", paymentMinConfirmations: 20,
+          totalUsdt: "2.000000", paymentNetwork: "BSC", paymentMinConfirmations: 3,
           transactionHash: paymentSubmitted ? transactionHash : undefined,
+          paymentConfirmations: paymentSubmitted ? 1 : 0,
           cancellation: paymentSubmitted
             ? { eligible: false, reason: "crypto_hash_submitted" }
             : { eligible: true, reason: "unpaid_no_payment_activity" },
@@ -571,8 +588,8 @@ test("invited buyer can reserve shares without exposing the order access token i
           orderReference, phaseNumber: 1, phaseLabel: "Phase 1", campaignName: "KaSiShares Private Allocation",
           issuerName: "Solidus Holdings (Pty) Ltd", shareClass: "Class B", paidShares: 2, bonusShares: 2,
           totalAllocatedShares: 4, paymentMethod: "remitano_usdt", unitPriceUsd: "25.00", totalUsd: "50.00",
-          unitPriceUsdt: "25.000000", totalUsdt: "50.000000", network: "TRON",
-          tokenContract: "TRON-USDT-CONTRACT", receivingAddress: "TControlledReceiverAddress", requiredConfirmations: 20,
+          unitPriceUsdt: "1.000000", totalUsdt: "2.000000", network: "BSC",
+          tokenContract, receivingAddress, requiredConfirmations: 3,
           paymentDeadline: "2026-08-31T12:00:00.000Z", termsVersion: "presale-reservation-v1",
           status, incorporationStatus: "pending",
           cancellation: paymentSubmitted
@@ -612,6 +629,7 @@ test("invited buyer can reserve shares without exposing the order access token i
   }));
   await page.route("**/api/presale/orders", async (route) => {
     if (route.request().method() !== "POST") return route.fallback();
+    orderBody = route.request().postDataJSON() as Record<string, unknown>;
     orderCreated = true;
     await route.fulfill({
       status: 200,
@@ -625,13 +643,13 @@ test("invited buyer can reserve shares without exposing the order access token i
         buyerEmail: "buyer@example.test",
         quantity: 2,
         paymentRail: "remitano_usdt",
-        unitPriceUsdt: "25.000000",
-        totalUsdt: "50.000000",
+        unitPriceUsdt: "1.000000",
+        totalUsdt: "2.000000",
         status: "awaiting_payment",
-        network: "TRON",
-        tokenContract: "TRON-USDT-CONTRACT",
-        receivingAddress: "TControlledReceiverAddress",
-        minConfirmations: 20,
+        network: "BSC",
+        tokenContract,
+        receivingAddress,
+        minConfirmations: 3,
         paymentDeadline: "2026-08-11T00:00:00.000Z",
         confirmations: 0,
         incorporationStatus: "pending",
@@ -671,13 +689,13 @@ test("invited buyer can reserve shares without exposing the order access token i
         buyerEmail: "buyer@example.test",
         quantity: 2,
         paymentRail: "remitano_usdt",
-        unitPriceUsdt: "25.000000",
-        totalUsdt: "50.000000",
+        unitPriceUsdt: "1.000000",
+        totalUsdt: "2.000000",
         status: "payment_submitted",
-        network: "TRON",
-        tokenContract: "TRON-USDT-CONTRACT",
-        receivingAddress: "TControlledReceiverAddress",
-        minConfirmations: 20,
+        network: "BSC",
+        tokenContract,
+        receivingAddress,
+        minConfirmations: 3,
         paymentDeadline: "2026-08-11T00:00:00.000Z",
         transactionHash,
         confirmations: 0,
@@ -711,14 +729,7 @@ test("invited buyer can reserve shares without exposing the order access token i
   await page.getByLabel("Paid Class B at $25 each *").fill("2");
   await page.getByRole("button", { name: "Continue" }).click();
 
-  await page.getByLabel("Primary source").selectOption("salary");
-  await page.getByLabel("Whose funds?").selectOption("own");
-  await page.getByLabel("Source-of-funds details").fill("Employment income");
-  await page.getByLabel("Account holder").fill("Private Buyer");
-  await page.getByLabel("Bank").fill("Test Bank");
-  await page.getByLabel("Branch *").fill("123456");
-  await page.getByLabel("Account number").fill("1234567890");
-  await page.getByLabel("Account type").fill("Cheque");
+  await expect(page.getByText("You may continue without completing this section.", { exact: false })).toBeVisible();
   await page.getByRole("button", { name: "Continue" }).click();
 
   await expect(page.getByRole("heading", { name: "Identity evidence" })).toBeVisible();
@@ -728,19 +739,35 @@ test("invited buyer can reserve shares without exposing the order access token i
   await page.getByRole("button", { name: "Verify ID" }).click();
 
   await expect(page.getByRole("heading", { name: "Terms and reservation" })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText("Bounded test payment if reserved now: 2 USDT", { exact: true })).toBeVisible();
   await page.getByLabel("Investor terms").evaluate((node) => { node.scrollTop = node.scrollHeight; node.dispatchEvent(new Event("scroll", { bubbles: true })); });
   await page.getByLabel(/I accept the presale reservation acknowledgement/).check();
   expect(await page.locator("form :invalid").evaluateAll((fields) => fields.map((field) => field.getAttribute("name")))).toEqual([]);
   await page.getByRole("button", { name: "Create reservation" }).click();
 
-  await expect(page.getByText("50.000000 USDT", { exact: true })).toBeVisible();
-  await expect(page.getByText("TControlledReceiverAddress")).toBeVisible();
+  const submittedApplication = orderBody.investorApplication as Record<string, unknown>;
+  expect(submittedApplication).toMatchObject({ applicantType: "individual" });
+  for (const field of ["sourceOfFunds", "fundsOwnership", "bankAccountHolder", "bankName", "bankBranch", "bankAccountNumber", "bankAccountType"]) {
+    expect(submittedApplication).not.toHaveProperty(field);
+  }
+
+  await expect(page.getByLabel("BNB Smart Chain (BEP20)").getByText("2.000000 USDT", { exact: true })).toBeVisible();
+  await expect(page.getByText(receivingAddress)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "BNB Smart Chain (BEP20)" })).toBeVisible();
+  await expect(page.getByLabel("BNB Smart Chain (BEP20)").getByRole("img")).toBeVisible();
+  await expect(page.getByText("exact reserved amount", { exact: false })).toBeVisible();
+  await expect(page.getByRole("list", { name: "Crypto payment verification progress" })).toBeVisible();
   await expect(page.getByText(/transaction hash is not accepted as settled/i)).toBeVisible();
 
   await page.getByLabel("Transaction hash").fill(transactionHash);
-  await page.getByRole("button", { name: "Submit hash" }).click();
+  await page.getByRole("button", { name: "Start verification" }).click();
   await expect(page.getByRole("heading", { name: "Payment submitted" })).toBeVisible();
   expect(refreshUrl).not.toContain(accessToken);
   expect(refreshUrl).not.toContain("accessToken=");
   expect(refreshAccessToken).toBe(accessToken);
+
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Payment submitted" })).toBeVisible();
+  await expect(page.getByText("1/3 confirmations", { exact: true })).toBeVisible();
+  await expect(page.getByText(transactionHash, { exact: true })).toBeVisible();
 });

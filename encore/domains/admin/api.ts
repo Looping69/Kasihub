@@ -245,6 +245,15 @@ type AdminMemberResponse = {
   presaleCompletionPercent: number | null; presaleApplicationNumber: string | null;
   presaleReservationStatus: string | null; presaleOrderReference: string | null;
   presaleReservationQuantity: number | null; presaleIncorporationStatus: string | null;
+  presalePaymentRail: string | null; presalePaymentAmountZar: number | null;
+  presaleWebPayReference: string | null; presaleWebPayTransactionId: string | null;
+  presaleWebPaySystemReference: string | null; presaleWebPayPaymentMethod: string | null;
+  presalePaymentSettledAt: string | null;
+  presalePaymentReconciliations: {
+    orderReference: string; status: string; quantity: number; amountZar: number | null;
+    webPayReference: string | null; transactionId: string | null; systemReference: string | null;
+    paymentMethod: string | null; settledAt: string | null;
+  }[];
 };
 
 export const adminMemberProfiles = api<
@@ -310,10 +319,16 @@ export const adminMemberProfiles = api<
         ),
         presaleDb.rawQueryAll<{
           external_profile_id: string; order_reference: string; status: string; quantity: number;
-          incorporation_status: string;
+          incorporation_status: string; payment_rail: string; total_zar: string | null;
+          webpay_order_number: string | null; webpay_transaction_id: string | null;
+          webpay_system_reference: string | null; webpay_payment_method: string | null;
+          payment_settled_at: string | null;
         }>(
-          `SELECT DISTINCT ON (external_profile_id) external_profile_id::text AS external_profile_id,
-                  order_reference, status, quantity, incorporation_status
+          `SELECT external_profile_id::text AS external_profile_id,
+                  order_reference, status, quantity, incorporation_status, payment_rail,
+                  total_zar::text AS total_zar, webpay_order_number,
+                  webpay_transaction_id::text AS webpay_transaction_id,
+                  webpay_system_reference, webpay_payment_method, payment_settled_at
            FROM presale_orders
            WHERE external_profile_id = ANY($1::uuid[])
            ORDER BY external_profile_id, created_at DESC`, profileIds,
@@ -325,7 +340,12 @@ export const adminMemberProfiles = api<
     const transactionsByProfile = new Map(transactionCounts.map((item) => [item.profile_id, item.count]));
     const ordersByProfile = new Map(orderCounts.map((item) => [item.profile_id, item.count]));
     const presaleApplicationByProfile = new Map(presaleApplications.map((item) => [item.external_profile_id, item]));
-    const presaleOrderByProfile = new Map(presaleOrders.map((item) => [item.external_profile_id, item]));
+    const presaleOrdersByProfile = new Map<string, typeof presaleOrders>();
+    for (const order of presaleOrders) {
+      const profileOrders = presaleOrdersByProfile.get(order.external_profile_id) ?? [];
+      profileOrders.push(order);
+      presaleOrdersByProfile.set(order.external_profile_id, profileOrders);
+    }
     const enriched: AdminMemberResponse[] = rows.map((row) => {
       const subscription = subscriptionByProfile.get(row.id);
       const kyc = kycByProfile.get(row.id);
@@ -334,7 +354,8 @@ export const adminMemberProfiles = api<
         : (row.status === "active" ? "VERIFIED" : row.status === "rejected" ? "REJECTED" : "PENDING");
       const subscriptionStatus = subscription?.status.toLowerCase();
       const presaleApplication = presaleApplicationByProfile.get(row.id);
-      const presaleOrder = presaleOrderByProfile.get(row.id);
+      const profilePresaleOrders = presaleOrdersByProfile.get(row.id) ?? [];
+      const presaleOrder = profilePresaleOrders[0];
       return {
         id: row.id, profileNumber: row.profile_number, membershipType: row.membership_type ?? row.profile_type.toUpperCase(), citizenshipType: row.citizenship_type,
         firstName: row.first_name, lastName: row.surname, companyName: row.company_name, email: row.email,
@@ -354,11 +375,38 @@ export const adminMemberProfiles = api<
         presaleOrderReference: presaleOrder?.order_reference ?? null,
         presaleReservationQuantity: presaleOrder?.quantity ?? null,
         presaleIncorporationStatus: presaleOrder?.incorporation_status ?? null,
+        presalePaymentRail: presaleOrder?.payment_rail ?? null,
+        presalePaymentAmountZar: presaleOrder?.total_zar === null || presaleOrder?.total_zar === undefined ? null : Number(presaleOrder.total_zar),
+        presaleWebPayReference: presaleOrder?.webpay_order_number ?? null,
+        presaleWebPayTransactionId: presaleOrder?.webpay_transaction_id ?? null,
+        presaleWebPaySystemReference: presaleOrder?.webpay_system_reference ?? null,
+        presaleWebPayPaymentMethod: presaleOrder?.webpay_payment_method ?? null,
+        presalePaymentSettledAt: presaleOrder?.payment_settled_at ?? null,
+        presalePaymentReconciliations: profilePresaleOrders
+          .filter((order) => order.payment_rail === "webpay_card")
+          .map((order) => ({
+            orderReference: order.order_reference,
+            status: order.status,
+            quantity: order.quantity,
+            amountZar: order.total_zar === null ? null : Number(order.total_zar),
+            webPayReference: order.webpay_order_number,
+            transactionId: order.webpay_transaction_id,
+            systemReference: order.webpay_system_reference,
+            paymentMethod: order.webpay_payment_method,
+            settledAt: order.payment_settled_at,
+          })),
       };
     });
     const search = (req.search ?? "").toLowerCase();
     const filtered = enriched.filter((member) => {
-      const searchable = [member.firstName, member.lastName, member.companyName, member.email, member.profileNumber, member.mobile].filter(Boolean).join(" ").toLowerCase();
+      const searchable = [
+        member.firstName, member.lastName, member.companyName, member.email, member.profileNumber, member.mobile,
+        member.presaleApplicationNumber, member.presaleOrderReference, member.presaleWebPayReference,
+        member.presaleWebPayTransactionId, member.presaleWebPaySystemReference,
+        ...member.presalePaymentReconciliations.flatMap((payment) => [
+          payment.orderReference, payment.webPayReference, payment.transactionId, payment.systemReference,
+        ]),
+      ].filter(Boolean).join(" ").toLowerCase();
       return (!search || searchable.includes(search))
         && (!req.kyc || req.kyc === "ALL" || member.kycStatus === req.kyc)
         && (!req.subscription || req.subscription === "ALL" || member.subscriptionStatus === req.subscription)

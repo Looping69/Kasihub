@@ -19,22 +19,32 @@ type Portal = {
   };
 };
 
+function legacyAllocation(totalShares: number, paidShares: number) {
+  if (!Number.isInteger(totalShares) || !Number.isInteger(paidShares) || paidShares <= 0 || paidShares > totalShares) {
+    return {};
+  }
+  return { paidShares, bonusShares: totalShares - paidShares };
+}
+
 export async function GET(_req: Request, { params }: { params: Promise<{ certificateNumber: string }> }) {
   const token = await presaleSessionToken();
   if (!token) return NextResponse.json({ error: "KaSiShares login is required" }, { status: 401 });
+  let requestedCertificateNumber = "unknown";
   try {
     const { certificateNumber } = await params;
+    requestedCertificateNumber = certificateNumber;
     const portal = await encoreRequest<Portal>("/presale/applicant/portal", {}, token);
     const holding = portal.shareholder.holdings.find((item) => item.certificate?.certificateNumber === certificateNumber);
     if (!holding?.certificate) return NextResponse.json({ error: "Certificate not found" }, { status: 404 });
     const certificate = holding.certificate;
     const sealed = sealedCertificatePdfData({
       ...certificate,
-      paidShares: certificate.paidShares ?? holding.paidShares,
-      bonusShares: certificate.bonusShares ?? holding.bonusShares,
-      issuePricePerShare: certificate.issuePricePerShareSnapshot ?? holding.issuePricePerShare,
-      issuePriceCurrency: certificate.issuePriceCurrencySnapshot ?? holding.issuePriceCurrency,
+      issuePricePerShare: certificate.issuePricePerShareSnapshot,
+      issuePriceCurrency: certificate.issuePriceCurrencySnapshot,
     });
+    const allocation = certificate.paidShares !== undefined && certificate.bonusShares !== undefined
+      ? { paidShares: certificate.paidShares, bonusShares: certificate.bonusShares }
+      : legacyAllocation(certificate.totalShares, holding.paidShares);
     const pdf = await generateShareCertificatePdf(sealed ? { ...sealed, campaignName: holding.campaignName } : {
       certificateNumber: certificate.certificateNumber,
       holderName: portal.applicant.legalName || portal.applicant.profileNumber,
@@ -45,8 +55,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ certifi
       issuedAt: certificate.issuedAt,
       status: certificate.status,
       campaignName: holding.campaignName,
-      paidShares: holding.paidShares,
-      bonusShares: holding.bonusShares,
+      ...allocation,
       distinctiveFrom: certificate.distinctiveFrom,
       distinctiveTo: certificate.distinctiveTo,
       issuePricePerShare: holding.issuePricePerShare,
@@ -63,6 +72,10 @@ export async function GET(_req: Request, { params }: { params: Promise<{ certifi
       },
     });
   } catch (error) {
+    console.error("presale_share_certificate_generation_failed", {
+      certificateNumber: requestedCertificateNumber,
+      error: error instanceof Error ? error.message : "unknown_error",
+    });
     const status = error instanceof EncoreRequestError ? error.status : 500;
     return NextResponse.json({ error: "Unable to generate share certificate" }, { status });
   }

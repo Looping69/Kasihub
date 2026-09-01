@@ -24,6 +24,7 @@ export type ShareCertificatePdfData = {
 };
 
 const TEMPLATE_PATH = path.join(process.cwd(), "public", "certificate-templates", "solidus-shareholder-certificate.pdf");
+const CFO_SIGNATURE_PATH = path.join(process.cwd(), "public", "certificate-templates", "tertius-du-plessis-signature.png");
 const NAVY = rgb(0.035, 0.105, 0.2);
 const WHITE = rgb(1, 1, 1);
 
@@ -93,6 +94,7 @@ export async function generateShareCertificatePdf(data: ShareCertificatePdfData)
 
   const pdf = await PDFDocument.load(await readFile(TEMPLATE_PATH));
   const page = pdf.getPage(0);
+  const cfoSignature = await pdf.embedPng(await readFile(CFO_SIGNATURE_PATH));
   const regular = await pdf.embedFont(StandardFonts.Helvetica);
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
   const italic = await pdf.embedFont(StandardFonts.HelveticaOblique);
@@ -139,9 +141,8 @@ export async function generateShareCertificatePdf(data: ShareCertificatePdfData)
   page.drawText(`Given on behalf of the company electronically on ${issueLongLabel}.`, { x: 105, y: 100, size: 8.5, font: regular, color: NAVY });
 
   const directorSignature = "/s/ Lelanie Retief";
-  const cfoSignature = "/s/ Tertius du Plessis";
   page.drawText(directorSignature, { x: 106, y: 64, size: 10, font: italic, color: NAVY });
-  page.drawText(cfoSignature, { x: 393, y: 64, size: 10, font: italic, color: NAVY });
+  page.drawImage(cfoSignature, { x: 410, y: 52, width: 92, height: 61 });
   page.drawRectangle({ x: 102, y: 37, width: 150, height: 16, color: WHITE });
   page.drawRectangle({ x: 397, y: 37, width: 145, height: 16, color: WHITE });
   page.drawText("LELANIE RETIEF - DIRECTOR", { x: 113, y: 43, size: 7.5, font: bold, color: NAVY });

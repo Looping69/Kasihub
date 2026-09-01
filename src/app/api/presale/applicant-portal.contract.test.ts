@@ -192,13 +192,21 @@ describe("isolated KaSiShares applicant portal", () => {
     const adminMembers = source("src/components/admin/admin-members.tsx");
     expect(adminApi).toContain("networkDb, presaleDb, sharesDb");
     expect(adminApi).toContain("presaleApplicationByProfile");
-    expect(adminApi).toContain("presaleOrderByProfile");
+    expect(adminApi).toContain("presaleOrdersByProfile");
     expect(adminApi).toContain("FROM presale_applications");
     expect(adminApi).toContain("FROM presale_orders");
     expect(adminApi).toContain("presaleReservationStatus");
     expect(adminApi).not.toContain("row.nfc_tag_id ?? `NFC-");
     expect(adminMembers).toContain("KaSiShares application &amp; reservation");
     expect(adminMembers).toContain("selected.presaleOrderReference");
+    expect(adminApi).toContain("presaleWebPayReference");
+    expect(adminApi).toContain("member.presaleWebPayReference");
+    expect(adminApi).toContain("presalePaymentReconciliations");
+    expect(adminApi).toContain("...member.presalePaymentReconciliations.flatMap");
+    expect(adminApi).toContain("webpay_system_reference");
+    expect(adminMembers).toContain("InstaPay payment reconciliation");
+    expect(adminMembers).toContain("selected.presalePaymentReconciliations.map");
+    expect(adminMembers).toContain("InstaPay My reference");
     expect(adminMembers).toContain("selected.presalePhaseCompleted + 1");
     expect(adminMembers).toContain('member.citizenshipType === "PRESALE_INVESTOR"');
     expect(adminMembers).toContain('return "InstaPay"');
@@ -220,6 +228,24 @@ describe("isolated KaSiShares applicant portal", () => {
     expect(account).toContain("await loadPortal().catch(() => undefined)");
     expect(account).toContain("Cancel unpaid reservation &amp; change payment method");
     expect(account).toContain("no card payment or crypto transfer has been sent");
+  });
+
+  test("recovers a submitted crypto payment without reopening share selection", () => {
+    const api = source("encore/domains/presale/api.ts");
+    const account = source("src/app/shares/account/shares-account-client.tsx");
+    const route = source("src/app/api/presale/orders/[reference]/payment-recheck/route.ts");
+    expect(api).toContain('path: "/presale/orders/:orderReference/payment-recheck"');
+    expect(api).toContain('every: "5m"');
+    expect(api).toContain("retryPendingPresaleCryptoPayments");
+    expect(api).toContain("attempt.transaction_hash.trim().toLowerCase() !== event.txHash.trim().toLowerCase()");
+    expect(api).toContain("canonical_${verification.status}");
+    expect(route).toContain("presaleSessionToken");
+    expect(account).toContain("Your share choice is preserved");
+    expect(account).toContain("Recheck payment");
+    expect(account).toContain("A second purchase form is intentionally locked");
+    expect(account).toContain("Blockchain verification passed. Remitano credit confirmation is still pending");
+    expect(account).toContain("verificationReason={order.paymentVerificationReason}");
+    expect(source("encore/domains/payments/remitano.ts")).toContain("transactionHashForRpc(lookup.network, lookup.transactionHash)");
   });
 
   test("treats an initial confirmation-email failure as delayed and retryable", () => {
@@ -248,7 +274,8 @@ describe("isolated KaSiShares applicant portal", () => {
     const certificate = source("src/lib/share-certificate-pdf.ts");
     expect(certificate).toContain("solidus-shareholder-certificate.pdf");
     expect(certificate).toContain('const directorSignature = "/s/ Lelanie Retief"');
-    expect(certificate).toContain('const cfoSignature = "/s/ Tertius du Plessis"');
+    expect(certificate).toContain("tertius-du-plessis-signature.png");
+    expect(certificate).toContain("pdf.embedPng");
     expect(certificate).toContain("LELANIE RETIEF - DIRECTOR");
     expect(certificate).toContain("TERTIUS DU PLESSIS - CFO");
     expect(certificate).toContain('data.distinctiveFrom?.toLocaleString("en-ZA") ?? "N/A"');
