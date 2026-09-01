@@ -530,7 +530,7 @@ test("invited buyer can reserve shares without exposing the order access token i
       cryptoPaymentUnitPriceUsdt: "1.000000",
       network: "TRON",
       tokenContract: "TRON-USDT-CONTRACT",
-      receivingAddress: "TControlledReceiverAddress",
+      receivingAddress: "TJRyWwFs9wTFGZg3JbrVriFbNfCug5tDeC",
       sharesRemaining: 100,
       invitationSharesRemaining: 5,
       invitationEmail: "buyer@example.test",
@@ -577,6 +577,7 @@ test("invited buyer can reserve shares without exposing the order access token i
           orderReference, status, incorporationStatus: "pending", paymentRail: "remitano_usdt", quantity: 2,
           totalUsdt: "2.000000", paymentNetwork: "TRON", paymentMinConfirmations: 20,
           transactionHash: paymentSubmitted ? transactionHash : undefined,
+          paymentConfirmations: paymentSubmitted ? 1 : 0,
           cancellation: paymentSubmitted
             ? { eligible: false, reason: "crypto_hash_submitted" }
             : { eligible: true, reason: "unpaid_no_payment_activity" },
@@ -586,7 +587,7 @@ test("invited buyer can reserve shares without exposing the order access token i
           issuerName: "Solidus Holdings (Pty) Ltd", shareClass: "Class B", paidShares: 2, bonusShares: 2,
           totalAllocatedShares: 4, paymentMethod: "remitano_usdt", unitPriceUsd: "25.00", totalUsd: "50.00",
           unitPriceUsdt: "1.000000", totalUsdt: "2.000000", network: "TRON",
-          tokenContract: "TRON-USDT-CONTRACT", receivingAddress: "TControlledReceiverAddress", requiredConfirmations: 20,
+          tokenContract: "TRON-USDT-CONTRACT", receivingAddress: "TJRyWwFs9wTFGZg3JbrVriFbNfCug5tDeC", requiredConfirmations: 20,
           paymentDeadline: "2026-08-31T12:00:00.000Z", termsVersion: "presale-reservation-v1",
           status, incorporationStatus: "pending",
           cancellation: paymentSubmitted
@@ -645,7 +646,7 @@ test("invited buyer can reserve shares without exposing the order access token i
         status: "awaiting_payment",
         network: "TRON",
         tokenContract: "TRON-USDT-CONTRACT",
-        receivingAddress: "TControlledReceiverAddress",
+        receivingAddress: "TJRyWwFs9wTFGZg3JbrVriFbNfCug5tDeC",
         minConfirmations: 20,
         paymentDeadline: "2026-08-11T00:00:00.000Z",
         confirmations: 0,
@@ -691,7 +692,7 @@ test("invited buyer can reserve shares without exposing the order access token i
         status: "payment_submitted",
         network: "TRON",
         tokenContract: "TRON-USDT-CONTRACT",
-        receivingAddress: "TControlledReceiverAddress",
+        receivingAddress: "TJRyWwFs9wTFGZg3JbrVriFbNfCug5tDeC",
         minConfirmations: 20,
         paymentDeadline: "2026-08-11T00:00:00.000Z",
         transactionHash,
@@ -749,13 +750,22 @@ test("invited buyer can reserve shares without exposing the order access token i
   }
 
   await expect(page.getByText("2.000000 USDT", { exact: true })).toBeVisible();
-  await expect(page.getByText("TControlledReceiverAddress")).toBeVisible();
+  await expect(page.getByText("TJRyWwFs9wTFGZg3JbrVriFbNfCug5tDeC")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "TRON (TRC20)" })).toBeVisible();
+  await expect(page.getByAltText(/wallet payment qr/i)).toBeVisible();
+  await expect(page.getByText("address only", { exact: false })).toBeVisible();
+  await expect(page.getByRole("list", { name: "Crypto payment verification progress" })).toBeVisible();
   await expect(page.getByText(/transaction hash is not accepted as settled/i)).toBeVisible();
 
   await page.getByLabel("Transaction hash").fill(transactionHash);
-  await page.getByRole("button", { name: "Submit hash" }).click();
+  await page.getByRole("button", { name: "Start verification" }).click();
   await expect(page.getByRole("heading", { name: "Payment submitted" })).toBeVisible();
   expect(refreshUrl).not.toContain(accessToken);
   expect(refreshUrl).not.toContain("accessToken=");
   expect(refreshAccessToken).toBe(accessToken);
+
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Payment submitted" })).toBeVisible();
+  await expect(page.getByText("1/20 confirmations", { exact: true })).toBeVisible();
+  await expect(page.getByText(transactionHash, { exact: true })).toBeVisible();
 });

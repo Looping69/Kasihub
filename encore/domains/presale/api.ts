@@ -2126,8 +2126,25 @@ export const getPresaleOrder = api<
      FROM presale_orders o JOIN presale_campaigns c ON c.id = o.campaign_id
      WHERE o.order_reference = $1 AND o.access_token_hash = $2`, req.orderReference, hashSecret(accessToken));
   if (!row) throw APIError.notFound("Presale order not found");
+  const latestAttempt = row.payment_intent_id && !row.tx_hash
+    ? await paymentsDb.rawQueryRow<{ transaction_hash: string; confirmations: number | null }>(
+        `SELECT transaction_hash, confirmations
+           FROM payment_attempts
+          WHERE payment_intent_id = $1
+          ORDER BY created_at DESC
+          LIMIT 1`,
+        row.payment_intent_id,
+      )
+    : null;
   const campaign: CampaignRow = { ...row, status: row.campaign_status };
-  return { order: orderResponse(row, campaign, row.tx_hash, row.confirmations ?? 0) };
+  return {
+    order: orderResponse(
+      row,
+      campaign,
+      row.tx_hash ?? latestAttempt?.transaction_hash,
+      row.confirmations ?? latestAttempt?.confirmations ?? 0,
+    ),
+  };
 });
 
 type WebPayCheckoutResponse = {
@@ -2879,7 +2896,7 @@ void presaleEmailRetryJob;
 
 const presaleCryptoPaymentRetryJob = new CronJob("presale-crypto-payment-retry", {
   title: "Recheck submitted presale crypto payments",
-  every: "5m",
+  every: "1m",
   endpoint: retryPendingPresaleCryptoPayments,
 });
 void presaleCryptoPaymentRetryJob;

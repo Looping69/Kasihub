@@ -38,3 +38,32 @@ No actionable P0, P1, or P2 mismatch remains. The local development diagnostics 
 ## Final result
 
 final result: passed
+
+---
+
+# Crypto payment QR and verification design QA
+
+- Source visual truth: `C:/Users/wimpi/AppData/Local/Temp/codex-clipboard-07a9c25e-c3a7-4e1f-b8fb-783ef88bb00f.png`
+- Implemented route: `/presale` in the active crypto reservation state
+- Responsive evidence: `kasishares-crypto-verification-pending-desktop-rehydrated.png` and `kasishares-crypto-verification-pending-mobile-rehydrated.png`
+- Viewports: 1440 x 1000 desktop and 390 x 844 mobile
+- State: BSC payment hash submitted; 1 of 3 required confirmations restored after a full reload
+
+## Fidelity and product decisions
+
+- Preserved the source hierarchy of network, verified receiving address, QR, amount, and safety guidance while applying the established KaSiShares visual system.
+- Replaced the source's generic minimum-deposit treatment with the reservation's exact amount due. The BSC QR encodes the verified token contract, receiver, and reserved amount; the UI still tells the user to confirm every wallet field.
+- Kept the copy control and added a four-stage visual verification tracker: exact transfer, hash submission, chain verification, and certificate readiness.
+- Did not copy the source's `History` action because this journey already has an authoritative applicant account and reservation history surface.
+- TRON deliberately uses an address-only QR because there is no safe universal wallet URI for this token transfer; amount, token, and network remain explicit beside the QR.
+
+## Findings and fixes
+
+- P2: the first mobile action labels could clip. Fixed with compact responsive labels and verified at 390px.
+- P2: the first desktop composition squeezed payment details and the QR into a narrow nested grid. Fixed by stacking them inside the reservation card.
+- P1: after reloading, the authoritative journey remained pending but the local progress display lost the submitted hash and confirmation count. Fixed by hydrating the display order from the authenticated portal response.
+- Final desktop and mobile captures show `Hash saved securely` and `1/3 confirmations` after reload, with document width equal to viewport width.
+
+## Final result
+
+final result: passed

@@ -9,6 +9,8 @@ import { getCountries, getCountryCallingCode, parsePhoneNumberFromString } from 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { CryptoPaymentQr } from "@/components/presale/crypto-payment-qr";
+import { CryptoVerificationProgress } from "@/components/presale/crypto-verification-progress";
 import { PRESALE_DEV_PREVIEW_OFFER, type PresaleDevPreviewOffer } from "@/lib/presale-dev-preview";
 import { availablePaidShares, formatUsdt, multiplyDecimalByWhole } from "@/lib/presale-display";
 import { submittedTransactionHashMessage, submittedTransactionHashPattern, validSubmittedTransactionHash, type SupportedPaymentNetwork } from "@/lib/payment-transaction-hash";
@@ -61,6 +63,18 @@ type ResumePortal = {
   applicant: { profileNumber: string; email: string; legalName: string; phone: string; country: string; physicalAddress: string };
   application: null | { applicantType: "individual" | "company" | "trust"; nextStep: number; draft: Record<string, string | boolean> | null };
   kyc: { status: string; verified: boolean };
+  order?: null | {
+    orderReference: string;
+    status: string;
+    incorporationStatus: string;
+    paymentRail: "remitano_usdt" | "webpay_card";
+    quantity: number;
+    totalUsdt: string;
+    paymentNetwork?: string;
+    paymentMinConfirmations?: number;
+    transactionHash?: string;
+    paymentConfirmations?: number;
+  };
   continuation?: { nextStep: number | null; reason: string; resumeUrl: string | null };
   journey?: unknown;
   reservation?: unknown;
@@ -171,6 +185,32 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
     setMemberProfileNumber(portal.applicant.profileNumber);
     setKycVerification({ required: true, verified: portal.kyc.verified, status: portal.kyc.status, caseId: null });
     if (portal.kyc.verified || portal.kyc.status.toLowerCase() !== "pending") setVerificationStarted(true);
+    if (portal.order && authority.reservation) {
+      const reservation = authority.reservation;
+      setOrder({
+        orderReference: portal.order.orderReference,
+        campaign: reservation.campaignName,
+        issuerName: reservation.issuerName,
+        shareClass: reservation.shareClass,
+        buyerName: portal.applicant.legalName,
+        buyerEmail: portal.applicant.email,
+        quantity: portal.order.quantity,
+        paymentRail: portal.order.paymentRail,
+        unitPriceZar: reservation.unitPriceZar,
+        totalZar: reservation.totalZar,
+        unitPriceUsdt: reservation.unitPriceUsdt,
+        totalUsdt: portal.order.totalUsdt,
+        status: portal.order.status,
+        network: portal.order.paymentNetwork ?? reservation.network ?? "",
+        tokenContract: reservation.tokenContract,
+        receivingAddress: reservation.receivingAddress ?? "",
+        minConfirmations: portal.order.paymentMinConfirmations ?? reservation.requiredConfirmations ?? 0,
+        paymentDeadline: reservation.paymentDeadline,
+        transactionHash: portal.order.transactionHash,
+        confirmations: portal.order.paymentConfirmations ?? 0,
+        incorporationStatus: portal.order.incorporationStatus,
+      });
+    }
     const shouldHydrate = !portalHydratedRef.current;
     if (shouldHydrate) {
       portalHydratedRef.current = true;
@@ -832,23 +872,29 @@ function ReservationStateCard({ authority, order, accessToken, error, submitting
         <p className="mt-1 text-sm text-sky-100/80">R{reservation.unitPriceZar} per paid share · bonus shares are free</p>
         <p className="mt-3 border-t border-sky-200/20 pt-3 text-sm text-sky-50">Pay before <time dateTime={reservation.paymentDeadline} className="font-semibold">{new Date(reservation.paymentDeadline).toLocaleString()}</time>.</p>
       </div> : <>
-        <div className="rounded-xl border border-amber-400/20 bg-amber-400/10 p-4">
-          <p className="text-xs uppercase tracking-wider text-amber-200">USDT payment obligation</p><p className="mt-1 text-3xl font-black text-white">{reservation.totalUsdt} USDT</p>
-          <p className="mt-1 text-sm text-amber-100/80">using {reservation.network} only</p>
-          <p className="mt-3 border-t border-amber-200/20 pt-3 text-sm text-amber-50">Pay before <time dateTime={reservation.paymentDeadline} className="font-semibold">{new Date(reservation.paymentDeadline).toLocaleString()}</time>. Do not send funds after this deadline.</p>
+        <div className="grid gap-5">
+          <div className="space-y-4">
+            <div className="rounded-xl border border-amber-400/20 bg-amber-400/10 p-4">
+              <p className="text-xs uppercase tracking-wider text-amber-200">USDT payment obligation</p><p className="mt-1 text-3xl font-black text-white">{reservation.totalUsdt} USDT</p>
+              <p className="mt-1 text-sm text-amber-100/80">using {reservation.network} only</p>
+              <p className="mt-3 border-t border-amber-200/20 pt-3 text-sm text-amber-50">Pay before <time dateTime={reservation.paymentDeadline} className="font-semibold">{new Date(reservation.paymentDeadline).toLocaleString()}</time>. Do not send funds after this deadline.</p>
+            </div>
+            {reservation.receivingAddress ? <div><p className="mb-2 text-xs uppercase tracking-wider text-slate-400">Verified receiving address</p><div className="flex gap-2"><code className="min-w-0 flex-1 break-all rounded-lg bg-black/30 p-3 text-xs text-slate-200">{reservation.receivingAddress}</code><Button type="button" variant="outline" size="icon" onClick={() => void onCopyAddress()} aria-label="Copy receiving address"><Copy className="h-4 w-4" /></Button></div>{copied ? <p className="mt-1 text-xs text-emerald-300">Address copied</p> : null}</div> : null}
+            {reservation.tokenContract ? <div><p className="mb-1 text-xs uppercase tracking-wider text-slate-400">Verified USDT contract</p><code className="break-all text-xs text-slate-300">{reservation.tokenContract}</code></div> : null}
+          </div>
+          {reservation.receivingAddress ? <CryptoPaymentQr network={reservation.network ?? ""} receivingAddress={reservation.receivingAddress} tokenContract={reservation.tokenContract} amountUsdt={reservation.totalUsdt} /> : null}
         </div>
         <div className="rounded-xl border border-rose-400/30 bg-rose-400/10 p-4 text-sm leading-6 text-rose-50">
           <p className="font-semibold">The receiving address must get exactly {reservation.totalUsdt} USDT.</p>
           <p className="mt-1 text-rose-100/85">Exchange withdrawal fees and network fees are additional. If your wallet deducts fees from the amount, increase the amount sent so the recipient still receives exactly {reservation.totalUsdt} USDT.</p>
           <p className="mt-1 text-rose-100/85">Send USDT on {reservation.network} only. Do not send BNB or another token, even if it uses the same network.</p>
         </div>
-        {reservation.receivingAddress ? <div><p className="mb-2 text-xs uppercase tracking-wider text-slate-400">Receiving address</p><div className="flex gap-2"><code className="min-w-0 flex-1 break-all rounded-lg bg-black/30 p-3 text-xs text-slate-200">{reservation.receivingAddress}</code><Button type="button" variant="outline" size="icon" onClick={() => void onCopyAddress()} aria-label="Copy receiving address"><Copy className="h-4 w-4" /></Button></div>{copied ? <p className="mt-1 text-xs text-emerald-300">Address copied</p> : null}</div> : null}
-        {reservation.tokenContract ? <div><p className="mb-1 text-xs uppercase tracking-wider text-slate-400">Verified USDT contract</p><code className="break-all text-xs text-slate-300">{reservation.tokenContract}</code></div> : null}
       </>}
       {canStartCard ? <div className="space-y-3"><div className="rounded-xl border border-sky-400/20 bg-sky-400/10 p-4 text-sm leading-6 text-sky-100">Your reservation is locked to WebPay. You will enter card details only on WebPay&apos;s secure hosted checkout.</div><Button type="button" className="w-full bg-sky-300 font-bold text-slate-950 hover:bg-sky-200" disabled={submitting} onClick={() => void onStartWebPay()}>{submitting ? "Opening WebPay…" : "Continue to secure WebPay checkout"}</Button></div> : null}
-      {canSubmitHash ? <form className="space-y-3" onSubmit={(event) => void onSubmitProof(event)}><Field label="Transaction hash"><Input value={txHash} onChange={(event) => onTxHashChange(event.target.value)} required minLength={64} maxLength={66} pattern={submittedTransactionHashPattern(paymentNetwork)} title={submittedTransactionHashMessage(paymentNetwork)} placeholder="Paste the blockchain transaction hash" className="border-white/15 bg-black/20" /></Field><Button className="w-full" disabled={submitting}>{submitting ? "Submitting…" : "Submit hash"}</Button></form> : null}
-      {order?.transactionHash ? <div className="text-xs text-slate-400">Confirmations: {order.confirmations}/{reservation.requiredConfirmations ?? order.minConfirmations}<br /><span className="break-all">{order.transactionHash}</span></div> : null}
-      {needsAccountAction ? <Button asChild variant="outline" className="w-full border-white/20 bg-transparent text-white hover:bg-white/10"><Link href="/shares/account">Open applicant account for the next authorised action</Link></Button> : null}
+      {reservation.paymentMethod === "remitano_usdt" ? <CryptoVerificationProgress journeyState={authority.journey.state} transactionHash={order?.transactionHash} confirmations={order?.confirmations} requiredConfirmations={reservation.requiredConfirmations ?? order?.minConfirmations} /> : null}
+      {canSubmitHash ? <form className="space-y-4 rounded-xl border border-sky-300/25 bg-sky-400/10 p-5" onSubmit={(event) => void onSubmitProof(event)}><div><p className="text-xs font-bold uppercase tracking-[.16em] text-sky-200">After your wallet broadcasts</p><h3 className="mt-1 text-lg font-black text-white">Submit the transaction hash</h3><p className="mt-2 text-sm leading-6 text-sky-100/80">We save the hash, check the chain automatically, and keep polling until the configured confirmation depth is met.</p></div><Field label="Transaction hash"><Input value={txHash} onChange={(event) => onTxHashChange(event.target.value)} required minLength={64} maxLength={66} pattern={submittedTransactionHashPattern(paymentNetwork)} title={submittedTransactionHashMessage(paymentNetwork)} placeholder="Paste the blockchain transaction hash" spellCheck={false} autoComplete="off" className="border-white/15 bg-black/20 font-mono" /></Field><Button className="w-full" disabled={submitting}>{submitting ? "Saving hash…" : "Start verification"}</Button></form> : null}
+      {order?.transactionHash ? <div className="rounded-xl border border-white/10 bg-black/15 p-4 text-xs text-slate-400"><p className="font-semibold text-slate-200">Submitted transaction</p><p className="mt-2">Confirmations: {order.confirmations}/{reservation.requiredConfirmations ?? order.minConfirmations}</p><code className="mt-2 block break-all text-slate-300">{order.transactionHash}</code></div> : null}
+      {needsAccountAction ? <Button asChild variant="outline" className="w-full border-white/20 bg-transparent text-white hover:bg-white/10"><Link href="/shares/account">Open applicant account</Link></Button> : null}
       {error ? <p role="alert" className="text-sm text-red-300">{error}</p> : null}
       <p className="text-xs leading-5 text-slate-500">Never send assets on another network. A transaction hash is not accepted as settled until the configured blockchain verifier confirms the receiver, token contract, amount, and confirmation depth.</p>
     </CardContent>
