@@ -97,3 +97,34 @@ export function webPayOrderNumber(routingCode: string, orderReference: string): 
   const suffix = createHash("sha256").update(orderReference).digest("hex").slice(0, 17).toUpperCase();
   return `${routingCode}${suffix}`;
 }
+
+/** Keep the authoritative order visible without replacing InstaPay's stable key. */
+export function webPayItemDescription(quantity: number, orderReference: string): string {
+  if (!Number.isSafeInteger(quantity) || quantity <= 0) throw new Error("invalid_share_quantity");
+  const reference = orderReference.trim();
+  if (!/^KSP-[A-Z0-9-]+$/.test(reference)) throw new Error("invalid_presale_order_reference");
+  const description = `KaSiShares ${quantity} paid | ${reference}`;
+  if (description.length > 60) throw new Error("webpay_item_description_too_long");
+  return description;
+}
+
+export function webPayReconciliationFields(input: {
+  orderReference: string;
+  applicationNumber: string;
+}): Record<string, string> {
+  const orderReference = input.orderReference.trim();
+  const applicationNumber = input.applicationNumber.trim();
+  if (!/^KSP-[A-Z0-9-]+$/.test(orderReference) || orderReference.length > 36) {
+    throw new Error("invalid_presale_order_reference");
+  }
+  if (!/^KSA-[A-Z0-9-]+$/.test(applicationNumber) || applicationNumber.length > 50) {
+    throw new Error("invalid_presale_application_number");
+  }
+  return {
+    m_site_reference: orderReference,
+    m_tx_invoice_nr: applicationNumber,
+    m_category_1: "KASISHARES PRESALE",
+    m_category_2: orderReference,
+    m_category_3: applicationNumber,
+  };
+}

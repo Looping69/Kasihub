@@ -290,4 +290,12 @@ describe("isolated KaSiShares applicant portal", () => {
     expect(account).toContain("additional%20purchase%20invitation");
     expect(account).toContain('portal.authority.journey.state === "issued" ? 100');
   });
+
+  test("sends exact KaSiHub reconciliation references alongside the immutable InstaPay key", () => {
+    const backend = source("encore/domains/presale/api.ts");
+    expect(backend).toContain("m_tx_item_description: webPayItemDescription(order.quantity, order.order_reference)");
+    expect(backend).toContain("...webPayReconciliationFields({");
+    expect(backend).toContain("orderReference: order.order_reference");
+    expect(backend).toContain("applicationNumber: order.application_number");
+  });
 });

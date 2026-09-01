@@ -30,7 +30,7 @@ import { issuedSharesForPresale, quotedUsdtAmount, resolveCryptoTestSettlement }
 import { INVESTOR_APPLICATION_SCHEMA_VERSION, phaseOneApplicantSchema, type PhaseOneApplicant } from "./application";
 import { deriveApplicantContinuation, type ApplicantContinuationReason } from "./applicant-continuation";
 import { databaseBinaryToBuffer, type DatabaseBinary } from "./database-binary";
-import { resolveWebPayUnitPrice, WEBPAY_UNIT_PRICE_ZAR, verifyWebPayChecksum, verifyWebPayProcessChecksum, webPayChecksum, webPayMerchantFields, webPayOrderNumber, webPayTotalZar, type PresalePaymentRail } from "./webpay";
+import { resolveWebPayUnitPrice, WEBPAY_UNIT_PRICE_ZAR, verifyWebPayChecksum, verifyWebPayProcessChecksum, webPayChecksum, webPayItemDescription, webPayMerchantFields, webPayOrderNumber, webPayReconciliationFields, webPayTotalZar, type PresalePaymentRail } from "./webpay";
 import { buildShareholderPortfolio, type PresaleCertificate, type PresalePaidOrder } from "./shareholder-portfolio";
 import { applicantLoginSchema, internationalCellphoneSchema, missingRequiredFundingFields, physicalAddressLine, strongPasswordSchema } from "./applicant-validation";
 import { issueShares } from "../shares/issuance";
@@ -2305,10 +2305,12 @@ export const createPresaleWebPayCheckout = api<
     id: string; order_reference: string; buyer_name: string; buyer_email: string; buyer_phone: string | null;
     quantity: number; payment_rail: PresalePaymentRail; total_zar: string | null; status: string;
     payment_deadline: string; webpay_transaction_id: string | null; webpay_order_number: string | null;
+    application_number: string;
   }>(
     `SELECT id,order_reference,buyer_name,buyer_email,buyer_phone,quantity,payment_rail,
             total_zar::text AS total_zar,status,payment_deadline,
-            webpay_transaction_id::text AS webpay_transaction_id,webpay_order_number
+            webpay_transaction_id::text AS webpay_transaction_id,webpay_order_number,
+            application_number
        FROM presale_orders WHERE order_reference = $1 AND access_token_hash = $2`,
     req.orderReference, hashSecret(accessToken),
   );
@@ -2339,7 +2341,11 @@ export const createPresaleWebPayCheckout = api<
     m_tx_currency: "ZAR",
     m_tx_amount: order.total_zar,
     m_tx_item_name: "KaSiShares Class B shares",
-    m_tx_item_description: `${order.quantity} paid KaSiShares Class B share${order.quantity === 1 ? "" : "s"}`,
+    m_tx_item_description: webPayItemDescription(order.quantity, order.order_reference),
+    ...webPayReconciliationFields({
+      orderReference: order.order_reference,
+      applicationNumber: order.application_number,
+    }),
     m_card_allowed: "true",
     m_ieft_allowed: "false",
     m_chips_allowed: "false",
