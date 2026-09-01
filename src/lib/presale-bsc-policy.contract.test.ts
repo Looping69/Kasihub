@@ -25,6 +25,15 @@ describe("KaSiShares BSC-only policy", () => {
     expect(api).toContain("shouldRetryPresaleCryptoReconciliation(result.status)");
   });
 
+  test("the temporary Remitano bypass still requires canonical confirmations and records its authority", () => {
+    const verification = source("encore/domains/payments/verification.ts");
+    expect(verification).toContain("evaluatePaymentEvidence({");
+    expect(verification).toContain("minimumConfirmations: row.minimum_confirmations");
+    expect(verification).toContain("TEMPORARY_REMITANO_CUSTODY_BYPASS = true");
+    expect(verification).toContain('"remitano_custody_temporarily_bypassed"');
+    expect(verification).toContain("custodyTemporarilyBypassed");
+  });
+
   test("presale administration does not offer TRON as a network", () => {
     const defaults = source("src/components/admin/admin-presale-defaults.tsx");
     const campaigns = source("src/components/admin/admin-presale-campaigns.tsx");
