@@ -243,6 +243,9 @@ describe("isolated KaSiShares applicant portal", () => {
     expect(account).toContain("Your share choice is preserved");
     expect(account).toContain("Recheck payment");
     expect(account).toContain("A second purchase form is intentionally locked");
+    expect(account).toContain("Blockchain verification passed. Remitano credit confirmation is still pending");
+    expect(account).toContain("verificationReason={order.paymentVerificationReason}");
+    expect(source("encore/domains/payments/remitano.ts")).toContain("transactionHashForRpc(lookup.network, lookup.transactionHash)");
   });
 
   test("treats an initial confirmation-email failure as delayed and retryable", () => {

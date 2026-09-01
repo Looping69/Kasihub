@@ -1,4 +1,4 @@
-import { CheckCircle2, Clock3, FileBadge2, ScanSearch, Send, WalletCards } from "lucide-react";
+import { CheckCircle2, Clock3, FileBadge2, ScanSearch, Send, ShieldCheck, WalletCards } from "lucide-react";
 import type { ApplicantJourneyState } from "@/lib/applicant-portal-contract";
 
 type StepState = "complete" | "active" | "waiting";
@@ -8,14 +8,18 @@ export function CryptoVerificationProgress({
   transactionHash,
   confirmations,
   requiredConfirmations,
+  verificationReason,
 }: {
   journeyState: ApplicantJourneyState;
   transactionHash?: string;
   confirmations?: number;
   requiredConfirmations?: number;
+  verificationReason?: string;
 }) {
   const hashSaved = Boolean(transactionHash);
-  const chainVerified = ["confirmed", "awaiting_incorporation", "issued"].includes(journeyState);
+  const settlementVerified = ["confirmed", "awaiting_incorporation", "issued"].includes(journeyState);
+  const custodyPending = Boolean(verificationReason?.includes("custody") || verificationReason?.includes("provider"));
+  const chainVerified = settlementVerified || custodyPending;
   const certificateReady = journeyState === "issued";
   const steps: Array<{ label: string; detail: string; state: StepState; icon: typeof Send }> = [
     {
@@ -41,9 +45,19 @@ export function CryptoVerificationProgress({
       icon: ScanSearch,
     },
     {
+      label: "Remitano credit confirmation",
+      detail: settlementVerified
+        ? "Custodian credit matched to this transfer"
+        : custodyPending
+          ? "Blockchain checks passed; Remitano credit is being reconciled"
+          : "Starts after the blockchain checks pass",
+      state: settlementVerified ? "complete" : custodyPending ? "active" : "waiting",
+      icon: ShieldCheck,
+    },
+    {
       label: "Certificate ready",
-      detail: certificateReady ? "Shares issued and certificate available" : chainVerified ? "Issuance is in progress" : "Starts only after verified settlement",
-      state: certificateReady ? "complete" : chainVerified ? "active" : "waiting",
+      detail: certificateReady ? "Shares issued and certificate available" : settlementVerified ? "Issuance is in progress" : "Starts only after verified settlement",
+      state: certificateReady ? "complete" : settlementVerified ? "active" : "waiting",
       icon: FileBadge2,
     },
   ];

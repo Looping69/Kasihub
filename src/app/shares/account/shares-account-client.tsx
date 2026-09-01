@@ -240,7 +240,7 @@ function paymentStatusMessage(status?: string, reason?: string): string {
   if (status === "underpaid") return "The transfer was found, but the verified amount is below the reserved amount. Support must review it.";
   if (status === "rejected") return "The submitted transaction does not match the reservation and was rejected.";
   if (reason === "chain_provider_unavailable") return "The blockchain verifier is temporarily unavailable. Your hash is saved and automatic retries remain active.";
-  if (reason?.includes("custody") || reason?.includes("provider")) return "The transfer is visible on-chain, but custody reconciliation is temporarily unavailable. Your hash is saved and will be retried.";
+  if (reason?.includes("custody") || reason?.includes("provider")) return "Blockchain verification passed. Remitano credit confirmation is still pending; your hash is saved and automatic retries remain active.";
   return "Verification is still pending. Your submitted hash is saved and automatic retries remain active.";
 }
 
@@ -260,7 +260,7 @@ function CryptoPaymentRecovery({ order, reservation, journeyState, rechecking, n
         {rechecking ? "Checking payment…" : "Recheck payment"}
       </Button>
     </div>
-    <div className="mt-6"><CryptoVerificationProgress journeyState={journeyState} transactionHash={order.transactionHash} confirmations={order.paymentConfirmations} requiredConfirmations={order.paymentMinConfirmations ?? reservation.requiredConfirmations} /></div>
+    <div className="mt-6"><CryptoVerificationProgress journeyState={journeyState} transactionHash={order.transactionHash} confirmations={order.paymentConfirmations} requiredConfirmations={order.paymentMinConfirmations ?? reservation.requiredConfirmations} verificationReason={order.paymentVerificationReason} /></div>
     <dl className="mt-6 grid gap-4 rounded-xl border border-white/10 bg-black/15 p-5 sm:grid-cols-2">
       <div><dt className="text-xs uppercase tracking-wider text-slate-400">Transaction hash</dt><dd className="mt-2 break-all font-mono text-sm text-slate-100">{order.transactionHash ?? "No hash has been submitted"}</dd></div>
       <div><dt className="text-xs uppercase tracking-wider text-slate-400">Verification</dt><dd className="mt-2 text-sm font-semibold text-amber-100">{order.paymentVerificationStatus ?? "submitted"}{typeof order.paymentConfirmations === "number" ? ` · ${order.paymentConfirmations}/${order.paymentMinConfirmations ?? "required"} confirmations` : ""}</dd></div>

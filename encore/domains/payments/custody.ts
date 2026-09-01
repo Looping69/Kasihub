@@ -5,6 +5,7 @@ import { normalizeChainAddress } from "./chains/address";
 import { decimalToUnits } from "./chains/amount";
 import { normalizeTransactionHash } from "./chains/hash";
 import type { SupportedPaymentNetwork } from "./chains/types";
+import { remitanoDepositRequestTarget } from "./remitano";
 
 export type CustodyEvidence = {
   provider: string;
@@ -74,6 +75,7 @@ async function remitanoGet(requestTarget: string): Promise<unknown> {
   try {
     response = await fetch(`${REMITANO_API_ORIGIN}${requestTarget}`, {
       headers: {
+        Accept: "application/json",
         "Content-Type": "application/json",
         "Content-MD5": contentMd5,
         Date: date,
@@ -91,7 +93,7 @@ async function remitanoGet(requestTarget: string): Promise<unknown> {
     let providerReason = "unknown";
     try {
       const details = JSON.parse(responseText) as Record<string, unknown>;
-      const candidate = details.error ?? details.message ?? details.code;
+      const candidate = details.error_code ?? details.error ?? details.message ?? details.code;
       if (typeof candidate === "string") providerReason = candidate.toLowerCase().replace(/[^a-z0-9_-]+/g, "_").slice(0, 80);
     } catch { /* non-JSON provider error */ }
     throw new CustodyProviderUnavailable("remitano", `custody_provider_http_${response.status}_${providerReason}`);
@@ -102,11 +104,7 @@ async function remitanoGet(requestTarget: string): Promise<unknown> {
 }
 
 export async function readRemitanoCustodyEvidence(expectation: CustodyExpectation): Promise<CustodyEvidence> {
-  const query = new URLSearchParams({
-    coin_currency: expectation.currency.toLowerCase(),
-    tx_hash: normalizeTransactionHash(expectation.transactionHash),
-  });
-  const payload = await remitanoGet(`/api/v1/coin_deposits/by_currency_and_tx_hash?${query}`);
+  const payload = await remitanoGet(remitanoDepositRequestTarget(expectation));
   const rows = Array.isArray(payload) ? payload : payload && typeof payload === "object"
     ? ((payload as Record<string, unknown>).coin_deposits as unknown[] | undefined) ?? [] : [];
   const expectedHash = normalizeTransactionHash(expectation.transactionHash);
