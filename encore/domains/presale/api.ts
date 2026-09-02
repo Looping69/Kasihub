@@ -32,7 +32,7 @@ import { issuedSharesForPresale, quotedUsdtAmount, resolveCryptoTestSettlement }
 import { INVESTOR_APPLICATION_SCHEMA_VERSION, phaseOneApplicantSchema, type PhaseOneApplicant } from "./application";
 import { deriveApplicantContinuation, type ApplicantContinuationReason } from "./applicant-continuation";
 import { databaseBinaryToBuffer, type DatabaseBinary } from "./database-binary";
-import { resolveWebPayUnitPrice, WEBPAY_UNIT_PRICE_ZAR, verifyWebPayChecksum, verifyWebPayProcessChecksum, webPayChecksum, webPayItemDescription, webPayMerchantFields, webPayOrderNumber, webPayReconciliationFields, webPayTotalZar, type PresalePaymentRail } from "./webpay";
+import { resolveWebPayUnitPrice, WEBPAY_ROUTING_CODE, WEBPAY_UNIT_PRICE_ZAR, verifyWebPayChecksum, verifyWebPayProcessChecksum, webPayBuyerFields, webPayChecksum, webPayItemDescription, webPayMerchantFields, webPayOrderNumber, webPayReconciliationFields, webPayTotalZar, type PresalePaymentRail } from "./webpay";
 import { buildShareholderPortfolio, type PresaleCertificate, type PresalePaidOrder } from "./shareholder-portfolio";
 import { applicantLoginSchema, internationalCellphoneSchema, missingRequiredFundingFields, physicalAddressLine, strongPasswordSchema } from "./applicant-validation";
 import { issueShares } from "../shares/issuance";
@@ -2286,13 +2286,12 @@ export const createPresaleWebPayCheckout = api<
     throw APIError.failedPrecondition("This reservation no longer accepts payment");
   }
   const transactionId = order.webpay_transaction_id ?? crypto.randomUUID();
-  const orderNumber = order.webpay_order_number ?? webPayOrderNumber("KSH", order.order_reference);
+  const orderNumber = order.webpay_order_number ?? webPayOrderNumber(WEBPAY_ROUTING_CODE, order.order_reference);
   await presaleDb.rawExec(
     `UPDATE presale_orders SET webpay_transaction_id = $2, webpay_order_number = $3, updated_at = now()
       WHERE id = $1 AND (webpay_transaction_id IS NULL OR webpay_transaction_id = $2)`,
     order.id, transactionId, orderNumber,
   );
-  const [firstName, ...surnameParts] = order.buyer_name.trim().split(/\s+/);
   const fields: Record<string, string> = {
     ...webPayMerchantFields({
       merchantUuid: WebPayMerchantUuid(),
@@ -2313,20 +2312,17 @@ export const createPresaleWebPayCheckout = api<
     m_card_allowed: "true",
     m_ieft_allowed: "false",
     m_chips_allowed: "false",
-    m_trident_allowed: "false",
     m_mpass_allowed: "false",
     m_payat_allowed: "false",
     m_zapper_allowed: "false",
     m_snapscan_allowed: "false",
-    b_name: firstName,
-    b_email: order.buyer_email,
+    m_ozow_allowed: "false",
+    ...webPayBuyerFields({ buyerName: order.buyer_name, buyerEmail: order.buyer_email, buyerPhone: order.buyer_phone }),
     m_return_url: "https://shares.kasihub.net/shares/account?payment=webpay",
     m_notify_url: notifyUrl,
     m_process_url: "https://shares.kasihub.net/api/presale/webpay/process",
     m_back2shop_url: "https://shares.kasihub.net/shares/account?payment=cancelled",
   };
-  if (surnameParts.length) fields.b_surname = surnameParts.join(" ");
-  if (order.buyer_phone) fields.b_mobile = order.buyer_phone;
   fields.checksum = webPayChecksum({
     merchantUuid: fields.m_uuid,
     accountUuid: fields.m_account_uuid,
@@ -2652,9 +2648,9 @@ export const receivePresaleWebPayNotification = api<
 
   const order = await presaleDb.rawQueryRow<{
     id: string; order_reference: string; payment_rail: PresalePaymentRail; total_zar: string | null;
-    webpay_transaction_id: string | null; webpay_order_number: string | null; status: string;
+    webpay_transaction_id: string | null; webpay_order_number: string | null; status: string; incorporation_status: string;
   }>(`SELECT id,order_reference,payment_rail,total_zar::text AS total_zar,
-             webpay_transaction_id::text AS webpay_transaction_id,webpay_order_number,status
+             webpay_transaction_id::text AS webpay_transaction_id,webpay_order_number,status,incorporation_status
         FROM presale_orders
        WHERE webpay_transaction_id::text = $1 OR webpay_order_number = $1`, event.payeeRefInfo);
   if (!order || order.payment_rail !== "webpay_card" || order.webpay_order_number !== event.payeeOrderNr) {
@@ -2674,6 +2670,9 @@ export const receivePresaleWebPayNotification = api<
   if (!Number.isFinite(paidAmount) || paidAmount.toFixed(2) !== requestedAmount
     || event.paymentCurrency !== "ZAR" || !event.paymentMethod?.startsWith("CARD")) {
     throw APIError.failedPrecondition("Completed WebPay payment evidence does not match the reservation");
+  }
+  if (!event.paymentSystemReference) {
+    throw APIError.failedPrecondition("Completed WebPay payment is missing its payment-system reference");
   }
   if (order.incorporation_status === "pending") {
     assertApplicantJourneyTransition(orderJourneyState(order.status, order.incorporation_status), "awaiting_incorporation");
