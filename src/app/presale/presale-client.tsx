@@ -514,10 +514,6 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
         return;
       }
       setOrder(null);
-      setAccessToken("");
-      if (typeof window !== "undefined") {
-        window.sessionStorage.removeItem(`presale_token_${orderReference}`);
-      }
       await loadApplicantPortal();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "The unpaid reservation could not be cancelled.");
