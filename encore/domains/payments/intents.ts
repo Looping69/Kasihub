@@ -153,7 +153,7 @@ export const createPaymentIntent = api<
     if (obligation.payer_profile_id !== payload.profileId) {
       throw APIError.permissionDenied("Payment obligation does not belong to this profile");
     }
-    if (obligation.status !== "open") {
+    if (!["open", "partially_paid"].includes(obligation.status)) {
       throw APIError.failedPrecondition(`Payment obligation is ${obligation.status}`);
     }
     if (obligation.settlement_currency !== "USDT") {
@@ -211,7 +211,8 @@ export const createPaymentIntent = api<
            FROM payment_obligations WHERE id = $1 FOR UPDATE`,
         payload.obligationId,
       );
-      if (!locked || locked.payer_profile_id !== payload.profileId || locked.status !== "open") {
+      if (!locked || locked.payer_profile_id !== payload.profileId
+        || !["open", "partially_paid"].includes(locked.status)) {
         throw APIError.failedPrecondition("Payment obligation is no longer available for payment");
       }
 
