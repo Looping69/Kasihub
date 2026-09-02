@@ -8,6 +8,8 @@ export async function POST(req: NextRequest, context: { params: Promise<{ refere
   const bearerToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7).trim() : authHeader?.trim();
   const token = bearerToken
     || req.headers.get("x-presale-session-token")?.trim()
+    || req.cookies.get("kasishares_session")?.value
+    || req.cookies.get("kasihub_session")?.value
     || await presaleSessionToken();
   if (!token) return NextResponse.json({ error: "KaSiShares login is required" }, { status: 401 });
   try {

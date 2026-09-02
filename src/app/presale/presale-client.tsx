@@ -612,6 +612,10 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
     try {
       const headers: Record<string, string> = {};
       if (accessToken) headers["X-Presale-Access-Token"] = accessToken;
+      if (typeof window !== "undefined") {
+        const sessionToken = window.sessionStorage.getItem("kasishares_token");
+        if (sessionToken) headers["x-presale-session-token"] = sessionToken;
+      }
       const response = await fetch(`/api/presale/orders/${encodeURIComponent(order.orderReference)}/webpay-checkout`, {
         method: "POST",
         headers,
@@ -992,7 +996,16 @@ function ReservationStateCard({ authority, order, accessToken, error, submitting
       {order?.transactionHash ? <div className="rounded-xl border border-white/10 bg-black/15 p-4 text-xs text-slate-400"><p className="font-semibold text-slate-200">Submitted transaction</p><p className="mt-2">Confirmations: {order.confirmations}/{reservation.requiredConfirmations ?? order.minConfirmations}</p><code className="mt-2 block break-all text-slate-300">{order.transactionHash}</code></div> : null}
       {canCancel ? <CancelReservationDialog reservation={reservation} onCancel={onCancelReservation!} /> : null}
       {needsAccountAction ? <Button asChild variant="outline" className="w-full border-white/20 bg-transparent text-white hover:bg-white/10"><Link href="/shares/account">Open applicant account</Link></Button> : null}
-      {error ? <p role="alert" className="text-sm text-red-300">{error}</p> : null}
+      {error ? (
+        <div className="space-y-3">
+          <p role="alert" className="text-sm text-red-300">{error}</p>
+          {(error.toLowerCase().includes("login") || error.toLowerCase().includes("authentication") || error.toLowerCase().includes("session") || error.toLowerCase().includes("unauthorized")) ? (
+            <Button asChild variant="outline" className="w-full border-amber-400/50 bg-amber-400/10 font-bold text-amber-200 hover:bg-amber-400/20">
+              <Link href="/shares/account">Sign in to KaSiShares</Link>
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
       <p className="text-xs leading-5 text-slate-500">Never send assets on another network. A transaction hash is not accepted as settled until the configured blockchain verifier confirms the receiver, token contract, amount, and confirmation depth.</p>
     </CardContent>
   </Card>;
