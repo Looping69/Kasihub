@@ -293,6 +293,7 @@ describe("presale BFF contracts", () => {
     expect(mocks.encoreRequest).toHaveBeenCalledWith(
       "/presale/orders/KSP%2FORDER%201/webpay-checkout",
       { method: "POST", headers: { "X-Presale-Access-Token": "private-token" } },
+      "admin-token",
     );
   });
 
