@@ -203,29 +203,33 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
         const cached = window.sessionStorage.getItem(`presale_token_${portal.order.orderReference}`);
         if (cached) setAccessToken(cached);
       }
-      setOrder({
-        orderReference: portal.order.orderReference,
-        campaign: reservation.campaignName,
-        issuerName: reservation.issuerName,
-        shareClass: reservation.shareClass,
-        buyerName: portal.applicant.legalName,
-        buyerEmail: portal.applicant.email,
-        quantity: portal.order.quantity,
-        paymentRail: portal.order.paymentRail,
-        unitPriceZar: reservation.unitPriceZar,
-        totalZar: reservation.totalZar,
-        unitPriceUsdt: reservation.unitPriceUsdt,
-        totalUsdt: portal.order.totalUsdt,
-        status: portal.order.status,
-        network: portal.order.paymentNetwork ?? reservation.network ?? "",
-        tokenContract: reservation.tokenContract,
-        receivingAddress: reservation.receivingAddress ?? "",
-        minConfirmations: portal.order.paymentMinConfirmations ?? reservation.requiredConfirmations ?? 0,
-        paymentDeadline: reservation.paymentDeadline,
-        transactionHash: portal.order.transactionHash,
-        confirmations: portal.order.paymentConfirmations ?? 0,
-        incorporationStatus: portal.order.incorporationStatus,
-      });
+      if (reservation && portal.order && !authority.journey.applicationEditable) {
+        setOrder({
+          orderReference: portal.order.orderReference,
+          campaign: reservation.campaignName,
+          issuerName: reservation.issuerName,
+          shareClass: reservation.shareClass,
+          buyerName: portal.applicant.legalName,
+          buyerEmail: portal.applicant.email,
+          quantity: portal.order.quantity,
+          paymentRail: portal.order.paymentRail,
+          unitPriceZar: reservation.unitPriceZar,
+          totalZar: reservation.totalZar,
+          unitPriceUsdt: reservation.unitPriceUsdt,
+          totalUsdt: portal.order.totalUsdt,
+          status: portal.order.status,
+          network: portal.order.paymentNetwork ?? reservation.network ?? "",
+          tokenContract: reservation.tokenContract,
+          receivingAddress: reservation.receivingAddress ?? "",
+          minConfirmations: portal.order.paymentMinConfirmations ?? reservation.requiredConfirmations ?? 0,
+          paymentDeadline: reservation.paymentDeadline,
+          transactionHash: portal.order.transactionHash,
+          confirmations: portal.order.paymentConfirmations ?? 0,
+          incorporationStatus: portal.order.incorporationStatus,
+        });
+      } else {
+        setOrder(null);
+      }
     }
     const shouldHydrate = !portalHydratedRef.current;
     if (shouldHydrate) {
@@ -372,7 +376,17 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
   const passwordValid = validAccountPassword(password);
   const confirmPasswordValid = passwordValid && confirmPassword === password;
   const reservation = applicantAuthority?.reservation ?? null;
-  const canCreateReservation = allowsApplicantAction(applicantAuthority, "create_reservation");
+  const hasActiveReservation = Boolean(
+    reservation
+    && applicantAuthority?.available
+    && !applicantAuthority.journey.applicationEditable
+    && applicantAuthority.journey.state !== "cancelled"
+    && applicantAuthority.journey.state !== "expired"
+  );
+  const canCreateReservation = Boolean(
+    allowsApplicantAction(applicantAuthority, "create_reservation")
+    || (allowsApplicantAction(applicantAuthority, "resume_application") && !hasActiveReservation && (kycVerification?.verified || devPreview))
+  );
 
   async function createOrder(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -752,7 +766,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
       </Card>
     </Shell>
   );
-  if (!offer && reservation && applicantAuthority) return <Shell><ReservationStateCard authority={applicantAuthority} order={order} accessToken={accessToken} error={error} submitting={submitting} txHash={txHash} copied={copied} reservationEmailDelayed={reservationEmailDelayed} onTxHashChange={setTxHash} onSubmitProof={submitProof} onCopyAddress={copyAddress} onStartWebPay={startWebPayCheckout} onCancelReservation={cancelReservation} onRecheckPayment={recheckPayment} /></Shell>;
+  if (!offer && hasActiveReservation && applicantAuthority) return <Shell><ReservationStateCard authority={applicantAuthority} order={order} accessToken={accessToken} error={error} submitting={submitting} txHash={txHash} copied={copied} reservationEmailDelayed={reservationEmailDelayed} onTxHashChange={setTxHash} onSubmitProof={submitProof} onCopyAddress={copyAddress} onStartWebPay={startWebPayCheckout} onCancelReservation={cancelReservation} onRecheckPayment={recheckPayment} /></Shell>;
   if (!offer) return null;
 
   return (
@@ -780,7 +794,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
           </div>
         </section>
 
-        {!reservation && !order ? (
+        {!hasActiveReservation && !order ? (
           <Card className="presale-form-card min-w-0 text-white shadow-2xl shadow-black/20">
             <CardHeader><p className="text-xs font-bold uppercase tracking-[.18em] text-amber-300">Investor application</p><h2 className="mt-2 font-semibold leading-none">{APPLICATION_PHASES[applicationPhase - 1].title}</h2><CardDescription className="text-slate-400">Step {applicationPhase} of 5 · {APPLICATION_PHASES[applicationPhase - 1].description}</CardDescription></CardHeader>
             <CardContent><form ref={applicationFormRef} key={resumeApplicant?.profileNumber ?? "new-applicant"} className="space-y-5" noValidate onSubmit={createOrder}>
@@ -889,7 +903,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
               </div>
             </form></CardContent>
           </Card>
-        ) : applicantAuthority?.available && reservation ? (
+        ) : applicantAuthority?.available && hasActiveReservation ? (
           <ReservationStateCard authority={applicantAuthority} order={order} accessToken={accessToken} error={error} submitting={submitting} txHash={txHash} copied={copied} reservationEmailDelayed={reservationEmailDelayed} onTxHashChange={setTxHash} onSubmitProof={submitProof} onCopyAddress={copyAddress} onStartWebPay={startWebPayCheckout} onCancelReservation={cancelReservation} onRecheckPayment={recheckPayment} />
         ) : (
           <Card className="presale-form-card min-w-0 text-white shadow-2xl shadow-black/20"><CardHeader><Clock3 className="mb-3 h-8 w-8 text-amber-300" /><h2 className="font-semibold leading-none">Reservation saved — controls locked</h2><CardDescription className="text-slate-400">The reservation response was accepted, but the authoritative journey contract could not be loaded. No payment action is enabled.</CardDescription></CardHeader><CardContent><Button asChild variant="outline" className="w-full border-white/20 bg-transparent text-white"><Link href="/shares/account">Open KaSiShares account</Link></Button>{error ? <p role="alert" className="mt-4 text-sm text-red-300">{error}</p> : null}</CardContent></Card>
