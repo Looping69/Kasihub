@@ -7,7 +7,7 @@ import { Subscription, Topic } from "encore.dev/pubsub";
 import { createCipheriv, createDecipheriv, createHash as createNodeHash, randomBytes } from "node:crypto";
 import { z } from "zod";
 import { auditDb, identityDb, kycDb, membershipDb, paymentsDb, presaleDb, sharesDb } from "../../resources";
-import { hashSessionToken, requestHeader, requirePresaleSession } from "../auth/access";
+import { hashSessionToken, requestHeader, requirePresaleSession, sessionFromBearer } from "../auth/access";
 import { requireAdminAccess } from "../auth/access";
 import { hashPassword, verifyPassword } from "../auth/password";
 import { requireInternationalKycVerified } from "../kyc/policy";
