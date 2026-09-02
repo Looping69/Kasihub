@@ -81,7 +81,7 @@ describe("product-neutral payment verification and settlement", () => {
       `SELECT i.status AS intent_status,o.status AS obligation_status,
         (SELECT count(*)::int FROM payment_events e WHERE e.payment_intent_id=i.id AND e.event_type='payment.settled') AS settled_events
        FROM payment_intents i JOIN payment_obligations o ON o.id=i.order_id WHERE i.id=$1`, seeded.intentId);
-    expect(state).toEqual({ intent_status: "settled", obligation_status: "settled", settled_events: 1 });
+    expect(state).toEqual({ intent_status: "settled", obligation_status: "paid", settled_events: 1 });
   });
 
   it("keeps polling a valid transfer until confirmation depth is met, then settles exactly once", async () => {
@@ -111,7 +111,7 @@ describe("product-neutral payment verification and settlement", () => {
        WHERE i.id=$1`,
       seeded.intentId,
     );
-    expect(state).toEqual({ intent_status: "settled", obligation_status: "settled", confirmations: 3, settled_events: 1 });
+    expect(state).toEqual({ intent_status: "settled", obligation_status: "paid", confirmations: 3, settled_events: 1 });
   });
 
   it("rejects wrong-destination evidence without settling the obligation", async () => {
