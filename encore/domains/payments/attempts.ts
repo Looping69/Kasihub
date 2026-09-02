@@ -144,6 +144,7 @@ export const submitPaymentAttempt = api<
           JSON.stringify({ attemptId, paymentIntentId: req.intentId }),
         );
         await tx.commit();
+      }
     } catch (error) {
       try { await tx.rollback(); } catch { /* transaction may already be closed */ }
       const raced = await findAttemptByHash(transactionHash);

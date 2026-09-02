@@ -971,13 +971,6 @@ export async function fulfilWebPayPresalePayment(orderReference: string, provide
   }
 }
 
-const allocationOverrideSchema = z.object({
-  orderReference: z.string().trim().min(8).max(80),
-  actorUserId: z.string().uuid(),
-  reason: z.string().trim().min(20).max(1000),
-  evidenceReference: z.string().trim().min(8).max(240),
-});
-
 type AllocationOverrideResponse = {
   orderReference: string;
   orderStatus: string;
@@ -986,12 +979,7 @@ type AllocationOverrideResponse = {
   certificateNumber: string | null;
 };
 
-/**
- * Explicit emergency authority for a verified administrator to allow a
- * submitted reservation to enter the normal share issuance pipeline. The
- * provider payment record remains untouched: this is a named human override,
- * not fabricated settlement evidence.
- */
+/** Disabled financial bypass retained only as a callable negative-test seam. */
 export async function allowPresaleShareAllocationOverride(input: {
   orderReference: string;
   actorUserId: string;
@@ -1000,100 +988,6 @@ export async function allowPresaleShareAllocationOverride(input: {
 }): Promise<AllocationOverrideResponse> {
   void input;
   throw APIError.failedPrecondition("Manual presale share allocation is disabled; settled payment authority is required");
-  /* Disabled legacy implementation retained temporarily for migration archaeology.
-  const payload = allocationOverrideSchema.parse(input);
-  const preflight = await presaleDb.rawQueryRow<{
-    id: string; external_profile_id: string | null; status: string;
-  }>("SELECT id,external_profile_id,status FROM presale_orders WHERE order_reference=$1", payload.orderReference);
-  if (!preflight) throw APIError.notFound("Presale order not found");
-  if (!preflight.external_profile_id) throw APIError.failedPrecondition("The reservation has no authenticated member profile");
-  const profile = await identityDb.rawQueryRow<{ id: string }>(
-    "SELECT id FROM profiles WHERE id=$1", preflight.external_profile_id,
-  );
-  if (!profile) {
-    throw APIError.failedPrecondition("The member profile no longer exists");
-  }
-  await requireInternationalKycVerified(preflight.external_profile_id);
-
-  const tx = await presaleDb.begin();
-  let overrideRecorded = false;
-  let previousOrderStatus = preflight.status;
-  let orderId = preflight.id;
-  try {
-    const order = await tx.rawQueryRow<{
-      id: string; campaign_id: string; quantity: number; status: string;
-      incorporation_status: string; bonus_buy_one_get_one: boolean;
-    }>(`SELECT o.id,o.campaign_id,o.quantity,o.status,o.incorporation_status,c.bonus_buy_one_get_one
-          FROM presale_orders o JOIN presale_campaigns c ON c.id=o.campaign_id
-         WHERE o.order_reference=$1 FOR UPDATE OF o`, payload.orderReference);
-    if (!order) throw APIError.notFound("Presale order not found");
-    orderId = order.id;
-    previousOrderStatus = order.status;
-    const existing = await tx.rawQueryRow<{ id: string }>(
-      "SELECT id FROM presale_allocation_overrides WHERE order_id=$1", order.id,
-    );
-    if (!existing) {
-      if (!["payment_submitted", "payment_detected"].includes(order.status) || order.incorporation_status !== "pending") {
-        throw APIError.failedPrecondition(
-          `Share allocation cannot be allowed while ${order.status}/${order.incorporation_status}`,
-        );
-      }
-      const issuedQuantity = issuedSharesForPresale(order.quantity, order.bonus_buy_one_get_one);
-      const moved = await tx.rawQueryRow<{ id: string }>(`UPDATE presale_campaigns
-        SET reserved_shares=reserved_shares-$2,sold_shares=sold_shares+$2,updated_at=now()
-        WHERE id=$1 AND reserved_shares >= $2 AND sold_shares+$2 <= total_shares RETURNING id`,
-      order.campaign_id, issuedQuantity);
-      if (!moved) throw APIError.failedPrecondition("Presale reservation accounting is inconsistent");
-      await tx.rawExec(`INSERT INTO presale_allocation_overrides
-        (id,order_id,order_reference,actor_user_id,reason,evidence_reference,previous_order_status)
-        VALUES ($1,$2,$3,$4,$5,$6,$7)`, crypto.randomUUID(), order.id, payload.orderReference,
-      payload.actorUserId, payload.reason, payload.evidenceReference, order.status);
-      await tx.rawExec(`UPDATE presale_orders SET status='confirmed',confirmed_at=COALESCE(confirmed_at,now()),updated_at=now()
-        WHERE id=$1`, order.id);
-      overrideRecorded = true;
-    }
-    assertApplicantJourneyTransition(orderJourneyState(order.status), "confirmed");
-    if (order.status === "confirmed" || overrideRecorded) {
-      await enqueuePresaleIssuanceRequest(tx, order.id, payload.orderReference);
-    }
-    await tx.commit();
-  } catch (error) {
-    try { await tx.rollback(); } catch { /* transaction may already be closed */ }
-    throw error;
-  }
-
-  if (overrideRecorded) {
-    try {
-      await auditDb.rawExec(`INSERT INTO audit_logs
-        (actor_user_id,action,entity_type,entity_id,before,after)
-        VALUES ($1,'presale.allocation_override.approved','presale_order',$2,$3::jsonb,$4::jsonb)`,
-      payload.actorUserId, orderId,
-      JSON.stringify({ status: previousOrderStatus }),
-      JSON.stringify({ status: "confirmed", reason: payload.reason, evidenceReference: payload.evidenceReference }));
-    } catch (error) {
-      log.error(error, "global allocation override audit mirror failed", {
-        orderReference: payload.orderReference, actorUserId: payload.actorUserId,
-      });
-    }
-  }
-
-  await attemptImmediatePresaleIssuance(payload.orderReference);
-  const finalOrder = await presaleDb.rawQueryRow<{ status: string; incorporation_status: string }>(
-    "SELECT status,incorporation_status FROM presale_orders WHERE id=$1", orderId,
-  );
-  const certificate = await sharesDb.rawQueryRow<{ certificate_number: string }>(
-    "SELECT certificate_number FROM share_certificates WHERE presale_order_reference=$1 AND status='issued'",
-    payload.orderReference,
-  );
-  if (!finalOrder) throw APIError.notFound("Presale order not found after allocation override");
-  return {
-    orderReference: payload.orderReference,
-    orderStatus: finalOrder.status,
-    incorporationStatus: finalOrder.incorporation_status,
-    overrideRecorded,
-    certificateNumber: certificate?.certificate_number ?? null,
-  };
-  */
 }
 
 /**
