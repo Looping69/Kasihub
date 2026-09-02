@@ -1,6 +1,6 @@
 // Author: Klaasvaakie ( |╲ )
 import { describe, expect, test } from "vitest";
-import { APPLICANT_JOURNEY_PRESENTATION, APPLICANT_JOURNEY_STATES, deriveApplicantJourney } from "./applicant-journey";
+import { APPLICANT_JOURNEY_PRESENTATION, APPLICANT_JOURNEY_STATES, APPLICANT_JOURNEY_TRANSITIONS, assertApplicantJourneyTransition, deriveApplicantJourney } from "./applicant-journey";
 
 const base = {
   application: { status: "draft", phaseCompleted: 4 },
@@ -11,6 +11,13 @@ const base = {
 describe("authoritative applicant journey", () => {
   test("defines presentation and permitted actions for every public state", () => {
     expect(Object.keys(APPLICANT_JOURNEY_PRESENTATION).sort()).toEqual([...APPLICANT_JOURNEY_STATES].sort());
+    expect(Object.keys(APPLICANT_JOURNEY_TRANSITIONS).sort()).toEqual([...APPLICANT_JOURNEY_STATES].sort());
+  });
+
+  test("fails closed for illegal financial lifecycle transitions", () => {
+    expect(() => assertApplicantJourneyTransition("awaiting_payment", "issued")).toThrow("invalid_applicant_journey_transition");
+    expect(() => assertApplicantJourneyTransition("cancelled", "issued")).toThrow("invalid_applicant_journey_transition");
+    expect(() => assertApplicantJourneyTransition("confirmed", "awaiting_incorporation")).not.toThrow();
   });
 
   test.each([

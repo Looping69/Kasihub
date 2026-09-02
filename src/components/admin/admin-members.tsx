@@ -76,7 +76,6 @@ export function AdminMembers() {
   const [kycDocuments, setKycDocuments] = useState<KycDocument[]>([]);
   const [documentsLoading, setDocumentsLoading] = useState(false);
   const [preview, setPreview] = useState<{ url: string; type: string; title: string } | null>(null);
-  const [allocationOverrideSubmittingFor, setAllocationOverrideSubmittingFor] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
@@ -167,26 +166,6 @@ export function AdminMembers() {
       }
     } catch {
       toast.error("Network error");
-    }
-  }
-
-  async function allowShareIssuance(member: AdminMember) {
-    if (!member?.presaleOrderReference) return;
-    setAllocationOverrideSubmittingFor(member.id);
-    try {
-      const res = await fetch(`/api/admin/presale/orders/${encodeURIComponent(member.presaleOrderReference)}/allow-allocation`, {
-        method: "POST",
-      });
-      const payload = await res.json();
-      if (!res.ok) throw new Error(payload.error ?? "Unable to allow share issuance");
-      toast.success(payload.certificateNumber
-        ? `Share certificate ${payload.certificateNumber} issued`
-        : "Allocation override recorded; certificate issuance is queued");
-      await load();
-    } catch (reason) {
-      toast.error(reason instanceof Error ? reason.message : "Unable to allow share issuance");
-    } finally {
-      setAllocationOverrideSubmittingFor(null);
     }
   }
 
@@ -408,26 +387,6 @@ export function AdminMembers() {
                         <p className="mt-1 break-all font-mono text-[10px] opacity-80">Evidence: {selected.presaleAllocationOverrideEvidenceReference}</p>
                       </div>
                     )}
-                    {canAllowShareIssuance(selected) && (
-                      <div className="flex flex-col gap-3 rounded-lg border border-amber-300 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/40 sm:flex-row sm:items-center sm:justify-between">
-                        <div>
-                          <p className="text-xs font-semibold text-amber-950 dark:text-amber-100">Manual allocation authority</p>
-                          <p className="text-[11px] text-amber-800 dark:text-amber-300">Issues the reserved allocation immediately. The admin action is recorded automatically.</p>
-                        </div>
-                        <Button
-                          type="button"
-                          size="sm"
-                          className="h-7 bg-amber-600 px-2 text-[11px] text-white hover:bg-amber-700"
-                          disabled={allocationOverrideSubmittingFor === selected.id}
-                          onClick={() => void allowShareIssuance(selected)}
-                        >
-                          {allocationOverrideSubmittingFor === selected.id
-                            ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                            : <ShieldCheck className="mr-1 h-3.5 w-3.5" />}
-                          Allow allocation
-                        </Button>
-                      </div>
-                    )}
                     {selected.presalePaymentReconciliations.map((payment) => (
                       <div key={payment.orderReference} className="space-y-3 rounded-lg border border-sky-300 bg-white p-3 dark:border-sky-800 dark:bg-sky-950/70">
                         <div>
@@ -531,13 +490,6 @@ function memberName(member: AdminMember) {
 
 function formatStatus(status: string | null) {
   return status ? status.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase()) : "—";
-}
-
-function canAllowShareIssuance(member: AdminMember): boolean {
-  return member.kycStatus === "VERIFIED"
-    && member.presaleIncorporationStatus === "pending"
-    && member.presaleAllocationOverrideAt === null
-    && ["payment_submitted", "payment_detected"].includes(member.presaleReservationStatus ?? "");
 }
 
 function Detail({ icon: Icon, label, value, mono }: { icon: typeof Mail; label: string; value: string; mono?: boolean }) {

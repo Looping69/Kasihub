@@ -34,6 +34,7 @@ function evidence(overrides: Partial<ChainTransactionEvidence> = {}): ChainTrans
     visible: true,
     execution: "success",
     blockNumber: 100n,
+    blockTimestamp: new Date().toISOString(),
     latestBlockNumber: 102n,
     sender: SENDER,
     logs: [{

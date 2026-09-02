@@ -49,7 +49,7 @@ async function seedSubmittedOverrideOrder() {
 }
 
 describe("admin presale allocation override", () => {
-  it("allows a non-active member profile and issues through the authoritative idempotent pipeline", async () => {
+  it("cannot create paid ownership without settled payment authority", async () => {
     const seeded = await seedSubmittedOverrideOrder();
     const request = {
       orderReference: seeded.orderReference,
@@ -57,8 +57,7 @@ describe("admin presale allocation override", () => {
       reason: "Remitano custody authentication is unavailable; deposit evidence was independently reviewed.",
       evidenceReference: "provider-deposit-reference-12345",
     };
-    const first = await allowPresaleShareAllocationOverride(request);
-    const retry = await allowPresaleShareAllocationOverride(request);
+    await expect(allowPresaleShareAllocationOverride(request)).rejects.toThrow("Manual presale share allocation is disabled");
     const order = await presaleDb.rawQueryRow<{
       status: string; incorporation_status: string; payment_settled_at: string | null;
     }>("SELECT status,incorporation_status,payment_settled_at FROM presale_orders WHERE id=$1", seeded.orderId);
@@ -72,13 +71,9 @@ describe("admin presale allocation override", () => {
       "SELECT COUNT(*)::text AS count,COALESCE(SUM(total_shares),0)::text AS total FROM share_certificates WHERE presale_order_reference=$1",
       seeded.orderReference,
     );
-    expect(first).toMatchObject({ orderStatus: "incorporated", incorporationStatus: "incorporated", overrideRecorded: true });
-    expect(first.certificateNumber).toBeTruthy();
-    expect(retry).toMatchObject({ orderStatus: "incorporated", incorporationStatus: "incorporated", overrideRecorded: false });
-    expect(retry.certificateNumber).toBe(first.certificateNumber);
-    expect(order).toEqual({ status: "incorporated", incorporation_status: "incorporated", payment_settled_at: null });
-    expect(campaign).toEqual({ reserved_shares: 0, sold_shares: 2 });
-    expect(overrides).toEqual({ count: "1" });
-    expect(certificates).toEqual({ count: "1", total: "2" });
+    expect(order).toEqual({ status: "payment_submitted", incorporation_status: "pending", payment_settled_at: null });
+    expect(campaign).toEqual({ reserved_shares: 2, sold_shares: 0 });
+    expect(overrides).toEqual({ count: "0" });
+    expect(certificates).toEqual({ count: "0", total: "0" });
   }, 15_000);
 });

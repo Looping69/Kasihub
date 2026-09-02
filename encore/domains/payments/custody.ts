@@ -47,6 +47,12 @@ const RemitanoApiKey = secret("REMITANO_API_KEY");
 const RemitanoSecretKey = secret("REMITANO_SECRET_KEY");
 const REMITANO_API_ORIGIN = "https://api.remitano.com";
 
+export function validateRemitanoConfiguration(): void {
+  if (RemitanoApiKey().trim().length < 8 || RemitanoSecretKey().trim().length < 16) {
+    throw new Error("remitano_credentials_invalid");
+  }
+}
+
 type RemitanoDeposit = Record<string, unknown>;
 
 function stringField(row: RemitanoDeposit, ...names: string[]): string {
