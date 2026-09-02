@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { resolveWebPayUnitPrice, verifyWebPayChecksum, verifyWebPayProcessChecksum, webPayChecksum, webPayItemDescription, webPayMerchantFields, webPayOrderNumber, webPayProcessChecksum, webPayReconciliationFields, webPayTotalZar } from "./webpay";
+import { resolveWebPayUnitPrice, WEBPAY_ROUTING_CODE, verifyWebPayChecksum, verifyWebPayProcessChecksum, webPayBuyerFields, webPayChecksum, webPayItemDescription, webPayMerchantFields, webPayOrderNumber, webPayProcessChecksum, webPayReconciliationFields, webPayTotalZar } from "./webpay";
 
 describe("WebPay presale contract", () => {
   test("posts the merchant site identifier required by hosted checkout", () => {
@@ -67,10 +67,27 @@ describe("WebPay presale contract", () => {
   });
 
   test("creates a stable 20-character provider order number", () => {
-    const value = webPayOrderNumber("KSH", "KSP-ORDER-1");
+    const value = webPayOrderNumber(WEBPAY_ROUTING_CODE, "KSP-ORDER-1");
     expect(value).toHaveLength(20);
     expect(value.startsWith("KSH")).toBe(true);
     expect(webPayOrderNumber("KSH", "KSP-ORDER-1")).toBe(value);
+  });
+
+  test("never sends optional buyer fields beyond WebPay's documented limits", () => {
+    const fields = webPayBuyerFields({
+      buyerName: `${"A".repeat(100)} ${"B".repeat(100)}`,
+      buyerEmail: `${"e".repeat(75)}@example.com`,
+      buyerPhone: "+123456789012345",
+    });
+    expect(fields.b_name).toHaveLength(80);
+    expect(fields.b_surname).toHaveLength(80);
+    expect(fields).not.toHaveProperty("b_email");
+    expect(fields).not.toHaveProperty("b_mobile");
+  });
+
+  test("includes valid optional buyer fields without blank values", () => {
+    expect(webPayBuyerFields({ buyerName: "Ada Lovelace", buyerEmail: "ada@example.com", buyerPhone: "+27821234567" }))
+      .toEqual({ b_name: "Ada", b_surname: "Lovelace", b_email: "ada@example.com", b_mobile: "+27821234567" });
   });
 
   test("puts the exact KaSiHub order reference in the visible provider description", () => {

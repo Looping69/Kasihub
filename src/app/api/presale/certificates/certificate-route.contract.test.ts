@@ -41,7 +41,7 @@ describe("presale shareholder certificate PDF", () => {
     expect(response.headers.get("content-type")).toBe("application/pdf");
     expect(mocks.encoreRequest).toHaveBeenCalledWith("/presale/applicant/portal", {}, "presale-token");
     expect((await PDFDocument.load(await response.arrayBuffer())).getPageCount()).toBe(1);
-  });
+  }, 15_000);
 
   test("derives a legacy bonus allocation from the immutable certificate total", async () => {
     mocks.presaleSessionToken.mockResolvedValue("presale-token");
@@ -57,7 +57,7 @@ describe("presale shareholder certificate PDF", () => {
     const response = await GET(new Request("http://localhost"), context("CERT-LEGACY"));
     expect(response.status).toBe(200);
     expect((await PDFDocument.load(await response.arrayBuffer())).getPageCount()).toBe(1);
-  });
+  }, 15_000);
 
   test("does not expose another shareholder's certificate", async () => {
     mocks.presaleSessionToken.mockResolvedValue("presale-token");

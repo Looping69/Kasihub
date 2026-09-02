@@ -25,13 +25,14 @@ describe("KaSiShares BSC-only policy", () => {
     expect(api).toContain("shouldRetryPresaleCryptoReconciliation(result.status)");
   });
 
-  test("the temporary Remitano bypass still requires canonical confirmations and records its authority", () => {
+  test("Remitano settlement requires both canonical confirmations and custody reconciliation", () => {
     const verification = source("encore/domains/payments/verification.ts");
     expect(verification).toContain("evaluatePaymentEvidence({");
     expect(verification).toContain("minimumConfirmations: row.minimum_confirmations");
-    expect(verification).toContain("TEMPORARY_REMITANO_CUSTODY_BYPASS = true");
-    expect(verification).toContain('"remitano_custody_temporarily_bypassed"');
-    expect(verification).toContain("custodyTemporarilyBypassed");
+    expect(verification).toContain("row.custody_reconciliation_required");
+    expect(verification).toContain("await custodyReader({");
+    expect(verification).toContain("evaluateCustodyEvidence({");
+    expect(verification).not.toContain("TEMPORARY_REMITANO_CUSTODY_BYPASS");
   });
 
   test("presale administration does not offer TRON as a network", () => {
@@ -41,5 +42,62 @@ describe("KaSiShares BSC-only policy", () => {
     expect(campaigns).not.toContain('value="tron"');
     expect(defaults).toContain("BNB Smart Chain (BSC / BEP20)");
     expect(campaigns).toContain("BNB Smart Chain (BSC / BEP20)");
+  });
+
+  test("order access requires both a presale session owner and the order credential", () => {
+    const api = source("encore/domains/presale/api.ts");
+    expect(api.match(/const session = await requirePresaleSession\(\);/g)?.length).toBeGreaterThanOrEqual(6);
+    expect(api.match(/o\.external_profile_id::text = \$3::text/g)?.length).toBeGreaterThanOrEqual(3);
+    expect(api).toContain("req.orderReference, hashSecret(accessToken), session.profile.id");
+    expect(api).toContain("payload.orderReference, hashSecret(payload.accessToken), session.profile.id");
+  });
+
+  test("late or cancelled payments preserve evidence without creating issuance work", () => {
+    const api = source("encore/domains/presale/api.ts");
+    const migration = source("encore/migrations/presale/19_late_payment_review_and_audit.up.sql");
+    expect(api).toContain('["cancelled", "expired", "manual_review"].includes(order.status)');
+    expect(api).toContain("status='manual_review'");
+    expect(api).toContain("'payment.late_detected'");
+    expect(api).toContain('"transaction_mined_after_deadline"');
+    expect(api).toContain('"on_time_transaction_after_reservation_release"');
+    expect(migration).toContain("CREATE TABLE presale_audit_events");
+    expect(migration).toContain("'manual_review'");
+  });
+
+  test("production activation fails closed and cannot enable discounted financial behavior", () => {
+    const api = source("encore/domains/presale/api.ts");
+    const migration = source("encore/migrations/presale/20_disable_active_test_pricing.up.sql");
+    expect(api).toContain('if (payload.status === "active") requirePresaleProductionConfiguration()');
+    expect(api).toContain("validateBscProviderConfiguration()");
+    expect(api).toContain("validateRemitanoConfiguration()");
+    expect(migration).toContain("status <> 'active'");
+    expect(migration).toContain("crypto_test_orders_remaining = 0");
+  });
+
+  test("WebPay claims each settlement reference durably before fulfilment", () => {
+    const api = source("encore/domains/presale/api.ts");
+    const migration = source("encore/migrations/presale/22_webpay_settlement_claims.up.sql");
+    expect(migration).toContain("provider_reference TEXT PRIMARY KEY");
+    expect(migration).toContain("order_id UUID NOT NULL UNIQUE");
+    expect(api).toContain("INSERT INTO presale_webpay_settlements");
+    expect(api).toContain("WebPay settlement reference was already used for different payment evidence");
+  });
+
+  test("WebPay checkout follows current provider field limits and callback authority", () => {
+    const api = source("encore/domains/presale/api.ts");
+    const webPay = source("encore/domains/presale/webpay.ts");
+    expect(api).toContain("webPayOrderNumber(WEBPAY_ROUTING_CODE");
+    expect(api).toContain('m_ozow_allowed: "false"');
+    expect(api).not.toContain("m_trident_allowed");
+    expect(api).toContain("webPayBuyerFields");
+    expect(webPay).toContain("email.length <= 80");
+    expect(webPay).toContain("phone.length <= 15");
+    expect(api).toContain("status,incorporation_status");
+    expect(api).toContain("Completed WebPay payment is missing its payment-system reference");
+  });
+
+  test("the admin allocation override cannot manufacture paid ownership", () => {
+    const api = source("encore/domains/presale/api.ts");
+    expect(api).toContain("Manual presale share allocation is disabled; settled payment authority is required");
   });
 });

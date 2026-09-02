@@ -96,7 +96,6 @@ export const submitPaymentAttempt = api<
 
     const tx = await paymentsDb.begin();
     let attemptId: string | null = null;
-    let expired = false;
     try {
       const locked = await tx.rawQueryRow<{
         payer_profile_id: string; status: PaymentStatus; expires_at: string;
@@ -108,23 +107,7 @@ export const submitPaymentAttempt = api<
         throw APIError.permissionDenied("Payment intent is no longer available to this profile");
       }
 
-      if (new Date(locked.expires_at).getTime() <= Date.now() && (locked.status === "awaiting_transfer" || locked.status === "underpaid")) {
-        assertPaymentTransition(locked.status, "expired");
-        await tx.rawExec(
-          "UPDATE payment_intents SET status = 'expired', updated_at = now() WHERE id = $1",
-          req.intentId,
-        );
-        await tx.rawExec(
-          `INSERT INTO payment_state_history
-            (payment_intent_id, prior_status, new_status, actor_type, actor_reference, evidence)
-           VALUES ($1, $2, 'expired', 'system', 'attempt.submit', $3::jsonb)`,
-          req.intentId,
-          locked.status,
-          JSON.stringify({ reason: "intent_ttl_elapsed" }),
-        );
-        await tx.commit();
-        expired = true;
-      } else {
+      {
         if (locked.status !== "awaiting_transfer" && locked.status !== "underpaid") {
           throw APIError.failedPrecondition(`Payment intent cannot accept a transaction hash while ${locked.status}`);
         }
@@ -174,7 +157,6 @@ export const submitPaymentAttempt = api<
       throw error;
     }
 
-    if (expired) throw APIError.failedPrecondition("Payment intent has expired; create a replacement intent if the obligation is still open");
     if (!attemptId) throw new Error("payment_attempt_not_created");
     const created = await findAttemptByHash(transactionHash);
     if (!created) throw new Error("payment_attempt_not_created");

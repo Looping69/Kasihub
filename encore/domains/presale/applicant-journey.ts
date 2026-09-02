@@ -62,6 +62,40 @@ export interface ApplicantJourneyDecision {
   terminal: boolean;
 }
 
+export type ApplicantJourneyActor = "applicant" | "compliance" | "payment_verifier" | "system" | "issuer";
+
+export interface ApplicantJourneyTransitionPolicy {
+  legalNext: readonly ApplicantJourneyState[];
+  actors: readonly ApplicantJourneyActor[];
+  requiredEvidence: readonly string[];
+  reversible: boolean;
+  terminal: boolean;
+}
+
+export const APPLICANT_JOURNEY_TRANSITIONS: Record<ApplicantJourneyState, ApplicantJourneyTransitionPolicy> = {
+  invite_required: { legalNext: ["application_in_progress"], actors: ["applicant"], requiredEvidence: ["active_invitation", "authenticated_profile"], reversible: false, terminal: false },
+  application_in_progress: { legalNext: ["kyc_pending", "eligible_to_reserve", "manual_review"], actors: ["applicant", "compliance"], requiredEvidence: ["persisted_application"], reversible: true, terminal: false },
+  kyc_pending: { legalNext: ["eligible_to_reserve", "manual_review"], actors: ["compliance"], requiredEvidence: ["provider_kyc_result"], reversible: true, terminal: false },
+  eligible_to_reserve: { legalNext: ["awaiting_payment", "manual_review"], actors: ["applicant", "system"], requiredEvidence: ["approved_kyc", "atomic_inventory_reservation"], reversible: true, terminal: false },
+  awaiting_payment: { legalNext: ["payment_submitted", "confirmed", "cancelled", "expired", "manual_review"], actors: ["applicant", "payment_verifier", "system"], requiredEvidence: ["persisted_reservation"], reversible: true, terminal: false },
+  payment_submitted: { legalNext: ["pending_confirmations", "underpaid", "manual_review", "confirmed"], actors: ["payment_verifier"], requiredEvidence: ["unique_transaction_hash"], reversible: false, terminal: false },
+  pending_confirmations: { legalNext: ["pending_confirmations", "underpaid", "manual_review", "confirmed"], actors: ["payment_verifier"], requiredEvidence: ["canonical_chain_evidence"], reversible: false, terminal: false },
+  underpaid: { legalNext: ["payment_submitted", "manual_review", "cancelled", "expired"], actors: ["applicant", "payment_verifier", "system"], requiredEvidence: ["canonical_underpayment_evidence"], reversible: true, terminal: false },
+  manual_review: { legalNext: ["confirmed", "cancelled", "expired", "revoked"], actors: ["compliance", "issuer"], requiredEvidence: ["audited_manual_decision"], reversible: true, terminal: false },
+  confirmed: { legalNext: ["awaiting_incorporation", "manual_review"], actors: ["system", "issuer"], requiredEvidence: ["settled_payment_obligation"], reversible: false, terminal: false },
+  awaiting_incorporation: { legalNext: ["issued", "manual_review"], actors: ["issuer", "system"], requiredEvidence: ["idempotent_issuance_operation"], reversible: false, terminal: false },
+  issued: { legalNext: ["revoked"], actors: ["issuer"], requiredEvidence: ["sealed_certificate"], reversible: false, terminal: true },
+  revoked: { legalNext: [], actors: ["issuer"], requiredEvidence: ["revocation_audit"], reversible: false, terminal: true },
+  cancelled: { legalNext: ["manual_review"], actors: ["system", "compliance"], requiredEvidence: ["cancellation_audit"], reversible: false, terminal: true },
+  expired: { legalNext: ["manual_review"], actors: ["system", "compliance"], requiredEvidence: ["deadline_evidence"], reversible: false, terminal: true },
+};
+
+export function assertApplicantJourneyTransition(from: ApplicantJourneyState, to: ApplicantJourneyState): void {
+  if (!APPLICANT_JOURNEY_TRANSITIONS[from].legalNext.includes(to)) {
+    throw new Error(`invalid_applicant_journey_transition:${from}->${to}`);
+  }
+}
+
 export interface ApplicantJourneySource {
   application: null | { status: string; phaseCompleted: number };
   kycStatus: string | null;

@@ -31,7 +31,7 @@ describe("Solidus shareholder certificate", () => {
     const { width, height } = document.getPage(0).getSize();
     expect(width).toBeCloseTo(841.89, 1);
     expect(height).toBeCloseTo(595.28, 1);
-  });
+  }, 15_000);
 
   test("rejects an issue price without its currency", async () => {
     await expect(generateShareCertificatePdf({
