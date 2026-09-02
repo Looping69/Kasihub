@@ -158,12 +158,14 @@ export const cancelPaymentObligation = api<
       req.obligationId,
     );
     if (!row) throw APIError.notFound("Payment obligation not found");
-    if (row.status === "settled") throw APIError.failedPrecondition("Settled payment obligation cannot be cancelled");
+    if (row.status !== "open") {
+      throw APIError.failedPrecondition("Payment obligation with credited funds cannot be cancelled");
+    }
     await paymentsDb.rawExec(
       `UPDATE payment_obligations
           SET status = 'cancelled', cancelled_at = now(), updated_at = now(),
               metadata = metadata || $2::jsonb
-        WHERE id = $1 AND status <> 'settled'`,
+        WHERE id = $1 AND status = 'open'`,
       req.obligationId,
       JSON.stringify({ cancellationReason: req.reason?.trim().slice(0, 1000) ?? null }),
     );

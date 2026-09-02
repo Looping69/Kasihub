@@ -135,7 +135,7 @@ export async function verifyAndSettlePaymentAttempt(
     attemptId,
   );
   if (!row) throw APIError.notFound("Payment attempt not found");
-  if (row.intent_status === "settled" && row.obligation_status === "settled") {
+  if (row.intent_status === "settled" && row.obligation_status === "paid") {
     return { ...retryableResult(row, "already_settled"), status: "settled" };
   }
   if (row.intent_status === "rejected" && row.verification_status === "rejected") {
@@ -205,7 +205,7 @@ export async function verifyAndSettlePaymentAttempt(
       row.payment_intent_id,
     );
     if (!locked) throw APIError.notFound("Payment intent not found");
-    if (locked.status === "settled" && locked.obligation_status === "settled") {
+    if (locked.status === "settled" && locked.obligation_status === "paid") {
       await tx.commit();
       return { ...retryableResult(row, "already_settled"), status: "settled", confirmations: evaluation.confirmations };
     }
@@ -237,7 +237,7 @@ export async function verifyAndSettlePaymentAttempt(
       assertPaymentTransition("settling", "settled");
       await tx.rawExec(`UPDATE payment_intents SET status = 'settled', confirmed_at = COALESCE(confirmed_at, now()),
         settled_at = COALESCE(settled_at, now()), updated_at = now() WHERE id = $1`, row.payment_intent_id);
-      await tx.rawExec(`UPDATE payment_obligations SET status = 'settled', settled_at = COALESCE(settled_at, now()),
+      await tx.rawExec(`UPDATE payment_obligations SET status = 'paid', settled_at = COALESCE(settled_at, now()),
         updated_at = now() WHERE id = $1 AND status = 'open'`, row.obligation_id);
       await tx.rawExec(`INSERT INTO payment_state_history
         (payment_intent_id, prior_status, new_status, actor_type, actor_reference, evidence) VALUES
