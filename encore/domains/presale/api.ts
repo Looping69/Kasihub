@@ -17,6 +17,8 @@ import { createPaymentIntent, type PaymentIntentResponse } from "../payments/int
 import { cancelPaymentObligation, createPaymentObligation } from "../payments/obligations";
 import { resolveActiveReceivingConfiguration } from "../payments/registry";
 import { verifyAndSettlePaymentAttempt, type SettledPaymentResult } from "../payments/verification";
+import { validateBscProviderConfiguration } from "../payments/chains/providers";
+import { validateRemitanoConfiguration } from "../payments/custody";
 import {
   hashSecret,
   normalizeEmail,
@@ -34,7 +36,7 @@ import { resolveWebPayUnitPrice, WEBPAY_UNIT_PRICE_ZAR, verifyWebPayChecksum, ve
 import { buildShareholderPortfolio, type PresaleCertificate, type PresalePaidOrder } from "./shareholder-portfolio";
 import { applicantLoginSchema, internationalCellphoneSchema, missingRequiredFundingFields, physicalAddressLine, strongPasswordSchema } from "./applicant-validation";
 import { issueShares } from "../shares/issuance";
-import { deriveApplicantJourney, type ApplicantJourneyDecision } from "./applicant-journey";
+import { assertApplicantJourneyTransition, deriveApplicantJourney, type ApplicantJourneyDecision, type ApplicantJourneyState } from "./applicant-journey";
 import {
   buildPresaleReservationContract,
   deriveReservationCancellationPolicy,
@@ -53,6 +55,37 @@ const WebPaySecurityKey = secret("WEBPAY_SECURITY_KEY");
 const WebPayCheckoutUrl = secret("WEBPAY_CHECKOUT_URL");
 const WebPayNotifyUrl = secret("WEBPAY_NOTIFY_URL");
 const WebPaySiteId = secret("WEBPAY_SITE_ID");
+
+function orderJourneyState(status: string, incorporationStatus = "pending"): ApplicantJourneyState {
+  if (status === "awaiting_payment") return "awaiting_payment";
+  if (status === "payment_submitted") return "payment_submitted";
+  if (status === "payment_detected") return "pending_confirmations";
+  if (status === "manual_review") return "manual_review";
+  if (status === "confirmed") return incorporationStatus === "pending" ? "confirmed" : "awaiting_incorporation";
+  if (status === "incorporated") return "issued";
+  if (status === "cancelled") return "cancelled";
+  if (status === "expired") return "expired";
+  throw new Error(`unmapped_presale_order_status:${status}`);
+}
+
+function requirePresaleProductionConfiguration(): void {
+  try {
+    validateBscProviderConfiguration();
+    validateRemitanoConfiguration();
+    if (PresaleWebhookSecret().trim().length < 32) throw new Error("presale_webhook_secret_invalid");
+    if (InvestorApplicationEncryptionKey().trim().length < 32) throw new Error("application_encryption_key_invalid");
+    if (ResendApiKey().trim().length < 8 || !ResendFromEmail().includes("@")) throw new Error("email_configuration_invalid");
+    if (!z.string().uuid().safeParse(WebPayMerchantUuid()).success
+      || !z.string().uuid().safeParse(WebPayAccountUuid()).success
+      || WebPaySecurityKey().trim().length < 16
+      || !WebPayCheckoutUrl().startsWith("https://")
+      || !WebPayNotifyUrl().startsWith("https://")
+      || !WebPaySiteId().trim()) throw new Error("webpay_configuration_invalid");
+  } catch (error) {
+    log.error(error, "presale production configuration gate failed");
+    throw APIError.failedPrecondition("Presale financial dependencies are not fully configured");
+  }
+}
 
 function escapeHtml(value: string): string {
   return value.replace(/[&<>'"]/g, (character) => ({
@@ -827,11 +860,12 @@ export async function fulfilSettledPresalePayment(
   paymentIntentId: string,
   transactionHash: string,
   confirmations: number,
+  blockTimestamp: string | null = null,
 ): Promise<void> {
   const tx = await presaleDb.begin();
   try {
-    const order = await tx.rawQueryRow<{ id: string; campaign_id: string; quantity: number; status: string; payment_intent_id: string | null; bonus_buy_one_get_one: boolean }>(
-      `SELECT o.id,o.campaign_id,o.quantity,o.status,o.payment_intent_id,c.bonus_buy_one_get_one
+    const order = await tx.rawQueryRow<{ id: string; campaign_id: string; quantity: number; status: string; payment_intent_id: string | null; payment_deadline: string; bonus_buy_one_get_one: boolean }>(
+      `SELECT o.id,o.campaign_id,o.quantity,o.status,o.payment_intent_id,o.payment_deadline,c.bonus_buy_one_get_one
          FROM presale_orders o JOIN presale_campaigns c ON c.id = o.campaign_id
         WHERE o.order_reference = $1 FOR UPDATE OF o`, orderReference);
     if (!order) throw APIError.notFound("Presale order not found");
@@ -840,6 +874,26 @@ export async function fulfilSettledPresalePayment(
       if (order.status === "confirmed") await enqueuePresaleIssuanceRequest(tx, order.id, orderReference);
       await tx.commit();
       if (order.status === "confirmed") await attemptImmediatePresaleIssuance(orderReference);
+      return;
+    }
+    const minedAfterDeadline = !blockTimestamp
+      || new Date(blockTimestamp).getTime() > new Date(order.payment_deadline).getTime();
+    if (["cancelled", "expired", "manual_review"].includes(order.status) || minedAfterDeadline) {
+      if (order.status !== "manual_review") assertApplicantJourneyTransition(orderJourneyState(order.status), "manual_review");
+      await tx.rawExec(`UPDATE presale_orders SET status='manual_review',
+        payment_transaction_hash=COALESCE(payment_transaction_hash,$2),
+        payment_confirmations=GREATEST(COALESCE(payment_confirmations,0),$3),
+        payment_settled_at=COALESCE(payment_settled_at,now()),updated_at=now()
+        WHERE id=$1 AND status IN ('awaiting_payment','payment_submitted','payment_detected','cancelled','expired','manual_review')`,
+      order.id, transactionHash, confirmations);
+      await tx.rawExec(`INSERT INTO presale_audit_events
+        (event_key,order_id,event_type,actor_type,actor_reference,evidence)
+        VALUES ($1,$2,'payment.late_detected','system','payment.settlement',$3::jsonb)
+        ON CONFLICT (event_key) DO NOTHING`, `presale:${orderReference}:late-payment`, order.id,
+      JSON.stringify({ paymentIntentId, transactionHash, confirmations, blockTimestamp, priorStatus: order.status,
+        paymentDeadline: order.payment_deadline, reason: order.status === "cancelled" ? "payment_after_cancellation"
+          : minedAfterDeadline ? "transaction_mined_after_deadline" : "on_time_transaction_after_reservation_release" }));
+      await tx.commit();
       return;
     }
     if (!["awaiting_payment", "payment_submitted", "payment_detected"].includes(order.status)) {
@@ -866,8 +920,8 @@ export async function fulfilSettledPresalePayment(
 export async function fulfilWebPayPresalePayment(orderReference: string, providerReference: string, paymentMethod: string): Promise<void> {
   const tx = await presaleDb.begin();
   try {
-    const order = await tx.rawQueryRow<{ id: string; campaign_id: string; quantity: number; status: string; payment_rail: PresalePaymentRail; bonus_buy_one_get_one: boolean }>(
-      `SELECT o.id,o.campaign_id,o.quantity,o.status,o.payment_rail,c.bonus_buy_one_get_one
+    const order = await tx.rawQueryRow<{ id: string; campaign_id: string; quantity: number; status: string; payment_rail: PresalePaymentRail; payment_deadline: string; bonus_buy_one_get_one: boolean }>(
+      `SELECT o.id,o.campaign_id,o.quantity,o.status,o.payment_rail,o.payment_deadline,c.bonus_buy_one_get_one
          FROM presale_orders o JOIN presale_campaigns c ON c.id = o.campaign_id
         WHERE o.order_reference = $1 FOR UPDATE OF o`, orderReference);
     if (!order) throw APIError.notFound("Presale order not found");
@@ -876,6 +930,24 @@ export async function fulfilWebPayPresalePayment(orderReference: string, provide
       if (order.status === "confirmed") await enqueuePresaleIssuanceRequest(tx, order.id, orderReference);
       await tx.commit();
       if (order.status === "confirmed") await attemptImmediatePresaleIssuance(orderReference);
+      return;
+    }
+    assertApplicantJourneyTransition(orderJourneyState(order.status), "confirmed");
+    if (["cancelled", "expired", "manual_review"].includes(order.status)
+      || new Date(order.payment_deadline).getTime() <= Date.now()) {
+      await tx.rawExec(`UPDATE presale_orders SET status='manual_review',
+        webpay_system_reference=COALESCE(webpay_system_reference,$2),
+        webpay_payment_method=COALESCE(webpay_payment_method,$3),
+        payment_settled_at=COALESCE(payment_settled_at,now()),updated_at=now()
+        WHERE id=$1 AND status IN ('awaiting_payment','payment_submitted','payment_detected','cancelled','expired','manual_review')`,
+      order.id, providerReference, paymentMethod);
+      await tx.rawExec(`INSERT INTO presale_audit_events
+        (event_key,order_id,event_type,actor_type,actor_reference,evidence)
+        VALUES ($1,$2,'payment.late_detected','system','webpay.notification',$3::jsonb)
+        ON CONFLICT (event_key) DO NOTHING`, `presale:${orderReference}:late-webpay-payment`, order.id,
+      JSON.stringify({ providerReference, paymentMethod, priorStatus: order.status,
+        paymentDeadline: order.payment_deadline, reason: order.status === "cancelled" ? "payment_after_cancellation" : "payment_after_deadline" }));
+      await tx.commit();
       return;
     }
     if (!["awaiting_payment", "payment_submitted", "payment_detected"].includes(order.status)) {
@@ -899,13 +971,6 @@ export async function fulfilWebPayPresalePayment(orderReference: string, provide
   }
 }
 
-const allocationOverrideSchema = z.object({
-  orderReference: z.string().trim().min(8).max(80),
-  actorUserId: z.string().uuid(),
-  reason: z.string().trim().min(20).max(1000),
-  evidenceReference: z.string().trim().min(8).max(240),
-});
-
 type AllocationOverrideResponse = {
   orderReference: string;
   orderStatus: string;
@@ -914,123 +979,16 @@ type AllocationOverrideResponse = {
   certificateNumber: string | null;
 };
 
-/**
- * Explicit emergency authority for a verified administrator to allow a
- * submitted reservation to enter the normal share issuance pipeline. The
- * provider payment record remains untouched: this is a named human override,
- * not fabricated settlement evidence.
- */
+/** Disabled financial bypass retained only as a callable negative-test seam. */
 export async function allowPresaleShareAllocationOverride(input: {
   orderReference: string;
   actorUserId: string;
   reason: string;
   evidenceReference: string;
 }): Promise<AllocationOverrideResponse> {
-  const payload = allocationOverrideSchema.parse(input);
-  const preflight = await presaleDb.rawQueryRow<{
-    id: string; external_profile_id: string | null; status: string;
-  }>("SELECT id,external_profile_id,status FROM presale_orders WHERE order_reference=$1", payload.orderReference);
-  if (!preflight) throw APIError.notFound("Presale order not found");
-  if (!preflight.external_profile_id) throw APIError.failedPrecondition("The reservation has no authenticated member profile");
-  const profile = await identityDb.rawQueryRow<{ id: string }>(
-    "SELECT id FROM profiles WHERE id=$1", preflight.external_profile_id,
-  );
-  if (!profile) {
-    throw APIError.failedPrecondition("The member profile no longer exists");
-  }
-  await requireInternationalKycVerified(preflight.external_profile_id);
-
-  const tx = await presaleDb.begin();
-  let overrideRecorded = false;
-  let previousOrderStatus = preflight.status;
-  let orderId = preflight.id;
-  try {
-    const order = await tx.rawQueryRow<{
-      id: string; campaign_id: string; quantity: number; status: string;
-      incorporation_status: string; bonus_buy_one_get_one: boolean;
-    }>(`SELECT o.id,o.campaign_id,o.quantity,o.status,o.incorporation_status,c.bonus_buy_one_get_one
-          FROM presale_orders o JOIN presale_campaigns c ON c.id=o.campaign_id
-         WHERE o.order_reference=$1 FOR UPDATE OF o`, payload.orderReference);
-    if (!order) throw APIError.notFound("Presale order not found");
-    orderId = order.id;
-    previousOrderStatus = order.status;
-    const existing = await tx.rawQueryRow<{ id: string }>(
-      "SELECT id FROM presale_allocation_overrides WHERE order_id=$1", order.id,
-    );
-    if (!existing) {
-      if (!["payment_submitted", "payment_detected"].includes(order.status) || order.incorporation_status !== "pending") {
-        throw APIError.failedPrecondition(
-          `Share allocation cannot be allowed while ${order.status}/${order.incorporation_status}`,
-        );
-      }
-      const issuedQuantity = issuedSharesForPresale(order.quantity, order.bonus_buy_one_get_one);
-      const moved = await tx.rawQueryRow<{ id: string }>(`UPDATE presale_campaigns
-        SET reserved_shares=reserved_shares-$2,sold_shares=sold_shares+$2,updated_at=now()
-        WHERE id=$1 AND reserved_shares >= $2 AND sold_shares+$2 <= total_shares RETURNING id`,
-      order.campaign_id, issuedQuantity);
-      if (!moved) throw APIError.failedPrecondition("Presale reservation accounting is inconsistent");
-      await tx.rawExec(`INSERT INTO presale_allocation_overrides
-        (id,order_id,order_reference,actor_user_id,reason,evidence_reference,previous_order_status)
-        VALUES ($1,$2,$3,$4,$5,$6,$7)`, crypto.randomUUID(), order.id, payload.orderReference,
-      payload.actorUserId, payload.reason, payload.evidenceReference, order.status);
-      await tx.rawExec(`UPDATE presale_orders SET status='confirmed',confirmed_at=COALESCE(confirmed_at,now()),updated_at=now()
-        WHERE id=$1`, order.id);
-      overrideRecorded = true;
-    }
-    if (order.status === "confirmed" || overrideRecorded) {
-      await enqueuePresaleIssuanceRequest(tx, order.id, payload.orderReference);
-    }
-    await tx.commit();
-  } catch (error) {
-    try { await tx.rollback(); } catch { /* transaction may already be closed */ }
-    throw error;
-  }
-
-  if (overrideRecorded) {
-    try {
-      await auditDb.rawExec(`INSERT INTO audit_logs
-        (actor_user_id,action,entity_type,entity_id,before,after)
-        VALUES ($1,'presale.allocation_override.approved','presale_order',$2,$3::jsonb,$4::jsonb)`,
-      payload.actorUserId, orderId,
-      JSON.stringify({ status: previousOrderStatus }),
-      JSON.stringify({ status: "confirmed", reason: payload.reason, evidenceReference: payload.evidenceReference }));
-    } catch (error) {
-      log.error(error, "global allocation override audit mirror failed", {
-        orderReference: payload.orderReference, actorUserId: payload.actorUserId,
-      });
-    }
-  }
-
-  await attemptImmediatePresaleIssuance(payload.orderReference);
-  const finalOrder = await presaleDb.rawQueryRow<{ status: string; incorporation_status: string }>(
-    "SELECT status,incorporation_status FROM presale_orders WHERE id=$1", orderId,
-  );
-  const certificate = await sharesDb.rawQueryRow<{ certificate_number: string }>(
-    "SELECT certificate_number FROM share_certificates WHERE presale_order_reference=$1 AND status='issued'",
-    payload.orderReference,
-  );
-  if (!finalOrder) throw APIError.notFound("Presale order not found after allocation override");
-  return {
-    orderReference: payload.orderReference,
-    orderStatus: finalOrder.status,
-    incorporationStatus: finalOrder.incorporation_status,
-    overrideRecorded,
-    certificateNumber: certificate?.certificate_number ?? null,
-  };
+  void input;
+  throw APIError.failedPrecondition("Manual presale share allocation is disabled; settled payment authority is required");
 }
-
-export const adminAllowPresaleShareAllocation = api<
-  { orderReference: string },
-  AllocationOverrideResponse
->({ method: "POST", path: "/admin/presale/orders/:orderReference/allow-allocation", expose: true }, async (req) => {
-  const admin = await requireAdminAccess();
-  return allowPresaleShareAllocationOverride({
-    orderReference: req.orderReference,
-    actorUserId: admin.user.id,
-    reason: "Manual share allocation approved from the admin member profile.",
-    evidenceReference: "admin-console",
-  });
-});
 
 /**
  * Issues one independently settled presale order into the authoritative share
@@ -2241,6 +2199,7 @@ export const getPresaleOrder = api<
   { orderReference: string },
   { order: PresaleOrderResponse }
 >({ method: "GET", path: "/presale/orders/:orderReference", expose: true }, async (req) => {
+  const session = await requirePresaleSession();
   // Keep bearer-style order access credentials out of URLs, proxy logs, and browser history.
   // Author: Klaasvaakie ( |╲ )
   const accessToken = requestHeader("x-presale-access-token").trim();
@@ -2260,7 +2219,8 @@ export const getPresaleOrder = api<
             c.receiving_address, c.min_confirmations, c.payment_window_minutes, c.starts_at, c.ends_at,
             o.payment_transaction_hash AS tx_hash, o.payment_confirmations AS confirmations
      FROM presale_orders o JOIN presale_campaigns c ON c.id = o.campaign_id
-     WHERE o.order_reference = $1 AND o.access_token_hash = $2`, req.orderReference, hashSecret(accessToken));
+     WHERE o.order_reference = $1 AND o.access_token_hash = $2
+       AND o.external_profile_id::text = $3::text`, req.orderReference, hashSecret(accessToken), session.profile.id);
   if (!row) throw APIError.notFound("Presale order not found");
   const latestAttempt = row.payment_intent_id && !row.tx_hash
     ? await paymentsDb.rawQueryRow<{ transaction_hash: string; confirmations: number | null }>(
@@ -2292,6 +2252,7 @@ export const createPresaleWebPayCheckout = api<
   { orderReference: string },
   WebPayCheckoutResponse
 >({ method: "POST", path: "/presale/orders/:orderReference/webpay-checkout", expose: true }, async (req) => {
+  const session = await requirePresaleSession();
   const accessToken = requestHeader("x-presale-access-token").trim();
   if (accessToken.length < 32 || accessToken.length > 256) {
     throw APIError.unauthenticated("A valid order access token is required");
@@ -2313,8 +2274,9 @@ export const createPresaleWebPayCheckout = api<
             a.application_number
        FROM presale_orders o
        JOIN presale_applications a ON a.id = o.application_id
-      WHERE o.order_reference = $1 AND o.access_token_hash = $2`,
-    req.orderReference, hashSecret(accessToken),
+      WHERE o.order_reference = $1 AND o.access_token_hash = $2
+        AND o.external_profile_id::text = $3::text`,
+    req.orderReference, hashSecret(accessToken), session.profile.id,
   );
   if (!order) throw APIError.notFound("Presale order not found");
   if (order.payment_rail !== "webpay_card" || !order.total_zar) {
@@ -2415,7 +2377,8 @@ async function applyPresalePaymentVerification(
     throw APIError.failedPrecondition("Payment subject does not match this presale order");
   }
   if (verification.status === "settled") {
-    await fulfilSettledPresalePayment(orderReference, verification.paymentIntentId, verification.transactionHash, verification.confirmations);
+    await fulfilSettledPresalePayment(orderReference, verification.paymentIntentId, verification.transactionHash,
+      verification.confirmations, verification.blockTimestamp);
   } else if (verification.status === "rejected") {
     await cancelPaymentObligation({ obligationId: verification.obligationId, reason: `Rejected chain evidence for ${orderReference}` });
     await rejectPresalePayment(orderReference, verification.paymentIntentId);
@@ -2443,13 +2406,16 @@ async function reconcilePresalePaymentAttempt(input: {
 export const submitPresalePaymentProof = api<PresalePaymentProofRequest, PresalePaymentReconciliation>(
   { method: "POST", path: "/presale/orders/:orderReference/payment-proof", expose: true },
   async (request) => {
+    const session = await requirePresaleSession();
     const payload = proofInput.parse(request);
     const order = await presaleDb.rawQueryRow<{ id: string; status: string; external_profile_id: string | null; payment_intent_id: string | null }>(
       `SELECT o.id,o.status,o.external_profile_id,o.payment_intent_id
        FROM presale_orders o
-       WHERE o.order_reference = $1 AND o.access_token_hash = $2`, payload.orderReference, hashSecret(payload.accessToken));
+       WHERE o.order_reference = $1 AND o.access_token_hash = $2
+         AND o.external_profile_id::text = $3::text`,
+      payload.orderReference, hashSecret(payload.accessToken), session.profile.id);
     if (!order) throw APIError.notFound("Presale order not found");
-    if (["confirmed", "expired", "cancelled", "incorporated"].includes(order.status)) throw APIError.failedPrecondition("This order no longer accepts payment proof");
+    if (["confirmed", "cancelled", "incorporated", "manual_review"].includes(order.status)) throw APIError.failedPrecondition("This order no longer accepts payment proof");
     if (!order.external_profile_id || !order.payment_intent_id) throw APIError.failedPrecondition("This order does not have a payment intent");
     const attempt = await submitPaymentAttempt({
       intentId: order.payment_intent_id,
@@ -2645,6 +2611,7 @@ export const cancelPresaleOrder = api<
          WHERE id = $1 AND used_shares >= $2 RETURNING id`, order.invitation_id, order.quantity,
       );
       if (!invitation) throw APIError.failedPrecondition("Invitation accounting is inconsistent; contact support");
+      assertApplicantJourneyTransition("awaiting_payment", "cancelled");
       await tx.rawExec("UPDATE presale_orders SET status = 'cancelled', updated_at = now() WHERE id = $1", order.id);
     }
     await tx.commit();
@@ -2708,6 +2675,20 @@ export const receivePresaleWebPayNotification = api<
     || event.paymentCurrency !== "ZAR" || !event.paymentMethod?.startsWith("CARD")) {
     throw APIError.failedPrecondition("Completed WebPay payment evidence does not match the reservation");
   }
+  if (order.incorporation_status === "pending") {
+    assertApplicantJourneyTransition(orderJourneyState(order.status, order.incorporation_status), "awaiting_incorporation");
+  }
+  await presaleDb.rawExec(`INSERT INTO presale_webpay_settlements
+    (provider_reference,order_id,request_token_id,amount_zar,payment_method)
+    VALUES ($1,$2,$3,$4::numeric,$5) ON CONFLICT (provider_reference) DO NOTHING`,
+  providerReference, order.id, event.requestTokenId, requestedAmount, event.paymentMethod);
+  const settlementClaim = await presaleDb.rawQueryRow<{ order_id: string; amount_zar: string; payment_method: string }>(
+    `SELECT order_id,amount_zar::text AS amount_zar,payment_method
+       FROM presale_webpay_settlements WHERE provider_reference=$1`, providerReference);
+  if (!settlementClaim || settlementClaim.order_id !== order.id || settlementClaim.amount_zar !== requestedAmount
+    || settlementClaim.payment_method !== event.paymentMethod) {
+    throw APIError.alreadyExists("WebPay settlement reference was already used for different payment evidence");
+  }
   await fulfilWebPayPresalePayment(order.order_reference, providerReference, event.paymentMethod);
   return { accepted: true, outcome: "confirmed", orderReference: order.order_reference };
 });
@@ -2756,6 +2737,7 @@ export const upsertPresaleCampaign = api<UpsertPresaleCampaignRequest, { campaig
     const payload = campaignInput.parse(request);
     if (payload.endsAt && payload.startsAt && new Date(payload.endsAt) <= new Date(payload.startsAt)) throw APIError.invalidArgument("Campaign end must be after its start");
     if (payload.isMock) throw APIError.invalidArgument("Mock campaigns are no longer supported");
+    if (payload.status === "active") requirePresaleProductionConfiguration();
     const activeRoute = payload.status === "active"
       ? await resolveActiveReceivingConfiguration(payload.network, "USDT")
       : null;
@@ -2942,6 +2924,7 @@ export const expirePresaleOrders = api<void, { expired: number }>(
          RETURNING id,campaign_id,invitation_id,quantity,webpay_test_price_applied,crypto_test_price_applied,
            (SELECT bonus_buy_one_get_one FROM presale_campaigns WHERE id = presale_orders.campaign_id) AS bonus_buy_one_get_one`);
       for (const row of rows) {
+        assertApplicantJourneyTransition("awaiting_payment", "expired");
         await tx.rawExec(`UPDATE presale_campaigns SET reserved_shares = reserved_shares - $2,
           webpay_test_orders_remaining = webpay_test_orders_remaining + $3,
           crypto_test_orders_remaining = crypto_test_orders_remaining + $4,updated_at = now() WHERE id = $1`,

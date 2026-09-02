@@ -59,8 +59,9 @@ describe("presale settlement consumption", () => {
   it("moves inventory once after settlement and releases a rejected reservation once", async () => {
     const seeded = await seedOrders();
     const transactionHash = "a".repeat(64);
-    await fulfilSettledPresalePayment(seeded.fulfilledReference, seeded.fulfilledIntentId, transactionHash, 3);
-    await fulfilSettledPresalePayment(seeded.fulfilledReference, seeded.fulfilledIntentId, transactionHash, 3);
+    const minedAt = new Date(Date.now() - 60_000).toISOString();
+    await fulfilSettledPresalePayment(seeded.fulfilledReference, seeded.fulfilledIntentId, transactionHash, 3, minedAt);
+    await fulfilSettledPresalePayment(seeded.fulfilledReference, seeded.fulfilledIntentId, transactionHash, 3, minedAt);
     await rejectPresalePayment(seeded.rejectedReference, seeded.rejectedIntentId);
     await rejectPresalePayment(seeded.rejectedReference, seeded.rejectedIntentId);
     const campaign = await presaleDb.rawQueryRow<{ reserved_shares: number; sold_shares: number }>(

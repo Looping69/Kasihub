@@ -108,19 +108,21 @@ export async function generateShareCertificatePdf(data: ShareCertificatePdfData)
     .toUpperCase();
   const revoked = data.status.toLowerCase() === "revoked";
 
-  // The approved artwork contains a redundant empty second range row. Mask it
-  // and redraw one clear data row so the certificate has no unexplained blank
-  // fields below the authoritative distinctive-number range.
-  page.drawRectangle({ x: 612, y: 340, width: 170, height: 82, color: WHITE });
-  page.drawLine({ start: { x: 616, y: 421 }, end: { x: 777, y: 421 }, thickness: 0.8, color: NAVY });
-  page.drawLine({ start: { x: 616, y: 491 }, end: { x: 777, y: 491 }, thickness: 0.8, color: NAVY });
-  page.drawLine({ start: { x: 616, y: 421 }, end: { x: 616, y: 491 }, thickness: 0.8, color: NAVY });
-  page.drawLine({ start: { x: 670, y: 421 }, end: { x: 670, y: 491 }, thickness: 0.8, color: NAVY });
-  page.drawLine({ start: { x: 724, y: 421 }, end: { x: 724, y: 491 }, thickness: 0.8, color: NAVY });
-  page.drawLine({ start: { x: 777, y: 421 }, end: { x: 777, y: 491 }, thickness: 0.8, color: NAVY });
-  centeredInBox(page, data.distinctiveFrom?.toLocaleString("en-ZA") ?? "N/A", 617, 53, 452, bold, 8);
-  centeredInBox(page, data.distinctiveTo?.toLocaleString("en-ZA") ?? "N/A", 670, 54, 452, bold, 8);
-  centeredInBox(page, data.totalShares.toLocaleString("en-ZA"), 724, 53, 452, bold, 8);
+  // Replace the template's duplicated range rows with one compact, complete
+  // table. Redrawing the full panel avoids doubled borders from the artwork.
+  page.drawRectangle({ x: 611, y: 338, width: 169, height: 216, color: WHITE });
+  page.drawRectangle({ x: 616, y: 420, width: 161, height: 82, borderColor: NAVY, borderWidth: 0.8 });
+  page.drawLine({ start: { x: 616, y: 482 }, end: { x: 777, y: 482 }, thickness: 0.8, color: NAVY });
+  page.drawLine({ start: { x: 616, y: 462 }, end: { x: 777, y: 462 }, thickness: 0.8, color: NAVY });
+  page.drawLine({ start: { x: 670, y: 420 }, end: { x: 670, y: 482 }, thickness: 0.8, color: NAVY });
+  page.drawLine({ start: { x: 724, y: 420 }, end: { x: 724, y: 482 }, thickness: 0.8, color: NAVY });
+  centeredInBox(page, "DISTINCTIVE NUMBERS", 616, 161, 489, bold, 8);
+  centeredInBox(page, "FROM", 616, 54, 469, bold, 7.5);
+  centeredInBox(page, "TO", 670, 54, 469, bold, 7.5);
+  centeredInBox(page, "NO", 724, 53, 469, bold, 7.5);
+  centeredInBox(page, data.distinctiveFrom?.toLocaleString("en-ZA") ?? "N/A", 616, 54, 439, bold, 8);
+  centeredInBox(page, data.distinctiveTo?.toLocaleString("en-ZA") ?? "N/A", 670, 54, 439, bold, 8);
+  centeredInBox(page, data.totalShares.toLocaleString("en-ZA"), 724, 53, 439, bold, 8);
 
   const owner = fitText(data.holderName.trim().toUpperCase(), bold, 9, 158);
   page.drawText(owner.value, { x: 82, y: 178, size: owner.size, font: bold, color: NAVY });
@@ -153,7 +155,9 @@ export async function generateShareCertificatePdf(data: ShareCertificatePdfData)
   page.drawText(`Given on behalf of the company electronically on ${issueLongLabel}.`, { x: 84, y: 96, size: 8, font: regular, color: NAVY });
 
   page.drawImage(directorSignature, { x: 106, y: 49, width: 95, height: 40 });
-  page.drawImage(cfoSignature, { x: 410, y: 52, width: 92, height: 61 });
+  // Preserve the supplied signature pixels while correcting its diagonal scan
+  // orientation so the attestation sits horizontally above the signature line.
+  page.drawImage(cfoSignature, { x: 405, y: 74, width: 105, height: 44, rotate: degrees(-18) });
   page.drawRectangle({ x: 102, y: 37, width: 150, height: 16, color: WHITE });
   page.drawRectangle({ x: 397, y: 37, width: 145, height: 16, color: WHITE });
   page.drawText("LELANIE RETIEF - DIRECTOR", { x: 113, y: 43, size: 7.5, font: bold, color: NAVY });
