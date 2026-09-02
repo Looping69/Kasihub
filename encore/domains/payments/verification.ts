@@ -143,7 +143,7 @@ export async function verifyAndSettlePaymentAttempt(
     attemptId,
   );
   if (!row) throw APIError.notFound("Payment attempt not found");
-  if (row.intent_status === "settled" && row.obligation_status === "settled") {
+  if (row.intent_status === "settled" && row.obligation_status === "paid") {
     return { ...retryableResult(row, "already_settled"), status: "settled" };
   }
   if (row.intent_status === "rejected" && row.verification_status === "rejected") {
