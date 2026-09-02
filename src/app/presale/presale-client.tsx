@@ -617,7 +617,12 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
         headers,
       });
       const payload = await response.json() as { actionUrl?: string; fields?: Record<string, string>; error?: string };
-      if (!response.ok) throw new Error(payload.error ?? "WebPay checkout could not be started");
+      if (!response.ok) {
+        if (response.status === 400 || response.status === 404 || response.status === 409 || response.status === 412) {
+          await loadApplicantPortal().catch(() => null);
+        }
+        throw new Error(payload.error ?? "WebPay checkout could not be started");
+      }
       if (!payload.actionUrl?.startsWith("https://") || !payload.fields) throw new Error("WebPay returned an invalid checkout");
       const form = document.createElement("form");
       form.method = "POST";

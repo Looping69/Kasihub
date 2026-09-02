@@ -93,6 +93,13 @@ export async function requireProfileAccess(profileId: string): Promise<Authentic
 export async function requirePresaleSession(): Promise<AuthenticatedSession> {
   const session = await requireSession();
   if (hasTesterAdminAccess(session.user.email, appMeta().environment.type)) return session;
+  const adminRole = await identityDb.rawQueryRow<{ name: string }>(
+    `SELECT r.name FROM user_roles ur
+     JOIN roles r ON r.id = ur.role_id
+     WHERE ur.user_id = $1 AND r.name = 'admin' LIMIT 1`,
+    session.user.id,
+  );
+  if (adminRole) return session;
   if (session.scope !== "presale") throw APIError.permissionDenied("KaSiShares applicant access is required");
   const role = await identityDb.rawQueryRow<{ name: string }>(
     `SELECT r.name FROM user_roles ur
