@@ -30,4 +30,11 @@ describe("presale crypto and webpay flow", () => {
     expect(source).toContain('"Recheck payment"');
     expect(source).toContain('"Continue to secure WebPay checkout"');
   });
+
+  test("reopens investor application form and payment selection when reservation is cancelled or released", async () => {
+    const source = await readFile(path.join(process.cwd(), "src", "app", "presale", "presale-client.tsx"), "utf8");
+    expect(source).toContain("!hasActiveReservation && !order");
+    expect(source).toContain("hasActiveReservation && applicantAuthority");
+    expect(source).toContain("!applicantAuthority.journey.applicationEditable");
+  });
 });
