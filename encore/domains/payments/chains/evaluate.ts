@@ -27,7 +27,6 @@ export function evaluatePaymentEvidence(
     receivedAmount: null,
     receivedAmountUnits: null,
     blockNumber: evidence.blockNumber,
-    blockTimestamp: evidence.blockTimestamp,
   };
 
   if (evidence.network !== expectation.network) {
@@ -70,7 +69,6 @@ export function evaluatePaymentEvidence(
     receivedAmount,
     receivedAmountUnits: matching.totalUnits,
     blockNumber: evidence.blockNumber,
-    blockTimestamp: evidence.blockTimestamp,
   };
 
   if (amountComparison === "underpaid") {

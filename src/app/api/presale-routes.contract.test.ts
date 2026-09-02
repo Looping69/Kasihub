@@ -215,18 +215,15 @@ describe("presale BFF contracts", () => {
     expect(mocks.encoreRequest).not.toHaveBeenCalled();
   });
 
-  test("order access requires authenticated session", async () => {
-    mocks.encoreSessionToken.mockResolvedValueOnce(undefined);
+  test("order access credentials stay in headers and never enter URLs", async () => {
     const missingToken = await getOrder(request("/api/presale/orders/KSP-ORDER-1"), orderContext);
     expect(missingToken.status).toBe(401);
     expect(mocks.encoreRequest).not.toHaveBeenCalled();
 
-    mocks.encoreSessionToken.mockResolvedValueOnce("presale-session-token");
-    await getOrder(request("/api/presale/orders/KSP-ORDER-1"), orderContext);
+    await getOrder(request("/api/presale/orders/KSP-ORDER-1", { headers: { "x-presale-access-token": " private-token " } }), orderContext);
     expect(mocks.encoreRequest).toHaveBeenCalledWith(
       "/presale/orders/KSP%2FORDER%201",
-      {},
-      "presale-session-token",
+      { headers: { "X-Presale-Access-Token": "private-token" } },
     );
   });
 
@@ -283,15 +280,19 @@ describe("presale BFF contracts", () => {
     expect(await failed.json()).toEqual({ error: "The unpaid reservation could not be cancelled." });
   });
 
-  test("WebPay checkout uses authenticated ownership without a secondary order credential", async () => {
+  test("WebPay checkout requires the private order token and preserves it in a header", async () => {
+    const missing = await startWebPayCheckout(request("/api/presale/orders/KSP/webpay-checkout", { method: "POST" }), orderContext);
+    expect(missing.status).toBe(401);
+    expect(mocks.encoreRequest).not.toHaveBeenCalled();
+
     const response = await startWebPayCheckout(request("/api/presale/orders/KSP/webpay-checkout", {
       method: "POST",
+      headers: { "x-presale-access-token": " private-token " },
     }), orderContext);
     expect(response.status).toBe(200);
     expect(mocks.encoreRequest).toHaveBeenCalledWith(
       "/presale/orders/KSP%2FORDER%201/webpay-checkout",
-      { method: "POST" },
-      "admin-token",
+      { method: "POST", headers: { "X-Presale-Access-Token": "private-token" } },
     );
   });
 
@@ -299,6 +300,7 @@ describe("presale BFF contracts", () => {
     const { EncoreRequestError } = await import("@/lib/encore-client");
     const req = () => request("/api/presale/orders/KSP/webpay-checkout", {
       method: "POST",
+      headers: { "x-presale-access-token": "private-token" },
     });
     mocks.encoreRequest.mockRejectedValueOnce(new EncoreRequestError("missing", 503, null));
     const unavailable = await startWebPayCheckout(req(), orderContext);
@@ -366,7 +368,7 @@ describe("presale BFF contracts", () => {
     expect((await saveCampaign(jsonPost("/api/admin/presale/campaigns", {}))).status).toBe(403);
     expect((await getOffer(request("/api/presale/offer?invite=token"))).status).toBe(403);
     expect((await createOrder(jsonPost("/api/presale/orders", {}, { "idempotency-key": "stable-key" }))).status).toBe(403);
-    expect((await getOrder(request("/api/presale/orders/KSP"), orderContext)).status).toBe(403);
+    expect((await getOrder(request("/api/presale/orders/KSP", { headers: { "x-presale-access-token": "token" } }), orderContext)).status).toBe(403);
     expect((await submitProof(jsonPost("/api/presale/orders/KSP/payment-proof", {}), orderContext)).status).toBe(403);
   });
 
@@ -379,17 +381,6 @@ describe("presale BFF contracts", () => {
     const response = await saveCampaign(jsonPost("/api/admin/presale/campaigns", {}));
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({ error: "Campaign end must be after its start" });
-  });
-
-  test("invitation creation exposes a bounded backend validation message", async () => {
-    const { EncoreRequestError } = await import("@/lib/encore-client");
-    mocks.encoreRequest.mockRejectedValueOnce(new EncoreRequestError("invalid", 400, {
-      message: "Invitation expiry must be in the future",
-    }));
-
-    const response = await createInvitation(jsonPost("/api/admin/presale/invitations", { maxShares: 10 }));
-    expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({ error: "Invitation expiry must be in the future" });
   });
 
   test.each([

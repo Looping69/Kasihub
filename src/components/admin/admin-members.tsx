@@ -35,8 +35,6 @@ interface AdminMember {
   presaleCompletionPercent: number | null; presaleApplicationNumber: string | null;
   presaleReservationStatus: string | null; presaleOrderReference: string | null;
   presaleReservationQuantity: number | null; presaleIncorporationStatus: string | null;
-  presaleAllocationOverrideAt: string | null; presaleAllocationOverrideReason: string | null;
-  presaleAllocationOverrideEvidenceReference: string | null;
   presalePaymentRail: string | null; presalePaymentAmountZar: number | null;
   presaleWebPayReference: string | null; presaleWebPayTransactionId: string | null;
   presaleWebPaySystemReference: string | null; presaleWebPayPaymentMethod: string | null;
@@ -90,9 +88,6 @@ export function AdminMembers() {
         const data = await res.json();
         setMembers(data.members);
         setTotal(data.total);
-        setSelected((current) => current
-          ? data.members.find((member: AdminMember) => member.id === current.id) ?? current
-          : null);
       }
     } finally {
       setLoading(false);
@@ -380,13 +375,6 @@ export function AdminMembers() {
                       <Detail icon={CreditCard} label="Order reference" value={selected.presaleOrderReference || "—"} mono />
                       <Detail icon={ShieldCheck} label="Incorporation" value={formatStatus(selected.presaleIncorporationStatus)} />
                     </div>
-                    {selected.presaleAllocationOverrideAt && (
-                      <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
-                        <div className="flex items-center gap-2 text-xs font-semibold"><ShieldAlert className="h-4 w-4" />Admin allocation override recorded</div>
-                        <p className="mt-1 text-[11px]">{selected.presaleAllocationOverrideReason}</p>
-                        <p className="mt-1 break-all font-mono text-[10px] opacity-80">Evidence: {selected.presaleAllocationOverrideEvidenceReference}</p>
-                      </div>
-                    )}
                     {selected.presalePaymentReconciliations.map((payment) => (
                       <div key={payment.orderReference} className="space-y-3 rounded-lg border border-sky-300 bg-white p-3 dark:border-sky-800 dark:bg-sky-950/70">
                         <div>
@@ -475,7 +463,6 @@ export function AdminMembers() {
           <p className="text-xs text-muted-foreground">Private evidence is loaded for this review session only and is not cached by the browser route.</p>
         </DialogContent>
       </Dialog>
-
     </div>
   );
 }

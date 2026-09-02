@@ -5,8 +5,6 @@ export type PresaleDevPreviewOffer = {
   shareClass: string;
   priceUsdt: string;
   priceUsd: string;
-  webPayUnitPriceZar?: string;
-  cryptoPaymentUnitPriceUsdt?: string;
   usdtPerUsd: string;
   network: string;
   sharesRemaining: number;
@@ -36,10 +34,8 @@ export const PRESALE_DEV_PREVIEW_OFFER: PresaleDevPreviewOffer = {
   shareClass: "Class B shares",
   priceUsdt: "25.000000",
   priceUsd: "25.000000",
-  webPayUnitPriceZar: "450.00",
-  cryptoPaymentUnitPriceUsdt: "25.000000",
   usdtPerUsd: "1.000000",
-  network: "BSC (BNB Smart Chain)",
+  network: "No payment network",
   sharesRemaining: 100_000,
   invitationSharesRemaining: 750,
   minConfirmations: 0,

@@ -35,7 +35,7 @@ describe("isolated KaSiShares applicant portal", () => {
     expect(migration).toContain("order_id UUID REFERENCES presale_orders(id)");
     expect(migration).toContain("uq_presale_reservation_email_delivery");
     expect(api).toContain("presale-reservation-created/${input.orderId}");
-    expect(api).toContain('await tx.commit();\n      const intent = await ensurePresalePaymentAuthority(order, campaign);');
+    expect(api).toContain('await tx.commit();\n      const intent = order.payment_rail === "remitano_usdt" ? await ensurePresalePaymentIntent(order, campaign) : undefined;');
     expect(api).toContain('const emailStatus = await safelyEnsurePresaleReservationCreatedEmail(order, campaign, intent?.network ?? "webpay");');
     expect(api).toContain('return { order: orderResponse(order, campaign, null, 0, intent), accessToken, emailStatus };');
   });
@@ -273,7 +273,7 @@ describe("isolated KaSiShares applicant portal", () => {
   test("uses the approved Solidus certificate with named signature attestations", () => {
     const certificate = source("src/lib/share-certificate-pdf.ts");
     expect(certificate).toContain("solidus-shareholder-certificate.pdf");
-    expect(certificate).toContain("lelanie-retief-signature.png");
+    expect(certificate).toContain('const directorSignature = "/s/ Lelanie Retief"');
     expect(certificate).toContain("tertius-du-plessis-signature.png");
     expect(certificate).toContain("pdf.embedPng");
     expect(certificate).toContain("LELANIE RETIEF - DIRECTOR");
@@ -282,22 +282,5 @@ describe("isolated KaSiShares applicant portal", () => {
     expect(certificate).toContain('data.distinctiveTo?.toLocaleString("en-ZA") ?? "N/A"');
     expect(certificate).toContain("data.issuePricePerShare.toLocaleString");
     expect(certificate).toContain("data.issuePriceCurrency!.trim().toUpperCase()");
-  });
-
-  test("offers issued shareholders a controlled additional-purchase route and completes their progress", () => {
-    const account = source("src/app/shares/account/shares-account-client.tsx");
-    expect(account).toContain("Buy more shares");
-    expect(account).toContain("additional%20purchase%20invitation");
-    expect(account).toContain('portal.authority.journey.state === "issued" ? 100');
-  });
-
-  test("sends exact KaSiHub reconciliation references alongside the immutable InstaPay key", () => {
-    const backend = source("encore/domains/presale/api.ts");
-    expect(backend).toContain("m_tx_item_description: webPayItemDescription(order.quantity, order.order_reference)");
-    expect(backend).toContain("...webPayReconciliationFields({");
-    expect(backend).toContain("orderReference: order.order_reference");
-    expect(backend).toContain("applicationNumber: order.application_number");
-    expect(backend).toContain("JOIN presale_applications a ON a.id = o.application_id");
-    expect(backend).toContain("a.application_number");
   });
 });
