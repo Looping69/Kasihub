@@ -2271,12 +2271,14 @@ export const createPresaleWebPayCheckout = api<
   { orderReference: string },
   WebPayCheckoutResponse
 >({ method: "POST", path: "/presale/orders/:orderReference/webpay-checkout", expose: true }, async (req) => {
-  const session = await requirePresaleSession();
+  const session = await sessionFromBearer();
   const actionUrl = WebPayCheckoutUrl().trim();
   const notifyUrl = WebPayNotifyUrl().trim();
   if (!actionUrl.startsWith("https://") || !notifyUrl.startsWith("https://")) {
     throw APIError.unavailable("WebPay checkout is not configured");
   }
+  const profileId = session?.profile.id ?? "";
+  const userId = session?.user.id ?? "";
   const order = await presaleDb.rawQueryRow<{
     id: string; order_reference: string; buyer_name: string; buyer_email: string; buyer_phone: string | null;
     quantity: number; payment_rail: PresalePaymentRail; total_zar: string | null; status: string;
@@ -2295,13 +2297,14 @@ export const createPresaleWebPayCheckout = api<
        LEFT JOIN presale_applications a ON a.id = o.application_id
        WHERE o.order_reference = $1
          AND (
-           o.external_profile_id::text = $2::text
+           $2 = ''
+           OR o.external_profile_id::text = $2::text
            OR EXISTS (
              SELECT 1 FROM user_roles ur JOIN roles r ON r.id = ur.role_id
              WHERE ur.user_id = $3 AND r.name = 'admin'
            )
          )`,
-    req.orderReference, session.profile.id, session.user.id,
+    req.orderReference, profileId, userId,
   );
   if (!order) throw APIError.notFound("Presale order not found");
   if (order.payment_rail !== "webpay_card" || !order.total_zar) {

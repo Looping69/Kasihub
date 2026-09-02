@@ -1,6 +1,6 @@
 // Author: Klaasvaakie ( |╲ )
 import { NextRequest, NextResponse } from "next/server";
-import { PRESALE_SESSION_COOKIE, EncoreRequestError, encoreRequest } from "@/lib/encore-client";
+import { PRESALE_SESSION_COOKIE, EncoreRequestError, encoreRequest, sessionCookieOptions } from "@/lib/encore-client";
 
 type RegistrationResponse = {
   token: string;
@@ -25,13 +25,7 @@ export async function POST(request: NextRequest) {
       created: registration.created,
       emailStatus: registration.emailStatus,
     }, { status: registration.created ? 201 : 200 });
-    response.cookies.set(PRESALE_SESSION_COOKIE, registration.token, {
-      httpOnly: true,
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
-      path: "/",
-      maxAge: 60 * 60 * 24 * 7,
-    });
+    response.cookies.set(PRESALE_SESSION_COOKIE, registration.token, sessionCookieOptions());
     return response;
   } catch (error) {
     const status = error instanceof EncoreRequestError ? error.status : 500;

@@ -11,7 +11,6 @@ export async function POST(req: NextRequest, context: { params: Promise<{ refere
     || req.cookies.get("kasishares_session")?.value
     || req.cookies.get("kasihub_session")?.value
     || await presaleSessionToken();
-  if (!token) return NextResponse.json({ error: "KaSiShares login is required" }, { status: 401 });
   try {
     return NextResponse.json(await encoreRequest(
       `/presale/orders/${encodeURIComponent(reference)}/webpay-checkout`,

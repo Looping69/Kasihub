@@ -14,6 +14,7 @@ vi.mock("@/lib/encore-client", () => {
     EncoreRequestError,
     encoreRequest: mocks.encoreRequest,
     presaleSessionToken: mocks.presaleSessionToken,
+    sessionCookieOptions: () => ({ httpOnly: true, sameSite: "lax", secure: false, path: "/", maxAge: 60 * 60 * 24 * 7 }),
   };
 });
 
@@ -217,10 +218,16 @@ describe("KaSiShares applicant BFF routes", () => {
     );
   });
 
-  test("rejects webpay checkout without an applicant session", async () => {
+  test("forwards webpay checkout to encore without an applicant session", async () => {
+    mocks.encoreRequest.mockResolvedValueOnce({ actionUrl: "https://webpay.example/pay", fields: { m_payment_id: "1" } });
     mocks.presaleSessionToken.mockResolvedValueOnce(undefined);
     const request = new NextRequest("https://shares.kasihub.net/api/presale/orders/KSP-ONE/webpay-checkout", { method: "POST" });
     const resNoSession = await startWebPayCheckout(request, { params: Promise.resolve({ reference: "KSP-ONE" }) });
-    expect(resNoSession.status).toBe(401);
+    expect(resNoSession.status).toBe(200);
+    expect(mocks.encoreRequest).toHaveBeenCalledWith(
+      "/presale/orders/KSP-ONE/webpay-checkout",
+      { method: "POST" },
+      undefined,
+    );
   });
 });

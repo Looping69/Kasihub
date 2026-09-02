@@ -1,7 +1,7 @@
 // Author: Klaasvaakie ( |╲ )
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { EncoreRequestError, encoreRequest, PRESALE_SESSION_COOKIE } from "@/lib/encore-client";
+import { EncoreRequestError, encoreRequest, PRESALE_SESSION_COOKIE, sessionCookieOptions } from "@/lib/encore-client";
 
 type LoginResponse = { token: string; profileId: string; profileNumber: string };
 const loginInput = z.object({
@@ -20,10 +20,7 @@ export async function POST(request: NextRequest) {
       body: JSON.stringify(parsed.data),
     });
     const response = NextResponse.json({ profileId: login.profileId, profileNumber: login.profileNumber });
-    response.cookies.set(PRESALE_SESSION_COOKIE, login.token, {
-      httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production",
-      path: "/", maxAge: 60 * 60 * 24 * 7,
-    });
+    response.cookies.set(PRESALE_SESSION_COOKIE, login.token, sessionCookieOptions());
     return response;
   } catch (error) {
     const status = error instanceof EncoreRequestError ? error.status : 500;

@@ -5,6 +5,23 @@ import { cookies } from "next/headers";
 export const ENCORE_SESSION_COOKIE = "kasihub_session";
 export const PRESALE_SESSION_COOKIE = "kasishares_session";
 
+export function cookieDomain(): string | undefined {
+  if (process.env.NODE_ENV !== "production") return undefined;
+  return ".kasihub.net";
+}
+
+export function sessionCookieOptions(maxAge = 60 * 60 * 24 * 7) {
+  const domain = cookieDomain();
+  return {
+    httpOnly: true,
+    sameSite: "lax" as const,
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    maxAge,
+    ...(domain ? { domain } : {}),
+  };
+}
+
 export class EncoreRequestError extends Error {
   constructor(
     message: string,
