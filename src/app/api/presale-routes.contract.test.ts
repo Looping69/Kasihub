@@ -378,6 +378,17 @@ describe("presale BFF contracts", () => {
     expect(await response.json()).toEqual({ error: "Campaign end must be after its start" });
   });
 
+  test("invitation creation exposes a bounded backend validation message", async () => {
+    const { EncoreRequestError } = await import("@/lib/encore-client");
+    mocks.encoreRequest.mockRejectedValueOnce(new EncoreRequestError("invalid", 400, {
+      message: "Invitation expiry must be in the future",
+    }));
+
+    const response = await createInvitation(jsonPost("/api/admin/presale/invitations", { maxShares: 10 }));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "Invitation expiry must be in the future" });
+  });
+
   test.each([
     ["campaign list", () => listCampaigns()],
     ["incorporation prepare", () => prepareBatch(jsonPost("/api/admin/presale/incorporation-batches", {}))],
