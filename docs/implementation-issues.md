@@ -292,6 +292,15 @@ The repository contains tracked `tool-results/read_*.txt` files. Generated diagn
 
 **Required follow-up:** inspect whether any tracked tool-result file is required for tests or documentation. If not, remove the artifacts and ignore the generated directory.
 
+### KIP-029 - Applicant journey hydration can overwrite an existing reservation and expose the wrong CTA
+**Status:** OPEN
+**Severity:** Critical (P0)
+**Category:** Frontend / State Authority / Hydration Ordering
+
+During async hydration on the applicant portal, an existing confirmed reservation state (e.g. "CONTINUE TO SECURE WEBPAY CHECKOUT" with locked payment rail) briefly renders, but subsequent asynchronous resolution of application/draft continuation steps recalculates the UI and falls back to rendering the pre-reservation view ("CREATE RESERVATION"). This sends the applicant backwards into a dead-end state immediately before payment.
+
+**Required fix:** enforce a single authoritative derived journey state. Render no transactional CTA until reservation, application, KYC, and payment state have all resolved. When an active reservation exists, prohibit rendering `CREATE RESERVATION` unless the existing reservation is confirmed cancelled/expired by the backend and a new reservation is explicitly permitted. Fix in coordination with reservation credential recovery.
+
 ## Rules for adding future issues
 1. Assign the next sequential `KIP-###` identifier.
 2. Record status, severity and category.
