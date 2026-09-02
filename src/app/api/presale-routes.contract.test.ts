@@ -215,15 +215,18 @@ describe("presale BFF contracts", () => {
     expect(mocks.encoreRequest).not.toHaveBeenCalled();
   });
 
-  test("order access credentials stay in headers and never enter URLs", async () => {
+  test("order access requires authenticated session", async () => {
+    mocks.encoreSessionToken.mockResolvedValueOnce(undefined);
     const missingToken = await getOrder(request("/api/presale/orders/KSP-ORDER-1"), orderContext);
     expect(missingToken.status).toBe(401);
     expect(mocks.encoreRequest).not.toHaveBeenCalled();
 
-    await getOrder(request("/api/presale/orders/KSP-ORDER-1", { headers: { "x-presale-access-token": " private-token " } }), orderContext);
+    mocks.encoreSessionToken.mockResolvedValueOnce("presale-session-token");
+    await getOrder(request("/api/presale/orders/KSP-ORDER-1"), orderContext);
     expect(mocks.encoreRequest).toHaveBeenCalledWith(
       "/presale/orders/KSP%2FORDER%201",
-      { headers: { "X-Presale-Access-Token": "private-token" } },
+      {},
+      "presale-session-token",
     );
   });
 
@@ -363,7 +366,7 @@ describe("presale BFF contracts", () => {
     expect((await saveCampaign(jsonPost("/api/admin/presale/campaigns", {}))).status).toBe(403);
     expect((await getOffer(request("/api/presale/offer?invite=token"))).status).toBe(403);
     expect((await createOrder(jsonPost("/api/presale/orders", {}, { "idempotency-key": "stable-key" }))).status).toBe(403);
-    expect((await getOrder(request("/api/presale/orders/KSP", { headers: { "x-presale-access-token": "token" } }), orderContext)).status).toBe(403);
+    expect((await getOrder(request("/api/presale/orders/KSP"), orderContext)).status).toBe(403);
     expect((await submitProof(jsonPost("/api/presale/orders/KSP/payment-proof", {}), orderContext)).status).toBe(403);
   });
 

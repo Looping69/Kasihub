@@ -152,7 +152,6 @@ function resumeNationalNumber(value?: string): string {
 export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken: string; devPreview?: boolean }) {
   const [offer, setOffer] = useState<Offer | null>(devPreview ? PRESALE_DEV_PREVIEW_OFFER : null);
   const [order, setOrder] = useState<Order | null>(null);
-  const [accessToken, setAccessToken] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(!devPreview);
   const [submitting, setSubmitting] = useState(false);
@@ -199,10 +198,6 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
     if (portal.kyc.verified || portal.kyc.status.toLowerCase() !== "pending") setVerificationStarted(true);
     if (portal.order && authority.reservation) {
       const reservation = authority.reservation;
-      if (!accessToken && typeof window !== "undefined") {
-        const cached = window.sessionStorage.getItem(`presale_token_${portal.order.orderReference}`);
-        if (cached) setAccessToken(cached);
-      }
       if (reservation && portal.order && !authority.journey.applicationEditable) {
         setOrder({
           orderReference: portal.order.orderReference,
@@ -303,17 +298,14 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
 
   const refreshOrder = useCallback(async () => {
     const orderReference = order?.orderReference;
-    if (orderReference && accessToken) {
-      // Keep the bearer-style access token out of browser history and request URLs.
-      // Author: Klaasvaakie ( |╲ )
+    if (orderReference) {
       const response = await fetch(`/api/presale/orders/${encodeURIComponent(orderReference)}`, {
         cache: "no-store",
-        headers: { "X-Presale-Access-Token": accessToken },
       });
       if (response.ok) setOrder((await response.json()).order);
     }
     await loadApplicantPortal();
-  }, [accessToken, loadApplicantPortal, order?.orderReference]);
+  }, [loadApplicantPortal, order?.orderReference]);
 
   const refreshKycVerification = useCallback(async () => {
     if (devPreview) return null;
@@ -494,10 +486,6 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error ?? "Order could not be created");
       setOrder(payload.order);
-      setAccessToken(payload.accessToken);
-      if (typeof window !== "undefined" && payload.accessToken && payload.order?.orderReference) {
-        window.sessionStorage.setItem(`presale_token_${payload.order.orderReference}`, payload.accessToken);
-      }
       setReservationEmailDelayed(payload.emailStatus === "failed");
       const authority = await loadApplicantPortal();
       if (!authority?.available || !authority.reservation) {
@@ -571,7 +559,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
       const response = await fetch(`/api/presale/orders/${encodeURIComponent(order.orderReference)}/payment-proof`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ accessToken, txHash }),
+        body: JSON.stringify({ txHash }),
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error ?? "Transaction could not be submitted");
@@ -611,7 +599,6 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
     setError("");
     try {
       const headers: Record<string, string> = {};
-      if (accessToken) headers["X-Presale-Access-Token"] = accessToken;
       if (typeof window !== "undefined") {
         const sessionToken = window.sessionStorage.getItem("kasishares_token");
         if (sessionToken) headers["x-presale-session-token"] = sessionToken;
@@ -777,7 +764,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
       </Card>
     </Shell>
   );
-  if (!offer && hasActiveReservation && applicantAuthority) return <Shell><ReservationStateCard authority={applicantAuthority} order={order} accessToken={accessToken} error={error} submitting={submitting} txHash={txHash} copied={copied} reservationEmailDelayed={reservationEmailDelayed} onTxHashChange={setTxHash} onSubmitProof={submitProof} onCopyAddress={copyAddress} onStartWebPay={startWebPayCheckout} onCancelReservation={cancelReservation} onRecheckPayment={recheckPayment} /></Shell>;
+  if (!offer && hasActiveReservation && applicantAuthority) return <Shell><ReservationStateCard authority={applicantAuthority} order={order} error={error} submitting={submitting} txHash={txHash} copied={copied} reservationEmailDelayed={reservationEmailDelayed} onTxHashChange={setTxHash} onSubmitProof={submitProof} onCopyAddress={copyAddress} onStartWebPay={startWebPayCheckout} onCancelReservation={cancelReservation} onRecheckPayment={recheckPayment} /></Shell>;
   if (!offer) return null;
 
   return (
@@ -915,7 +902,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
             </form></CardContent>
           </Card>
         ) : applicantAuthority?.available && hasActiveReservation ? (
-          <ReservationStateCard authority={applicantAuthority} order={order} accessToken={accessToken} error={error} submitting={submitting} txHash={txHash} copied={copied} reservationEmailDelayed={reservationEmailDelayed} onTxHashChange={setTxHash} onSubmitProof={submitProof} onCopyAddress={copyAddress} onStartWebPay={startWebPayCheckout} onCancelReservation={cancelReservation} onRecheckPayment={recheckPayment} />
+          <ReservationStateCard authority={applicantAuthority} order={order} error={error} submitting={submitting} txHash={txHash} copied={copied} reservationEmailDelayed={reservationEmailDelayed} onTxHashChange={setTxHash} onSubmitProof={submitProof} onCopyAddress={copyAddress} onStartWebPay={startWebPayCheckout} onCancelReservation={cancelReservation} onRecheckPayment={recheckPayment} />
         ) : (
           <Card className="presale-form-card min-w-0 text-white shadow-2xl shadow-black/20"><CardHeader><Clock3 className="mb-3 h-8 w-8 text-amber-300" /><h2 className="font-semibold leading-none">Reservation saved — controls locked</h2><CardDescription className="text-slate-400">The reservation response was accepted, but the authoritative journey contract could not be loaded. No payment action is enabled.</CardDescription></CardHeader><CardContent><Button asChild variant="outline" className="w-full border-white/20 bg-transparent text-white"><Link href="/shares/account">Open KaSiShares account</Link></Button>{error ? <p role="alert" className="mt-4 text-sm text-red-300">{error}</p> : null}</CardContent></Card>
         )}
@@ -925,10 +912,9 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
   );
 }
 
-function ReservationStateCard({ authority, order, accessToken, error, submitting, txHash, copied, reservationEmailDelayed, onTxHashChange, onSubmitProof, onCopyAddress, onStartWebPay, onCancelReservation, onRecheckPayment }: {
+function ReservationStateCard({ authority, order, error, submitting, txHash, copied, reservationEmailDelayed, onTxHashChange, onSubmitProof, onCopyAddress, onStartWebPay, onCancelReservation, onRecheckPayment }: {
   authority: ApplicantAuthority;
   order: Order | null;
-  accessToken: string;
   error: string;
   submitting: boolean;
   txHash: string;
@@ -945,13 +931,13 @@ function ReservationStateCard({ authority, order, accessToken, error, submitting
   if (!reservation) return null;
   const presentation = applicantJourneyPresentation(authority.journey);
   const paymentNetwork = reservation.network?.toLowerCase() as SupportedPaymentNetwork;
-  const canSubmitHash = Boolean(order && accessToken && allowsApplicantAction(authority, "submit_payment_hash"));
+  const canSubmitHash = Boolean(order && allowsApplicantAction(authority, "submit_payment_hash"));
   const canStartCard = Boolean(order && allowsApplicantAction(authority, "start_card_checkout"));
   const canCancel = Boolean(reservation.cancellation.eligible && allowsApplicantAction(authority, "cancel_reservation") && onCancelReservation);
   const canRecheck = Boolean(allowsApplicantAction(authority, "recheck_payment") && onRecheckPayment);
   const needsAccountAction = !canCancel && !canRecheck && (allowsApplicantAction(authority, "recheck_payment")
     || allowsApplicantAction(authority, "cancel_reservation")
-    || (allowsApplicantAction(authority, "submit_payment_hash") && (!order || !accessToken))
+    || (allowsApplicantAction(authority, "submit_payment_hash") && !order)
     || (allowsApplicantAction(authority, "start_card_checkout") && !order));
   const Icon = presentation.complete ? CheckCircle2 : Clock3;
 

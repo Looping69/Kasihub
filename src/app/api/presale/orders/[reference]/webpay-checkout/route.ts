@@ -13,12 +13,9 @@ export async function POST(req: NextRequest, context: { params: Promise<{ refere
     || await presaleSessionToken();
   if (!token) return NextResponse.json({ error: "KaSiShares login is required" }, { status: 401 });
   try {
-    const accessToken = req.headers.get("x-presale-access-token")?.trim();
-    const init: RequestInit = { method: "POST" };
-    if (accessToken) init.headers = { "X-Presale-Access-Token": accessToken };
     return NextResponse.json(await encoreRequest(
       `/presale/orders/${encodeURIComponent(reference)}/webpay-checkout`,
-      init,
+      { method: "POST" },
       token,
     ));
   } catch (error) {

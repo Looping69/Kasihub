@@ -453,7 +453,7 @@ const saveApplicationPhaseInput = z.object({
 
 const proofInput = z.object({
   orderReference: z.string().min(8).max(80),
-  accessToken: z.string().min(32).max(256),
+  accessToken: z.string().min(32).max(256).optional(),
   txHash: z.string().trim().min(16).max(160),
   senderAddress: z.string().trim().max(200).optional(),
 });
@@ -2217,12 +2217,6 @@ export const getPresaleOrder = api<
   { order: PresaleOrderResponse }
 >({ method: "GET", path: "/presale/orders/:orderReference", expose: true }, async (req) => {
   const session = await requirePresaleSession();
-  // Keep bearer-style order access credentials out of URLs, proxy logs, and browser history.
-  // Author: Klaasvaakie ( |╲ )
-  const accessToken = requestHeader("x-presale-access-token").trim();
-  if (accessToken.length < 32 || accessToken.length > 256) {
-    throw APIError.unauthenticated("A valid order access token is required");
-  }
   const row = await presaleDb.rawQueryRow<OrderRow & CampaignRow & { campaign_status: string; tx_hash: string | null; confirmations: number | null }>(
     `SELECT o.id, o.order_reference, o.campaign_id, o.buyer_name, o.buyer_email, o.external_profile_id, o.quantity,
             o.payment_rail, o.unit_price_zar::text AS unit_price_zar, o.total_zar::text AS total_zar,
@@ -2236,8 +2230,16 @@ export const getPresaleOrder = api<
             c.receiving_address, c.min_confirmations, c.payment_window_minutes, c.starts_at, c.ends_at,
             o.payment_transaction_hash AS tx_hash, o.payment_confirmations AS confirmations
      FROM presale_orders o JOIN presale_campaigns c ON c.id = o.campaign_id
-     WHERE o.order_reference = $1 AND o.access_token_hash = $2
-       AND o.external_profile_id::text = $3::text`, req.orderReference, hashSecret(accessToken), session.profile.id);
+     WHERE o.order_reference = $1
+       AND (
+         o.external_profile_id::text = $2::text
+         OR EXISTS (
+           SELECT 1 FROM user_roles ur JOIN roles r ON r.id = ur.role_id
+           WHERE ur.user_id = $3 AND r.name = 'admin'
+         )
+       )`,
+    req.orderReference, session.profile.id, session.user.id,
+  );
   if (!row) throw APIError.notFound("Presale order not found");
   const latestAttempt = row.payment_intent_id && !row.tx_hash
     ? await paymentsDb.rawQueryRow<{ transaction_hash: string; confirmations: number | null }>(
@@ -2459,9 +2461,15 @@ export const submitPresalePaymentProof = api<PresalePaymentProofRequest, Presale
     const order = await presaleDb.rawQueryRow<{ id: string; status: string; external_profile_id: string | null; payment_intent_id: string | null }>(
       `SELECT o.id,o.status,o.external_profile_id,o.payment_intent_id
        FROM presale_orders o
-       WHERE o.order_reference = $1 AND o.access_token_hash = $2
-         AND o.external_profile_id::text = $3::text`,
-      payload.orderReference, hashSecret(payload.accessToken), session.profile.id);
+       WHERE o.order_reference = $1
+         AND (
+           o.external_profile_id::text = $2::text
+           OR EXISTS (
+             SELECT 1 FROM user_roles ur JOIN roles r ON r.id = ur.role_id
+             WHERE ur.user_id = $3 AND r.name = 'admin'
+           )
+         )`,
+      payload.orderReference, session.profile.id, session.user.id);
     if (!order) throw APIError.notFound("Presale order not found");
     if (["confirmed", "cancelled", "incorporated", "manual_review"].includes(order.status)) throw APIError.failedPrecondition("This order no longer accepts payment proof");
     if (!order.external_profile_id || !order.payment_intent_id) throw APIError.failedPrecondition("This order does not have a payment intent");

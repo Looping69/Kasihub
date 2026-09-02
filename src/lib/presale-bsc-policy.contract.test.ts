@@ -44,13 +44,11 @@ describe("KaSiShares BSC-only policy", () => {
     expect(campaigns).toContain("BNB Smart Chain (BSC / BEP20)");
   });
 
-  test("sensitive proof access keeps both credentials while hosted checkout uses authenticated ownership", () => {
+  test("presale order access and payment proof use authenticated session ownership", () => {
     const api = source("encore/domains/presale/api.ts");
     expect(api.match(/const session = await requirePresaleSession\(\);/g)?.length).toBeGreaterThanOrEqual(6);
-    expect(api.match(/o\.external_profile_id::text = \$3::text/g)?.length).toBeGreaterThanOrEqual(2);
-    expect(api).toContain("req.orderReference, hashSecret(accessToken), session.profile.id");
-    expect(api).toContain("payload.orderReference, hashSecret(payload.accessToken), session.profile.id");
-    expect(api).toContain("req.orderReference, session.profile.id");
+    expect(api).toContain("req.orderReference, session.profile.id, session.user.id");
+    expect(api).toContain("payload.orderReference, session.profile.id, session.user.id");
   });
 
   test("late or cancelled payments preserve evidence without creating issuance work", () => {

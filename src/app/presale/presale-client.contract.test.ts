@@ -18,10 +18,11 @@ describe("presale crypto and webpay flow", () => {
     expect(source).toContain("Identity verification approved");
   });
 
-  test("persists and restores access tokens across page reloads", async () => {
+  test("uses authenticated session for applicant order actions instead of browser-held order access token", async () => {
     const source = await readFile(path.join(process.cwd(), "src", "app", "presale", "presale-client.tsx"), "utf8");
-    expect(source).toContain("window.sessionStorage.setItem(`presale_token_${payload.order.orderReference}`, payload.accessToken)");
-    expect(source).toContain("window.sessionStorage.getItem(`presale_token_${portal.order.orderReference}`)");
+    expect(source).not.toContain("window.sessionStorage.setItem(`presale_token_");
+    expect(source).not.toContain("window.sessionStorage.getItem(`presale_token_");
+    expect(source).not.toContain("X-Presale-Access-Token");
   });
 
   test("provides cancel reservation and payment recheck actions", async () => {
