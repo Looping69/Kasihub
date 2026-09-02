@@ -651,4 +651,16 @@ Author: Klaasvaakie ( |╲ )
 - Reconciled the isolated presale implementation onto current GitHub main in a focused branch while retaining the current pinned Encore dependency.
 - Kept the buyer page private, noindex and no-referrer; replaced query-string order credentials with a dedicated request header so bearer tokens do not enter browser history or proxy URLs.
 - Added browser coverage for fail-closed access, invitation-only reservation, exact USDT instructions, non-issuance disclosure and payment-proof refresh security.
+
+## 2026-08-11 - Remitano receiving plan PDF
+
+- Created and visually inspected the four-page KaSiShares Remitano receiving-plan PDF. It maps the TRON/BSC routes, security and reconciliation gates, external inputs, and staged release path without exposing wallet addresses or credentials. Author: Klaasvaakie ( |╲ )
 - Passed lint, TypeScript, 61 frontend tests with coverage, production audit, build, 11 browser tests, Encore check and 72 Encore tests; local visual QA showed a clean private gate and console. No deployment or campaign activation occurred. Author: Klaasvaakie ( |╲ )
+
+## 2026-08-14 - Share sale and Remitano status analysis
+
+- Verified that the private USDT presale was reconciled into GitHub main at `fd53588`; it has isolated reservations, payment evidence handling, and incorporation manifests but no live campaign or final-share importer. The current local Remitano branch (`662ca3d`) only adds provider labels to receiving configurations; it does not implement a Remitano API adapter, wallet creation, callbacks, or settlement. Backend tests yielded 58 passing tests but one environment-only Encore runtime failure; the isolated presale contract test passed 3/3. Author: Klaasvaakie ( |╲ )
+
+## 2026-08-14 - Test PDF
+
+- Created and visually verified a single-page KaSiHub test PDF with correct title, author metadata, readable text, alignment, and footer. Author: Klaasvaakie ( |╲ )

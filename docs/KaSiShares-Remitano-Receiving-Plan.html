@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>KaSiShares + Remitano Receiving Plan</title>
+  <style>
+    @page { size: A4; margin: 0; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: Arial, Helvetica, sans-serif; color:#13233a; background:#f4f7fb; }
+    .page { width:210mm; min-height:297mm; padding:16mm 17mm 14mm; background:#fff; position:relative; page-break-after:always; }
+    .page:last-child { page-break-after:auto; }
+    .top { display:flex; justify-content:space-between; align-items:flex-start; border-bottom:2px solid #1ab394; padding-bottom:8mm; }
+    .brand { font-size:12px; color:#168b76; font-weight:800; letter-spacing:1.4px; text-transform:uppercase; }
+    h1 { margin:8mm 0 4mm; font-size:31px; line-height:1.08; letter-spacing:-1.2px; }
+    h2 { font-size:20px; margin:7mm 0 4mm; letter-spacing:-.3px; }
+    h3 { font-size:13px; margin:0 0 2mm; }
+    p { font-size:10.5px; line-height:1.55; margin:0 0 3.5mm; }
+    .muted { color:#5c6b7f; } .small { font-size:8.5px; }
+    .date { font-size:9px; text-align:right; color:#5c6b7f; }
+    .hero { margin-top:8mm; display:grid; grid-template-columns:1.05fr .95fr; gap:7mm; align-items:stretch; }
+    .hero-card { border-radius:6mm; padding:7mm; background:#10233c; color:#fff; }
+    .hero-card p { color:#d9e5f2; font-size:11px; }
+    .metric { background:#e8f8f4; border-left:4px solid #1ab394; border-radius:3mm; padding:5mm; margin-top:5mm; }
+    .metric strong { display:block; font-size:22px; color:#10846f; }
+    .callout { border:1px solid #dce4ef; border-radius:4mm; padding:5mm; background:#fbfcfe; }
+    .warning { background:#fff7e9; border:1px solid #f2cc80; border-radius:4mm; padding:5mm; }
+    .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:5mm; }
+    .grid3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:4mm; }
+    .card { border:1px solid #dce4ef; border-radius:4mm; padding:5mm; min-height:35mm; }
+    .card.done { border-top:4px solid #1ab394; }
+    .card.next { border-top:4px solid #3665d6; }
+    .card.block { border-top:4px solid #e8a23a; }
+    .badge { display:inline-block; padding:1.2mm 2.4mm; border-radius:99px; font-size:8px; font-weight:800; letter-spacing:.4px; }
+    .green { background:#daf5ed; color:#087260; } .blue { background:#e4ecff; color:#254ba4; } .amber { background:#fff0d5; color:#93600d; }
+    .flow { display:flex; align-items:center; margin:7mm 0 4mm; }
+    .node { width:27mm; min-height:25mm; border-radius:4mm; padding:4mm 3mm; display:flex; align-items:center; justify-content:center; text-align:center; font-size:9px; font-weight:700; border:1px solid #cbd8e8; background:#fff; }
+    .node.secure { background:#e8f8f4; border-color:#80d9c5; } .node.provider { background:#edf2ff; border-color:#a8bce9; } .node.stop { background:#fff0ef; border-color:#f3aeaa; }
+    .arrow { flex:1; height:2px; background:#68809d; position:relative; min-width:7mm; }
+    .arrow:after { content:""; position:absolute; right:-1px; top:-3px; border-left:7px solid #68809d; border-top:4px solid transparent; border-bottom:4px solid transparent; }
+    table { width:100%; border-collapse:separate; border-spacing:0; margin:4mm 0; font-size:9px; overflow:hidden; border:1px solid #dce4ef; border-radius:3mm; }
+    th { background:#10233c; color:white; padding:3mm; text-align:left; font-size:8px; letter-spacing:.3px; text-transform:uppercase; }
+    td { padding:3mm; vertical-align:top; border-top:1px solid #e7edf5; }
+    tr:nth-child(even) td { background:#f8fafc; }
+    .barrow { display:grid; grid-template-columns:110px 1fr 54px; gap:4mm; align-items:center; font-size:9px; margin:3mm 0; }
+    .bar { height:8px; background:#e8eef6; border-radius:10px; overflow:hidden; } .fill { height:100%; background:#1ab394; } .fill.blue { background:#3665d6; } .fill.amber { background:#e8a23a; }
+    .check { color:#168b76; font-weight:900; } .x { color:#c53d3a; font-weight:900; }
+    .footer { position:absolute; bottom:8mm; left:17mm; right:17mm; display:flex; justify-content:space-between; color:#77869a; font-size:7.5px; border-top:1px solid #dce4ef; padding-top:3mm; }
+    ul { margin:2mm 0 0; padding-left:5mm; font-size:10px; line-height:1.55; } li { margin:1mm 0; }
+    .section-number { color:#1ab394; font-weight:800; font-size:10px; letter-spacing:1px; }
+  </style>
+</head>
+<body>
+  <section class="page">
+    <div class="top"><div class="brand">KaSiHub / KaSiShares</div><div class="date">Implementation brief<br>11 August 2026</div></div>
+    <h1>Remitano as the receiving point for KaSiShares purchases.</h1>
+    <p class="muted" style="font-size:13px;max-width:150mm">A controlled path for international USDT income: two locked receiving routes, verified payment evidence, and no automatic share issuance.</p>
+    <div class="hero">
+      <div class="hero-card"><span class="badge green">THE OBJECTIVE</span><h2 style="color:white;margin-top:5mm">Accept USDT safely without turning an exchange deposit into a share ledger.</h2><p>Buyers may pay an approved obligation via Remitano. KaSiHub independently verifies the transaction and only then permits the controlled allocation workflow.</p><div class="metric"><strong>2</strong><span style="color:#27445a;font-size:9px">separate network routes: TRON and BNB Smart Chain</span></div></div>
+      <div class="callout"><span class="badge amber">THE KEY DISTINCTION</span><h2>Money received ≠ shares issued.</h2><p>Receiving USDT proves neither identity, eligibility, allocation availability, nor legal acceptance. Those gates remain inside KaSiHub.</p><p class="small muted">This avoids a dangerous shortcut where a provider callback or wallet deposit automatically changes ownership records.</p></div>
+    </div>
+    <h2>What is already prepared vs. what remains</h2>
+    <div class="grid3">
+      <div class="card done"><span class="badge green">PREPARED</span><h3 style="margin-top:3mm">Two-network model</h3><p>TRON and BSC are supported as distinct payment networks.</p></div>
+      <div class="card done"><span class="badge green">PREPARED</span><h3 style="margin-top:3mm">Provider-aware routes</h3><p>Receiver configurations can be labelled as Remitano and locked per network.</p></div>
+      <div class="card next"><span class="badge blue">NEXT</span><h3 style="margin-top:3mm">Remitano adapter</h3><p>Secure provider connection, event verification, and reconciliation.</p></div>
+    </div>
+    <div class="warning" style="margin-top:6mm"><h3>Non-negotiable security boundary</h3><p>Do not use credentials copied from ClickUp. Reissue them and place the replacement only in Encore managed secrets. Provider keys, deposit addresses, and webhook secrets do not belong in browser code, logs, tickets, or repositories.</p></div>
+    <div class="footer"><span>Internal planning document — not investment, tax, or legal advice.</span><span>Author: Klaasvaakie ( |╲ )</span></div>
+  </section>
+
+  <section class="page">
+    <div class="top"><div class="brand">01 / Controlled payment flow</div><div class="date">KaSiShares × Remitano</div></div>
+    <h2>The safe flow</h2>
+    <p class="muted">The buyer never chooses an arbitrary wallet. KaSiHub binds the obligation to one approved network, token, receiver, amount, and expiry.</p>
+    <div class="flow"><div class="node secure">KYC-approved buyer</div><div class="arrow"></div><div class="node secure">KaSiShares reservation</div><div class="arrow"></div><div class="node secure">Locked USDT obligation</div><div class="arrow"></div><div class="node provider">Remitano route / payment request</div></div>
+    <div class="flow"><div class="node provider">TRON or BSC transaction evidence</div><div class="arrow"></div><div class="node secure">KaSiHub reconciliation</div><div class="arrow"></div><div class="node secure">Controlled allocation queue</div><div class="arrow"></div><div class="node stop">Issuance only after approval</div></div>
+    <div class="grid2" style="margin-top:7mm">
+      <div class="card"><h3>What Remitano does</h3><ul><li>Provides the controlled collection endpoint or payment-gateway charge.</li><li>Returns provider events / payment status where supported.</li><li>Receives the USDT into the approved route.</li></ul></div>
+      <div class="card"><h3>What KaSiHub must still prove</h3><ul><li>Buyer identity and eligibility.</li><li>Correct USDT contract, network, receiver, amount, and confirmations.</li><li>One-time reconciliation and an authorised allocation decision.</li></ul></div>
+    </div>
+    <h2>Two routes, never interchangeable</h2>
+    <table><thead><tr><th>Buyer payment route</th><th>Locked to</th><th>Why it matters</th></tr></thead><tbody>
+      <tr><td><strong>USDT-TRC20</strong><br>TRON</td><td>One verified Remitano receiver, approved USDT contract, confirmation threshold.</td><td>A TRON transaction must not be treated as a BSC payment.</td></tr>
+      <tr><td><strong>USDT-BEP20</strong><br>BNB Smart Chain</td><td>Different verified Remitano receiver, approved USDT contract, confirmation threshold.</td><td>Prevents cross-chain loss and makes reconciliation deterministic.</td></tr>
+    </tbody></table>
+    <div class="warning"><h3>Stop conditions</h3><p>Wrong network, wrong token contract, wrong recipient, short payment, expired obligation, duplicate event, or insufficient confirmations all stop automatic progression and enter an operator review path.</p></div>
+    <div class="footer"><span>Internal planning document — transaction receipt is not a share issuance.</span><span>2 / 4</span></div>
+  </section>
+
+  <section class="page">
+    <div class="top"><div class="brand">02 / Readiness map</div><div class="date">What must be true before launch</div></div>
+    <h2>Readiness is a chain, not a checkbox.</h2>
+    <p class="muted">The provider route is the first leg. The payment must survive technical, financial-control, and legal-operational checks before the public presale opens.</p>
+    <div style="margin-top:7mm">
+      <div class="barrow"><strong>Secure provider access</strong><div class="bar"><div class="fill" style="width:45%"></div></div><span><span class="badge amber">ACTION</span></span></div>
+      <div class="barrow"><strong>TRON route details</strong><div class="bar"><div class="fill amber" style="width:20%"></div></div><span><span class="badge amber">BLOCKED</span></span></div>
+      <div class="barrow"><strong>BSC route details</strong><div class="bar"><div class="fill amber" style="width:20%"></div></div><span><span class="badge amber">BLOCKED</span></span></div>
+      <div class="barrow"><strong>Provider adapter</strong><div class="bar"><div class="fill blue" style="width:55%"></div></div><span><span class="badge blue">BUILD</span></span></div>
+      <div class="barrow"><strong>Payment reconciliation</strong><div class="bar"><div class="fill blue" style="width:45%"></div></div><span><span class="badge blue">BUILD</span></span></div>
+      <div class="barrow"><strong>Share offer controls</strong><div class="bar"><div class="fill blue" style="width:45%"></div></div><span><span class="badge blue">CONFIGURE</span></span></div>
+      <div class="barrow"><strong>Live controlled tests</strong><div class="bar"><div class="fill amber" style="width:10%"></div></div><span><span class="badge amber">LAST GATE</span></span></div>
+    </div>
+    <h2>Inputs required from Remitano / the operator</h2>
+    <table><thead><tr><th>Input</th><th>Why it is needed</th><th>Owner</th></tr></thead><tbody>
+      <tr><td>Business/API access enabled</td><td>Lets the server create or reconcile provider-side payment requests.</td><td>Remitano account owner</td></tr>
+      <tr><td>Fresh API credentials and callback secret</td><td>Authenticates server-to-server requests and signed events.</td><td>Account owner + platform operator</td></tr>
+      <tr><td>Exact TRON and BSC receiver configuration</td><td>Binds each buyer obligation to a safe, verifiable destination.</td><td>Remitano account owner</td></tr>
+      <tr><td>USDT token contract and confirmation policy</td><td>Rejects lookalike tokens and premature deposits.</td><td>Remitano + platform operator</td></tr>
+      <tr><td>Approved share-offer terms and allocation authority</td><td>Governs whether a verified payment can progress to allocation.</td><td>KaSiShares authorised operator</td></tr>
+    </tbody></table>
+    <div class="callout"><h3>What the team should decide first</h3><p><strong>Use payment-gateway charges if Remitano supports them for this account.</strong> They give each buyer an explicit provider-side reference. Use static deposit routes only if they are confirmed as appropriate for the business and paired with strict KaSiHub transaction matching.</p></div>
+    <div class="footer"><span>Readiness percentages indicate implementation state, not funds or investment status.</span><span>3 / 4</span></div>
+  </section>
+
+  <section class="page">
+    <div class="top"><div class="brand">03 / Execution sequence</div><div class="date">Smallest safe path to live collection</div></div>
+    <h2>Four release stages</h2>
+    <div class="grid2">
+      <div class="card next"><span class="badge blue">STAGE 1</span><h3 style="margin-top:3mm">Provider onboarding</h3><p>Confirm account permissions, choose charge vs. receiver model, reissue credentials, and store replacements in Encore secrets.</p><p class="small"><strong>Exit:</strong> no secrets exposed; provider contract known.</p></div>
+      <div class="card next"><span class="badge blue">STAGE 2</span><h3 style="margin-top:3mm">Route configuration</h3><p>Register the exact TRON and BSC receivers with their approved contracts and confirmation thresholds.</p><p class="small"><strong>Exit:</strong> two routes are independently testable.</p></div>
+      <div class="card next"><span class="badge blue">STAGE 3</span><h3 style="margin-top:3mm">Adapter and reconciliation</h3><p>Add server-only provider client, signed callback verification, idempotency, transaction matching, and operator review states.</p><p class="small"><strong>Exit:</strong> test suite proves every rejection path.</p></div>
+      <div class="card block"><span class="badge amber">STAGE 4</span><h3 style="margin-top:3mm">Staging pilot → production</h3><p>Run one small controlled payment per network, validate financial records, then release through a rollback-safe deployment.</p><p class="small"><strong>Exit:</strong> public collection is enabled only after evidence.</p></div>
+    </div>
+    <h2>Acceptance test matrix</h2>
+    <table><thead><tr><th>Test</th><th>Expected result</th></tr></thead><tbody>
+      <tr><td>Correct TRC20 / correct amount / confirmed</td><td><span class="check">✓</span> Reconciles once; enters allocation workflow.</td></tr>
+      <tr><td>Correct BEP20 / correct amount / confirmed</td><td><span class="check">✓</span> Reconciles once; enters allocation workflow.</td></tr>
+      <tr><td>Wrong chain, token, receiver, or amount</td><td><span class="x">×</span> Cannot settle; retained for controlled support review.</td></tr>
+      <tr><td>Duplicate provider callback or transaction replay</td><td><span class="x">×</span> Idempotency blocks a second credit.</td></tr>
+      <tr><td>Payment before KYC / after expiry</td><td><span class="x">×</span> No allocation; operator process only.</td></tr>
+    </tbody></table>
+    <h2>The immediate next move</h2>
+    <div class="hero-card" style="padding:6mm"><h3 style="color:#9ef0de">GET THESE FACTS FIRST</h3><p>Securely obtain the approved Remitano collection model, freshly issued server credentials, and the exact TRON/BSC receiving configuration. That unlocks the adapter build without guessing about wallets, providers, or where investor funds are sent.</p></div>
+    <p class="small muted" style="margin-top:5mm">Source note: Remitano’s developer material describes payment-gateway charges and payment URLs. Confirm current account capabilities and callbacks directly with Remitano before implementation. This document is an implementation plan, not financial, investment, tax, or legal advice.</p>
+    <div class="footer"><span>KaSiHub / KaSiShares — restricted internal implementation brief.</span><span>Author: Klaasvaakie ( |╲ ) · 4 / 4</span></div>
+  </section>
+</body>
+</html>
