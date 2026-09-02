@@ -22,7 +22,6 @@ export function DevSentinel() {
   const clear = useFaultStore((state) => state.clear);
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState<string>();
-  const newestHighPriority = faults.find((fault) => fault.severity === "error" || fault.severity === "critical");
   const counts = useMemo(() => ({
     errors: faults.filter((fault) => fault.severity === "error" || fault.severity === "critical").length,
     warnings: faults.filter((fault) => fault.severity === "warning").length,
@@ -40,23 +39,6 @@ export function DevSentinel() {
 
   return (
     <aside className="fixed bottom-4 right-4 z-[2147483647] font-mono text-xs" aria-label="Development diagnostics">
-      {!open && newestHighPriority && (
-        <div className={`mb-3 w-[min(25rem,calc(100vw-2rem))] rounded-lg border p-3 shadow-2xl ${tone[newestHighPriority.severity]}`} role="alert">
-          <div className="flex items-start gap-3">
-            <div className="min-w-0 flex-1">
-              <div className="font-bold uppercase">{newestHighPriority.title}</div>
-              <div className="mt-1 break-words opacity-90">{newestHighPriority.message}</div>
-              {newestHighPriority.requestId && <div className="mt-1 opacity-70">Request: {newestHighPriority.requestId}</div>}
-            </div>
-            <button type="button" aria-label="Dismiss fault" onClick={() => dismiss(newestHighPriority.id)}><X className="h-4 w-4" /></button>
-          </div>
-          <div className="mt-3 flex gap-2">
-            <button type="button" className="rounded bg-white/15 px-2 py-1 hover:bg-white/25" onClick={() => { void copyFault(newestHighPriority, faults); setCopied(newestHighPriority.id); }}>{copied === newestHighPriority.id ? "Copied" : "Ask Sani"}</button>
-            <button type="button" className="rounded bg-white/15 px-2 py-1 hover:bg-white/25" onClick={() => setOpen(true)}>Details</button>
-          </div>
-        </div>
-      )}
-
       {open && (
         <div className="mb-3 flex max-h-[70vh] w-[min(31rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-xl border border-slate-700 bg-slate-950 text-slate-100 shadow-2xl">
           <header className="flex items-center justify-between border-b border-slate-800 p-3">
@@ -82,4 +64,3 @@ export function DevSentinel() {
     </aside>
   );
 }
-
