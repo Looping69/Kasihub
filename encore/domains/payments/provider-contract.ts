@@ -7,7 +7,11 @@ export const PAYMENT_PROVIDERS = [
   "remitano_direct_usdt",
 ] as const;
 
-export type PaymentProviderId = typeof PAYMENT_PROVIDERS[number];
+export type PaymentProviderId =
+  | "instapay_webpay_form"
+  | "instapay_payment_request"
+  | "remitano_gateway"
+  | "remitano_direct_usdt";
 
 export type ProviderCapability = {
   provider: PaymentProviderId;
