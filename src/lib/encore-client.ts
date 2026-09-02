@@ -84,5 +84,6 @@ export async function encoreSessionToken(): Promise<string | undefined> {
 }
 
 export async function presaleSessionToken(): Promise<string | undefined> {
-  return (await cookies()).get(PRESALE_SESSION_COOKIE)?.value;
+  const cookieStore = await cookies();
+  return cookieStore.get(PRESALE_SESSION_COOKIE)?.value ?? cookieStore.get(ENCORE_SESSION_COOKIE)?.value;
 }

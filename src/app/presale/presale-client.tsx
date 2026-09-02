@@ -610,8 +610,11 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
     setSubmitting(true);
     setError("");
     try {
+      const headers: Record<string, string> = {};
+      if (accessToken) headers["X-Presale-Access-Token"] = accessToken;
       const response = await fetch(`/api/presale/orders/${encodeURIComponent(order.orderReference)}/webpay-checkout`, {
         method: "POST",
+        headers,
       });
       const payload = await response.json() as { actionUrl?: string; fields?: Record<string, string>; error?: string };
       if (!response.ok) throw new Error(payload.error ?? "WebPay checkout could not be started");

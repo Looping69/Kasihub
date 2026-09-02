@@ -2289,8 +2289,11 @@ export const createPresaleWebPayCheckout = api<
        FROM presale_orders o
        JOIN presale_applications a ON a.id = o.application_id
        WHERE o.order_reference = $1
-         AND o.external_profile_id::text = $2::text`,
-    req.orderReference, session.profile.id,
+         AND (o.external_profile_id::text = $2::text OR EXISTS (
+           SELECT 1 FROM user_roles ur JOIN roles r ON r.id = ur.role_id
+           WHERE ur.user_id = $3 AND r.name = 'admin'
+         ))`,
+    req.orderReference, session.profile.id, session.user.id,
   );
   if (!order) throw APIError.notFound("Presale order not found");
   if (order.payment_rail !== "webpay_card" || !order.total_zar) {

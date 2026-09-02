@@ -199,6 +199,25 @@ describe("KaSiShares applicant BFF routes", () => {
     );
   });
 
+  test("accepts authorization header or forwards access token for webpay checkout", async () => {
+    mocks.encoreRequest.mockResolvedValue({ actionUrl: "https://webpay.example/pay", fields: { m_payment_id: "1" } });
+    mocks.presaleSessionToken.mockResolvedValueOnce(undefined);
+    const req = new NextRequest("https://shares.kasihub.net/api/presale/orders/KSP-ONE/webpay-checkout", {
+      method: "POST",
+      headers: {
+        "authorization": "Bearer custom-bearer-token",
+        "x-presale-access-token": "access-token-999",
+      },
+    });
+    const response = await startWebPayCheckout(req, { params: Promise.resolve({ reference: "KSP-ONE" }) });
+    expect(response.status).toBe(200);
+    expect(mocks.encoreRequest).toHaveBeenCalledWith(
+      "/presale/orders/KSP-ONE/webpay-checkout",
+      { method: "POST", headers: { "X-Presale-Access-Token": "access-token-999" } },
+      "custom-bearer-token",
+    );
+  });
+
   test("rejects webpay checkout without an applicant session", async () => {
     mocks.presaleSessionToken.mockResolvedValueOnce(undefined);
     const request = new NextRequest("https://shares.kasihub.net/api/presale/orders/KSP-ONE/webpay-checkout", { method: "POST" });
