@@ -2281,18 +2281,24 @@ export const createPresaleWebPayCheckout = api<
     payment_deadline: string; webpay_transaction_id: string | null; webpay_order_number: string | null;
     payment_obligation_id: string | null;
     application_number: string;
+    external_profile_id: string | null;
+    campaign_id: string;
   }>(
     `SELECT o.id,o.order_reference,o.buyer_name,o.buyer_email,o.buyer_phone,o.quantity,o.payment_rail,
             o.total_zar::text AS total_zar,o.status,o.payment_deadline,
             o.webpay_transaction_id::text AS webpay_transaction_id,o.webpay_order_number,o.payment_obligation_id,
-            a.application_number
+            COALESCE(a.application_number, o.order_reference) AS application_number,
+            o.external_profile_id,o.campaign_id
        FROM presale_orders o
-       JOIN presale_applications a ON a.id = o.application_id
+       LEFT JOIN presale_applications a ON a.id = o.application_id
        WHERE o.order_reference = $1
-         AND (o.external_profile_id::text = $2::text OR EXISTS (
-           SELECT 1 FROM user_roles ur JOIN roles r ON r.id = ur.role_id
-           WHERE ur.user_id = $3 AND r.name = 'admin'
-         ))`,
+         AND (
+           o.external_profile_id::text = $2::text
+           OR EXISTS (
+             SELECT 1 FROM user_roles ur JOIN roles r ON r.id = ur.role_id
+             WHERE ur.user_id = $3 AND r.name = 'admin'
+           )
+         )`,
     req.orderReference, session.profile.id, session.user.id,
   );
   if (!order) throw APIError.notFound("Presale order not found");
@@ -2302,7 +2308,24 @@ export const createPresaleWebPayCheckout = api<
   if (order.status !== "awaiting_payment" || new Date(order.payment_deadline) <= new Date()) {
     throw APIError.failedPrecondition("This reservation no longer accepts payment");
   }
-  if (!order.payment_obligation_id) throw APIError.failedPrecondition("Payment obligation is not available");
+  let obligationId = order.payment_obligation_id;
+  if (!obligationId && order.external_profile_id && order.total_zar) {
+    const obligation = await createPaymentObligation({
+      subjectType: "presale_order",
+      subjectReference: order.order_reference,
+      payerProfileId: order.external_profile_id,
+      beneficiaryProfileId: order.external_profile_id,
+      settlementCurrency: "ZAR",
+      settlementAmount: order.total_zar,
+      metadata: { campaignId: order.campaign_id, paymentRail: order.payment_rail },
+    });
+    await presaleDb.rawExec(
+      `UPDATE presale_orders SET payment_obligation_id = $2, updated_at = now() WHERE id = $1`,
+      order.id, obligation.id,
+    );
+    obligationId = obligation.id;
+  }
+  if (!obligationId) throw APIError.failedPrecondition("Payment obligation is not available");
   // Every checkout attempt is disposable. A declined or abandoned attempt must
   // never poison the authoritative obligation or prevent a clean retry.
   const transactionId = crypto.randomUUID();
@@ -2351,7 +2374,7 @@ export const createPresaleWebPayCheckout = api<
     securityKey: WebPaySecurityKey(),
   });
   await registerPaymentSession({
-    obligationId: order.payment_obligation_id,
+    obligationId,
     provider: "instapay_webpay_form",
     providerSessionId: transactionId,
     providerReference: orderNumber,
