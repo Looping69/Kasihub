@@ -12,7 +12,6 @@ vi.mock("@/lib/encore-client", () => {
     PRESALE_SESSION_COOKIE: "kasishares_session",
     EncoreRequestError,
     encoreRequest: mocks.encoreRequest,
-    sessionCookieOptions: () => ({ httpOnly: true, sameSite: "lax", secure: false, path: "/", maxAge: 60 * 60 * 24 * 7 }),
   };
 });
 

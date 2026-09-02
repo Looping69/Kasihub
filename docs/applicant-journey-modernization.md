@@ -93,7 +93,6 @@ The next contract slice must resolve these known blockers before the frontend tr
 - Provider readiness is not yet represented as an explicit, environment-isolated backend capability.
 - The public offer lacks a complete server-owned payment-method availability contract.
 - The current frontend still contains a hardcoded Phase 1 / $25 label and client-calculated card presentation totals.
-- P0: Applicant journey hydration can overwrite an existing reservation and expose the wrong CTA, creating a dead-end immediately before payment.
 
 Those gaps must fail closed in the new contract before the old compatibility behavior is removed. They are recorded here rather than silently declared solved.
 

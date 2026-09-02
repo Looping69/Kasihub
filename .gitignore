@@ -79,10 +79,6 @@ encore.gen.cue
 /output/pdf/2026-08-29-kasihub-clickup-work-report.pdf
 /output/pdf/kasishares-hardened-certificate-sample.pdf
 /output/pdf/kasishares-numbering-sample.pdf
-/output/pdf/solidus-certificate-preview.pdf
-
-# Local verification artifacts
-/artifacts/
 
 # Encore is the only backend. Local legacy database artifacts are never tracked.
 /db/

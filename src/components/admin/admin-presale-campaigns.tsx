@@ -187,24 +187,6 @@ export function AdminPresaleCampaigns() {
   }
   async function createInvitation() {
     if (!inviteCampaign) return;
-    const maxShares = Number.parseInt(invite.maxShares, 10);
-    if (!Number.isInteger(maxShares) || maxShares < 1) {
-      toast.error("Maximum shares must be a positive integer");
-      return;
-    }
-    let expiresAt: string | undefined = undefined;
-    if (invite.expiresAt.trim()) {
-      const parsedDate = new Date(invite.expiresAt);
-      if (Number.isNaN(parsedDate.getTime())) {
-        toast.error("Invalid expiration date");
-        return;
-      }
-      if (parsedDate.getTime() <= Date.now()) {
-        toast.error("Invitation expiry must be in the future");
-        return;
-      }
-      expiresAt = parsedDate.toISOString();
-    }
     setSaving(true);
     try {
       const response = await fetch("/api/admin/presale/invitations", {
@@ -215,9 +197,9 @@ export function AdminPresaleCampaigns() {
         },
         body: JSON.stringify({
           campaignId: inviteCampaign.id,
-          email: invite.email.trim() || undefined,
-          maxShares,
-          expiresAt,
+          email: invite.email || undefined,
+          maxShares: Number(invite.maxShares),
+          expiresAt: new Date(invite.expiresAt).toISOString(),
         }),
       });
       const data = await response.json();
@@ -522,7 +504,7 @@ export function AdminPresaleCampaigns() {
               />
             </div>
             <div>
-              <Label>Expires at (optional)</Label>
+              <Label>Expires at</Label>
               <Input
                 type="datetime-local"
                 value={invite.expiresAt}
@@ -542,7 +524,7 @@ export function AdminPresaleCampaigns() {
             </Button>
             <Button
               onClick={() => void createInvitation()}
-              disabled={saving || !invite.maxShares || Number.parseInt(invite.maxShares, 10) < 1}
+              disabled={saving || !invite.maxShares || !invite.expiresAt}
               className="bg-gradient-to-r from-emerald-600 to-emerald-500"
             >
               {saving ? (

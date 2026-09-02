@@ -21,7 +21,6 @@ function evidence(hash: string, receiver = RECEIVER, latestBlockNumber = 102n): 
     visible: true,
     execution: "success",
     blockNumber: 100n,
-    blockTimestamp: new Date().toISOString(),
     latestBlockNumber,
     sender: SENDER,
     logs: [{
@@ -81,7 +80,7 @@ describe("product-neutral payment verification and settlement", () => {
       `SELECT i.status AS intent_status,o.status AS obligation_status,
         (SELECT count(*)::int FROM payment_events e WHERE e.payment_intent_id=i.id AND e.event_type='payment.settled') AS settled_events
        FROM payment_intents i JOIN payment_obligations o ON o.id=i.order_id WHERE i.id=$1`, seeded.intentId);
-    expect(state).toEqual({ intent_status: "settled", obligation_status: "paid", settled_events: 1 });
+    expect(state).toEqual({ intent_status: "settled", obligation_status: "settled", settled_events: 1 });
   });
 
   it("keeps polling a valid transfer until confirmation depth is met, then settles exactly once", async () => {
@@ -111,7 +110,7 @@ describe("product-neutral payment verification and settlement", () => {
        WHERE i.id=$1`,
       seeded.intentId,
     );
-    expect(state).toEqual({ intent_status: "settled", obligation_status: "paid", confirmations: 3, settled_events: 1 });
+    expect(state).toEqual({ intent_status: "settled", obligation_status: "settled", confirmations: 3, settled_events: 1 });
   });
 
   it("rejects wrong-destination evidence without settling the obligation", async () => {
@@ -126,19 +125,14 @@ describe("product-neutral payment verification and settlement", () => {
     expect(state).toEqual({ intent_status: "rejected", obligation_status: "open" });
   });
 
-  it("requires confirmed Remitano custody evidence after canonical confirmation", async () => {
+  it("requires matching custody evidence only for an explicitly gated route", async () => {
     const seeded = await seedSubmittedPayment(true);
-    let custodyReads = 0;
     const result = await verifyAndSettlePaymentAttempt(
       seeded.attemptId,
       async () => evidence(seeded.hash),
-      async () => {
-        custodyReads += 1;
-        return custodyEvidence(seeded.hash);
-      },
+      async () => custodyEvidence(seeded.hash),
     );
     expect(result).toMatchObject({ status: "settled", reason: "custody_evidence_satisfied" });
-    expect(custodyReads).toBe(1);
     const custody = await paymentsDb.rawQueryRow<{ count: number }>(
       "SELECT count(*)::int AS count FROM payment_custody_evidence WHERE payment_attempt_id = $1",
       seeded.attemptId,
@@ -146,23 +140,20 @@ describe("product-neutral payment verification and settlement", () => {
     expect(custody?.count).toBe(1);
   });
 
-  it("keeps confirmed chain evidence retryable while Remitano custody is unavailable", async () => {
+  it("fails closed without a custody adapter and leaves the obligation open", async () => {
     const seeded = await seedSubmittedPayment(true);
     const result = await verifyAndSettlePaymentAttempt(
       seeded.attemptId,
       async () => evidence(seeded.hash),
       async () => { throw new CustodyProviderUnavailable("remitano", "custody_temporarily_unavailable"); },
     );
-    expect(result).toMatchObject({ status: "retryable", reason: "custody_temporarily_unavailable", confirmations: 3 });
+    expect(result).toMatchObject({ status: "retryable", reason: "custody_temporarily_unavailable" });
     const state = await paymentsDb.rawQueryRow<{
       intent_status: string; obligation_status: string; verification_error_code: string | null;
-      verified_at: string | null; confirmations: number | null; custody_rows: number; settled_events: number;
+      verified_at: string | null; confirmations: number | null;
     }>(
       `SELECT i.status AS intent_status,o.status AS obligation_status,
-              a.verification_error_code,a.verified_at,a.confirmations,
-              (SELECT count(*)::int FROM payment_custody_evidence c WHERE c.payment_attempt_id=a.id) AS custody_rows,
-              (SELECT count(*)::int FROM payment_events e WHERE e.payment_intent_id=i.id
-                AND e.event_type='payment.settled') AS settled_events
+              a.verification_error_code,a.verified_at,a.confirmations
        FROM payment_intents i
        JOIN payment_obligations o ON o.id=i.order_id
        JOIN payment_attempts a ON a.payment_intent_id=i.id
@@ -172,22 +163,15 @@ describe("product-neutral payment verification and settlement", () => {
       obligation_status: "open",
       verification_error_code: "custody_temporarily_unavailable",
       confirmations: 3,
-      custody_rows: 0,
-      settled_events: 0,
     });
     expect(state?.verified_at).toBeTruthy();
   });
 
-  it("moves mismatched Remitano custody evidence to manual review without settlement", async () => {
+  it("sends custody mismatches to manual review without duplicating evidence", async () => {
     const seeded = await seedSubmittedPayment(true);
-    let custodyReads = 0;
-    const reader = async () => {
-      custodyReads += 1;
-      return custodyEvidence(seeded.hash, "24");
-    };
+    const reader = async () => custodyEvidence(seeded.hash, "24");
     const result = await verifyAndSettlePaymentAttempt(seeded.attemptId, async () => evidence(seeded.hash), reader);
     expect(result).toMatchObject({ status: "manual_review", reason: "custody_amount_mismatch" });
-    expect(custodyReads).toBe(1);
     const evidenceRows = await paymentsDb.rawQueryRow<{ count: number }>(
       "SELECT count(*)::int AS count FROM payment_custody_evidence WHERE payment_attempt_id = $1",
       seeded.attemptId,

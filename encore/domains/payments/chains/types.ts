@@ -16,7 +16,6 @@ export interface ChainTransactionEvidence {
   visible: boolean;
   execution: "success" | "failed" | "pending";
   blockNumber: bigint | null;
-  blockTimestamp: string | null;
   latestBlockNumber: bigint | null;
   sender: string | null;
   logs: ChainLog[];
@@ -50,5 +49,4 @@ export interface PaymentEvidenceEvaluation {
   receivedAmount: string | null;
   receivedAmountUnits: bigint | null;
   blockNumber: bigint | null;
-  blockTimestamp: string | null;
 }

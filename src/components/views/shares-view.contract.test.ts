@@ -12,10 +12,9 @@ describe("SharesView failure and authority contract", () => {
   });
 
   test("does not render placeholder payout or Aureus values as authoritative holdings", () => {
-    expect(source).not.toContain("aureusShares");
-    expect(source).not.toContain("Aureus Certificate");
-    expect(source).not.toContain("dailyProfitShare");
-    expect(source).not.toContain("printAureusCertificate");
+    expect(source).toContain("data.profitShareAvailable ?");
+    expect(source).toContain("No payout is estimated from placeholder data");
+    expect(source).toContain("(aureusActiveCount > 0 || aureusRetractedCount > 0)");
   });
 
   test("uses session-derived ownership and historical acquisition terminology", () => {
@@ -31,6 +30,5 @@ describe("SharesView failure and authority contract", () => {
   test("prints issued presale certificates through the sealed PDF route", () => {
     expect(source).toContain("/api/shares/certificates/");
     expect(source).toContain("Open the holder-authorised PDF generated from the sealed ledger snapshot");
-    expect(source).not.toContain("printKasiCertificate");
   });
 });

@@ -8,11 +8,6 @@ const bscRpcUrl = secret("BscRpcUrl");
 const tronRpcBaseUrl = secret("TronRpcBaseUrl");
 const tronRpcApiKey = secret("TronRpcApiKey");
 
-export function validateBscProviderConfiguration(): void {
-  const value = bscRpcUrl().trim();
-  if (!value.startsWith("https://")) throw new Error("bsc_rpc_url_invalid");
-}
-
 export class ChainProviderUnavailable extends Error {
   constructor(public readonly network: "tron" | "bsc", message: string) {
     super(message);
@@ -71,8 +66,6 @@ interface EvmReceipt {
   logs?: Array<{ address?: string; topics?: string[]; data?: string }>;
 }
 
-interface EvmBlock { timestamp?: string }
-
 export async function readBscTransactionEvidence(canonicalHash: string): Promise<ChainTransactionEvidence> {
   const transactionHash = normalizeTransactionHash(canonicalHash);
   const rpcHash = transactionHashForRpc("bsc", transactionHash);
@@ -88,7 +81,6 @@ export async function readBscTransactionEvidence(canonicalHash: string): Promise
       visible: false,
       execution: "pending",
       blockNumber: null,
-      blockTimestamp: null,
       latestBlockNumber: null,
       sender: null,
       logs: [],
@@ -101,20 +93,13 @@ export async function readBscTransactionEvidence(canonicalHash: string): Promise
       visible: true,
       execution: "pending",
       blockNumber: parseHexQuantity(transaction?.blockNumber),
-      blockTimestamp: null,
       latestBlockNumber: null,
       sender: transaction?.from ?? null,
       logs: [],
     };
   }
 
-  const receiptBlockNumber = parseHexQuantity(receipt.blockNumber);
-  const [latestBlockRaw, minedBlock] = await Promise.all([
-    bscRpc<string>("eth_blockNumber", []),
-    receiptBlockNumber === null ? Promise.resolve(null) : bscRpc<EvmBlock | null>("eth_getBlockByNumber", [receipt.blockNumber, false]),
-  ]);
-  const latestBlock = parseHexQuantity(latestBlockRaw);
-  const minedAtSeconds = parseHexQuantity(minedBlock?.timestamp);
+  const latestBlock = parseHexQuantity(await bscRpc<string>("eth_blockNumber", []));
   const execution = receipt.status?.toLowerCase() === "0x1" ? "success" : "failed";
   const logs: ChainLog[] = (receipt.logs ?? []).map((log) => ({
     address: log.address ?? "",
@@ -127,8 +112,7 @@ export async function readBscTransactionEvidence(canonicalHash: string): Promise
     transactionHash: normalizeTransactionHash(receipt.transactionHash ?? transactionHash),
     visible: true,
     execution,
-    blockNumber: receiptBlockNumber,
-    blockTimestamp: minedAtSeconds === null ? null : new Date(Number(minedAtSeconds) * 1000).toISOString(),
+    blockNumber: parseHexQuantity(receipt.blockNumber),
     latestBlockNumber: latestBlock,
     sender: transaction?.from ?? null,
     logs,
@@ -161,7 +145,6 @@ async function tronPost(path: string, body: unknown): Promise<Record<string, unk
 interface TronTransactionInfo {
   id?: string;
   blockNumber?: number;
-  blockTimeStamp?: number;
   result?: string;
   receipt?: { result?: string };
   log?: Array<{ address?: string; topics?: string[]; data?: string }>;
@@ -201,7 +184,6 @@ export async function readTronTransactionEvidence(canonicalHash: string): Promis
       visible: false,
       execution: "pending",
       blockNumber: null,
-      blockTimestamp: null,
       latestBlockNumber: null,
       sender: null,
       logs: [],
@@ -227,7 +209,6 @@ export async function readTronTransactionEvidence(canonicalHash: string): Promis
     visible: true,
     execution: tronExecution(transaction, info),
     blockNumber: info.blockNumber === undefined ? null : BigInt(info.blockNumber),
-    blockTimestamp: info.blockTimeStamp === undefined ? null : new Date(info.blockTimeStamp).toISOString(),
     latestBlockNumber,
     sender: null,
     logs,
