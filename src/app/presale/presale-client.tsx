@@ -606,13 +606,12 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
   }
 
   async function startWebPayCheckout() {
-    if (!order || !accessToken || !allowsApplicantAction(applicantAuthority, "start_card_checkout")) return;
+    if (!order || !allowsApplicantAction(applicantAuthority, "start_card_checkout")) return;
     setSubmitting(true);
     setError("");
     try {
       const response = await fetch(`/api/presale/orders/${encodeURIComponent(order.orderReference)}/webpay-checkout`, {
         method: "POST",
-        headers: { "X-Presale-Access-Token": accessToken },
       });
       const payload = await response.json() as { actionUrl?: string; fields?: Record<string, string>; error?: string };
       if (!response.ok) throw new Error(payload.error ?? "WebPay checkout could not be started");
@@ -935,12 +934,13 @@ function ReservationStateCard({ authority, order, accessToken, error, submitting
   const presentation = applicantJourneyPresentation(authority.journey);
   const paymentNetwork = reservation.network?.toLowerCase() as SupportedPaymentNetwork;
   const canSubmitHash = Boolean(order && accessToken && allowsApplicantAction(authority, "submit_payment_hash"));
-  const canStartCard = Boolean(order && accessToken && allowsApplicantAction(authority, "start_card_checkout"));
+  const canStartCard = Boolean(order && allowsApplicantAction(authority, "start_card_checkout"));
   const canCancel = Boolean(reservation.cancellation.eligible && allowsApplicantAction(authority, "cancel_reservation") && onCancelReservation);
   const canRecheck = Boolean(allowsApplicantAction(authority, "recheck_payment") && onRecheckPayment);
   const needsAccountAction = !canCancel && !canRecheck && (allowsApplicantAction(authority, "recheck_payment")
     || allowsApplicantAction(authority, "cancel_reservation")
-    || ((allowsApplicantAction(authority, "submit_payment_hash") || allowsApplicantAction(authority, "start_card_checkout")) && (!order || !accessToken)));
+    || (allowsApplicantAction(authority, "submit_payment_hash") && (!order || !accessToken))
+    || (allowsApplicantAction(authority, "start_card_checkout") && !order));
   const Icon = presentation.complete ? CheckCircle2 : Clock3;
 
   return <Card className="presale-form-card min-w-0 text-white shadow-2xl shadow-black/20">

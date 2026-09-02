@@ -15,6 +15,8 @@ import { ensureMembershipPlan } from "../membership/plans";
 import { submitPaymentAttempt } from "../payments/attempts";
 import { createPaymentIntent, type PaymentIntentResponse } from "../payments/intents";
 import { cancelPaymentObligation, createPaymentObligation } from "../payments/obligations";
+import { recordConfirmedPaymentCredit } from "../payments/credits";
+import { findPaymentSessionByProviderReference, recordPaymentProviderEvent, registerPaymentSession } from "../payments/sessions";
 import { resolveActiveReceivingConfiguration } from "../payments/registry";
 import { verifyAndSettlePaymentAttempt, type SettledPaymentResult } from "../payments/verification";
 import { validateBscProviderConfiguration } from "../payments/chains/providers";
@@ -755,22 +757,37 @@ function orderResponse(order: OrderRow, campaign: CampaignRow, txHash?: string |
   };
 }
 
-async function ensurePresalePaymentIntent(order: OrderRow, campaign: CampaignRow): Promise<PaymentIntentResponse> {
+async function ensurePresalePaymentAuthority(order: OrderRow, campaign: CampaignRow): Promise<PaymentIntentResponse | undefined> {
   if (!order.external_profile_id) throw APIError.failedPrecondition("Presale order is not bound to an authenticated profile");
-  if (campaign.network !== "bsc") throw APIError.failedPrecondition("KaSiShares crypto payments are available on BSC only");
+  if (order.payment_rail === "webpay_card" && !order.total_zar) {
+    throw APIError.failedPrecondition("Card reservation has no authoritative ZAR amount");
+  }
   const obligation = await createPaymentObligation({
     subjectType: "presale_order",
     subjectReference: order.order_reference,
     payerProfileId: order.external_profile_id,
     beneficiaryProfileId: order.external_profile_id,
-    settlementCurrency: "USDT",
-    settlementAmount: order.total_usdt,
-    metadata: { campaignId: order.campaign_id },
+    settlementCurrency: order.payment_rail === "webpay_card" ? "ZAR" : "USDT",
+    settlementAmount: order.payment_rail === "webpay_card" ? order.total_zar! : order.total_usdt,
+    metadata: { campaignId: order.campaign_id, paymentRail: order.payment_rail },
   });
+  await presaleDb.rawExec(`UPDATE presale_orders SET payment_obligation_id=$2,updated_at=now()
+    WHERE id=$1 AND (payment_obligation_id IS NULL OR payment_obligation_id=$2)`, order.id, obligation.id);
+  order.payment_obligation_id = obligation.id;
+  if (order.payment_rail === "webpay_card") return undefined;
+  if (campaign.network !== "bsc") throw APIError.failedPrecondition("KaSiShares crypto payments are available on BSC only");
   const intent = await createPaymentIntent({
     profileId: order.external_profile_id,
     obligationId: obligation.id,
     network: "bsc",
+  });
+  await registerPaymentSession({
+    obligationId: obligation.id,
+    provider: "remitano_direct_usdt",
+    providerSessionId: intent.id,
+    providerReference: intent.id,
+    expiresAt: intent.expiresAt,
+    metadata: { network: intent.network, receivingAddress: intent.receivingAddress },
   });
   await presaleDb.rawExec(`UPDATE presale_orders SET payment_obligation_id = $2, payment_intent_id = $3,
     payment_network = $4, payment_receiving_address = $5, payment_token_contract = $6,
@@ -2059,7 +2076,7 @@ export const createPresaleOrder = api<CreatePresaleOrderRequest, { order: Presal
         const campaign = await tx.rawQueryRow<CampaignRow>("SELECT * FROM presale_campaigns WHERE id = $1", replay.campaign_id);
         if (!campaign) throw new Error("presale_campaign_not_found");
         await tx.commit();
-        const intent = replay.payment_rail === "remitano_usdt" ? await ensurePresalePaymentIntent(replay, campaign) : undefined;
+        const intent = await ensurePresalePaymentAuthority(replay, campaign);
         const emailStatus = await safelyEnsurePresaleReservationCreatedEmail(replay, campaign, intent?.network ?? "webpay");
         return { order: orderResponse(replay, campaign, null, 0, intent), accessToken, emailStatus };
       }
@@ -2084,7 +2101,7 @@ export const createPresaleOrder = api<CreatePresaleOrderRequest, { order: Presal
         const campaign = await tx.rawQueryRow<CampaignRow>("SELECT * FROM presale_campaigns WHERE id = $1", existing.campaign_id);
         if (!campaign) throw new Error("presale_campaign_not_found");
         await tx.commit();
-        const intent = existing.payment_rail === "remitano_usdt" ? await ensurePresalePaymentIntent(existing, campaign) : undefined;
+        const intent = await ensurePresalePaymentAuthority(existing, campaign);
         const emailStatus = await safelyEnsurePresaleReservationCreatedEmail(existing, campaign, intent?.network ?? "webpay");
         return { order: orderResponse(existing, campaign, null, 0, intent), accessToken, emailStatus };
       }
@@ -2185,7 +2202,7 @@ export const createPresaleOrder = api<CreatePresaleOrderRequest, { order: Presal
         await tx.rawExec("UPDATE presale_invitations SET webpay_unit_price_zar_override = NULL WHERE id = $1", invitation.id);
       }
       await tx.commit();
-      const intent = order.payment_rail === "remitano_usdt" ? await ensurePresalePaymentIntent(order, campaign) : undefined;
+      const intent = await ensurePresalePaymentAuthority(order, campaign);
       const emailStatus = await safelyEnsurePresaleReservationCreatedEmail(order, campaign, intent?.network ?? "webpay");
       return { order: orderResponse(order, campaign, null, 0, intent), accessToken, emailStatus };
     } catch (error) {
@@ -2253,10 +2270,6 @@ export const createPresaleWebPayCheckout = api<
   WebPayCheckoutResponse
 >({ method: "POST", path: "/presale/orders/:orderReference/webpay-checkout", expose: true }, async (req) => {
   const session = await requirePresaleSession();
-  const accessToken = requestHeader("x-presale-access-token").trim();
-  if (accessToken.length < 32 || accessToken.length > 256) {
-    throw APIError.unauthenticated("A valid order access token is required");
-  }
   const actionUrl = WebPayCheckoutUrl().trim();
   const notifyUrl = WebPayNotifyUrl().trim();
   if (!actionUrl.startsWith("https://") || !notifyUrl.startsWith("https://")) {
@@ -2266,17 +2279,18 @@ export const createPresaleWebPayCheckout = api<
     id: string; order_reference: string; buyer_name: string; buyer_email: string; buyer_phone: string | null;
     quantity: number; payment_rail: PresalePaymentRail; total_zar: string | null; status: string;
     payment_deadline: string; webpay_transaction_id: string | null; webpay_order_number: string | null;
+    payment_obligation_id: string | null;
     application_number: string;
   }>(
     `SELECT o.id,o.order_reference,o.buyer_name,o.buyer_email,o.buyer_phone,o.quantity,o.payment_rail,
             o.total_zar::text AS total_zar,o.status,o.payment_deadline,
-            o.webpay_transaction_id::text AS webpay_transaction_id,o.webpay_order_number,
+            o.webpay_transaction_id::text AS webpay_transaction_id,o.webpay_order_number,o.payment_obligation_id,
             a.application_number
        FROM presale_orders o
        JOIN presale_applications a ON a.id = o.application_id
-      WHERE o.order_reference = $1 AND o.access_token_hash = $2
-        AND o.external_profile_id::text = $3::text`,
-    req.orderReference, hashSecret(accessToken), session.profile.id,
+       WHERE o.order_reference = $1
+         AND o.external_profile_id::text = $2::text`,
+    req.orderReference, session.profile.id,
   );
   if (!order) throw APIError.notFound("Presale order not found");
   if (order.payment_rail !== "webpay_card" || !order.total_zar) {
@@ -2285,11 +2299,14 @@ export const createPresaleWebPayCheckout = api<
   if (order.status !== "awaiting_payment" || new Date(order.payment_deadline) <= new Date()) {
     throw APIError.failedPrecondition("This reservation no longer accepts payment");
   }
-  const transactionId = order.webpay_transaction_id ?? crypto.randomUUID();
+  if (!order.payment_obligation_id) throw APIError.failedPrecondition("Payment obligation is not available");
+  // Every checkout attempt is disposable. A declined or abandoned attempt must
+  // never poison the authoritative obligation or prevent a clean retry.
+  const transactionId = crypto.randomUUID();
   const orderNumber = order.webpay_order_number ?? webPayOrderNumber(WEBPAY_ROUTING_CODE, order.order_reference);
   await presaleDb.rawExec(
     `UPDATE presale_orders SET webpay_transaction_id = $2, webpay_order_number = $3, updated_at = now()
-      WHERE id = $1 AND (webpay_transaction_id IS NULL OR webpay_transaction_id = $2)`,
+      WHERE id = $1`,
     order.id, transactionId, orderNumber,
   );
   const fields: Record<string, string> = {
@@ -2329,6 +2346,15 @@ export const createPresaleWebPayCheckout = api<
     transactionId,
     amountZar: order.total_zar,
     securityKey: WebPaySecurityKey(),
+  });
+  await registerPaymentSession({
+    obligationId: order.payment_obligation_id,
+    provider: "instapay_webpay_form",
+    providerSessionId: transactionId,
+    providerReference: orderNumber,
+    providerPaymentUrl: actionUrl,
+    expiresAt: order.payment_deadline,
+    metadata: { orderReference: order.order_reference, integration: "web_form" },
   });
   return { actionUrl, fields };
 });
@@ -2646,19 +2672,32 @@ export const receivePresaleWebPayNotification = api<
     securityKey: WebPaySecurityKey(),
   }, event.checksum)) throw APIError.unauthenticated("Invalid WebPay notification checksum");
 
+  const paymentSession = await findPaymentSessionByProviderReference("instapay_webpay_form", event.payeeRefInfo);
   const order = await presaleDb.rawQueryRow<{
     id: string; order_reference: string; payment_rail: PresalePaymentRail; total_zar: string | null;
     webpay_transaction_id: string | null; webpay_order_number: string | null; status: string; incorporation_status: string;
+    payment_obligation_id: string | null;
   }>(`SELECT id,order_reference,payment_rail,total_zar::text AS total_zar,
-             webpay_transaction_id::text AS webpay_transaction_id,webpay_order_number,status,incorporation_status
+             webpay_transaction_id::text AS webpay_transaction_id,webpay_order_number,status,incorporation_status,
+             payment_obligation_id
         FROM presale_orders
-       WHERE webpay_transaction_id::text = $1 OR webpay_order_number = $1`, event.payeeRefInfo);
+       WHERE ($1::text IS NOT NULL AND order_reference=$1)
+          OR webpay_transaction_id::text=$2 OR webpay_order_number=$2`,
+  paymentSession?.subjectReference ?? null, event.payeeRefInfo);
   if (!order || order.payment_rail !== "webpay_card" || order.webpay_order_number !== event.payeeOrderNr) {
     throw APIError.failedPrecondition("WebPay notification does not match a reservation");
   }
   if (order.total_zar !== requestedAmount) throw APIError.failedPrecondition("WebPay amount does not match the reservation");
   const providerReference = event.paymentSystemReference ?? `${event.requestTokenId}:${event.requestStatus}`;
   const eventId = `${event.requestTokenId}:${event.requestStatus}`;
+  if (!paymentSession) throw APIError.failedPrecondition("WebPay notification does not match a payment session");
+  await recordPaymentProviderEvent({
+    provider: "instapay_webpay_form",
+    providerEventId: eventId,
+    paymentSessionId: paymentSession.id,
+    payload: event,
+    outcome: event.requestStatus,
+  });
   await presaleDb.rawExec(`INSERT INTO presale_payment_events (provider,provider_event_id,tx_hash,payload,outcome)
     VALUES ('webpay',$1,$2,$3::jsonb,$4) ON CONFLICT (provider,provider_event_id) DO NOTHING`,
   eventId, providerReference, JSON.stringify(event), event.requestStatus.toLowerCase());
@@ -2674,6 +2713,9 @@ export const receivePresaleWebPayNotification = api<
   if (!event.paymentSystemReference) {
     throw APIError.failedPrecondition("Completed WebPay payment is missing its payment-system reference");
   }
+  if (!order.payment_obligation_id || !paymentSession || paymentSession.obligationId !== order.payment_obligation_id) {
+    throw APIError.failedPrecondition("WebPay session does not belong to the payment obligation");
+  }
   if (order.incorporation_status === "pending") {
     assertApplicantJourneyTransition(orderJourneyState(order.status, order.incorporation_status), "awaiting_incorporation");
   }
@@ -2688,8 +2730,20 @@ export const receivePresaleWebPayNotification = api<
     || settlementClaim.payment_method !== event.paymentMethod) {
     throw APIError.alreadyExists("WebPay settlement reference was already used for different payment evidence");
   }
-  await fulfilWebPayPresalePayment(order.order_reference, providerReference, event.paymentMethod);
-  return { accepted: true, outcome: "confirmed", orderReference: order.order_reference };
+  const credit = await recordConfirmedPaymentCredit({
+    obligationId: order.payment_obligation_id,
+    paymentSessionId: paymentSession.id,
+    provider: "instapay_webpay_form",
+    providerReference,
+    asset: "ZAR",
+    amount: requestedAmount,
+    observedAt: new Date().toISOString(),
+    evidence: { requestTokenId: event.requestTokenId, paymentMethod: event.paymentMethod },
+  });
+  if (credit.obligationStatus === "paid") {
+    await fulfilWebPayPresalePayment(order.order_reference, providerReference, event.paymentMethod);
+  }
+  return { accepted: true, outcome: credit.obligationStatus, orderReference: order.order_reference };
 });
 
 export const receivePresaleWebPayProcessNotification = api<
@@ -2994,6 +3048,65 @@ export const reconcileConfirmedPresaleOrders = api<void, { incorporated: number;
   },
 );
 
+export const reconcileSettledPaymentObligations = api<void, { processed: number; failed: number }>(
+  { method: "POST", path: "/internal/presale/reconcile-payment-settlements", expose: false },
+  async () => {
+    let processed = 0;
+    let failed = 0;
+    for (let index = 0; index < 100; index += 1) {
+      const event = await paymentsDb.rawQueryRow<{ id: string; aggregate_id: string; attempt_count: number }>(
+        `UPDATE payment_outbox SET status='processing',attempt_count=attempt_count+1,
+            locked_until=now()+interval '5 minutes'
+          WHERE id=(SELECT id FROM payment_outbox
+            WHERE event_type='payment_obligation.settled' AND available_at<=now()
+              AND (status='pending' OR (status='processing' AND locked_until<now()))
+            ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1)
+          RETURNING id,aggregate_id,attempt_count`);
+      if (!event) break;
+      try {
+        const obligation = await paymentsDb.rawQueryRow<{
+          subject_type: string; subject_reference: string; payment_intent_id: string | null;
+          provider_reference: string | null; observed_at: string | null; evidence: Record<string, unknown> | null;
+        }>(`SELECT o.subject_type,o.subject_reference,
+              (SELECT i.id FROM payment_intents i WHERE i.order_id=o.id ORDER BY i.created_at DESC LIMIT 1) AS payment_intent_id,
+              (SELECT c.provider_reference FROM payment_credits c WHERE c.obligation_id=o.id AND c.status='confirmed' ORDER BY c.created_at DESC LIMIT 1) AS provider_reference,
+              (SELECT c.observed_at FROM payment_credits c WHERE c.obligation_id=o.id AND c.status='confirmed' ORDER BY c.created_at DESC LIMIT 1) AS observed_at,
+              (SELECT c.evidence FROM payment_credits c WHERE c.obligation_id=o.id AND c.status='confirmed' ORDER BY c.created_at DESC LIMIT 1) AS evidence
+            FROM payment_obligations o WHERE o.id=$1 AND o.status='paid'`, event.aggregate_id);
+        if (!obligation || obligation.subject_type !== "presale_order" || !obligation.provider_reference) {
+          throw new Error("settled_presale_obligation_incomplete");
+        }
+        const order = await presaleDb.rawQueryRow<{ payment_rail: PresalePaymentRail }>(
+          "SELECT payment_rail FROM presale_orders WHERE order_reference=$1", obligation.subject_reference);
+        if (!order) throw new Error("settled_presale_order_not_found");
+        if (order.payment_rail === "webpay_card") {
+          await fulfilWebPayPresalePayment(obligation.subject_reference, obligation.provider_reference, "settlement_recovery");
+        } else {
+          if (!obligation.payment_intent_id) throw new Error("settled_presale_intent_not_found");
+          const confirmations = typeof obligation.evidence?.confirmations === "number"
+            ? obligation.evidence.confirmations : 0;
+          await fulfilSettledPresalePayment(obligation.subject_reference, obligation.payment_intent_id,
+            obligation.provider_reference, confirmations, obligation.observed_at);
+        }
+        await paymentsDb.rawExec(`UPDATE payment_outbox SET status='processed',processed_at=now(),locked_until=NULL,
+          last_error=NULL WHERE id=$1`, event.id);
+        processed += 1;
+      } catch (error) {
+        failed += 1;
+        const message = error instanceof Error ? error.message.slice(0, 500) : "payment_settlement_delivery_failed";
+        await paymentsDb.rawExec(`UPDATE payment_outbox
+          SET status=CASE WHEN attempt_count>=10 THEN 'failed' ELSE 'pending' END,
+              available_at=now()+(LEAST(attempt_count,10)*interval '1 minute'),locked_until=NULL,last_error=$2
+          WHERE id=$1`, event.id, message);
+        log.error(error, "settled payment obligation delivery failed", {
+          obligationId: event.aggregate_id, attempt: event.attempt_count,
+        });
+      }
+    }
+    return { processed, failed };
+  },
+);
+
 export const retryFailedPresaleEmails = api<void, { sent: number; failed: number; skipped: number }>(
   { method: "POST", path: "/internal/presale/retry-emails", expose: false },
   async () => {
@@ -3084,6 +3197,13 @@ const presaleIncorporationJob = new CronJob("presale-incorporation-reconciliatio
   endpoint: reconcileConfirmedPresaleOrders,
 });
 void presaleIncorporationJob;
+
+const presalePaymentSettlementJob = new CronJob("presale-payment-settlement-reconciliation", {
+  title: "Apply settled payment obligations to presale orders",
+  every: "1m",
+  endpoint: reconcileSettledPaymentObligations,
+});
+void presalePaymentSettlementJob;
 
 const presaleEmailRetryJob = new CronJob("presale-email-retry", {
   title: "Retry failed presale transactional emails",

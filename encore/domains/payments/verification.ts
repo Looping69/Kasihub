@@ -15,6 +15,8 @@ import {
 } from "./custody";
 import { assertPaymentTransition, type PaymentStatus } from "./state-machine";
 import { classifyTransactionDeadline } from "./deadline-policy";
+import { classifyObligationFunding } from "./settlement-policy";
+import { decimalToUnits } from "./chains/amount";
 
 export type SettledPaymentResult = {
   paymentIntentId: string;
@@ -141,7 +143,7 @@ export async function verifyAndSettlePaymentAttempt(
     attemptId,
   );
   if (!row) throw APIError.notFound("Payment attempt not found");
-  if (row.intent_status === "settled" && row.obligation_status === "settled") {
+  if (row.intent_status === "settled" && row.obligation_status === "paid") {
     return { ...retryableResult(row, "already_settled"), status: "settled" };
   }
   if (row.intent_status === "rejected" && row.verification_status === "rejected") {
@@ -211,14 +213,14 @@ export async function verifyAndSettlePaymentAttempt(
   const tx = await paymentsDb.begin();
   try {
     await tx.rawExec("SELECT pg_advisory_xact_lock(hashtext($1))", `payment-settle:${row.payment_intent_id}`);
-    const locked = await tx.rawQueryRow<{ status: PaymentStatus; obligation_status: string }>(
-      `SELECT i.status, o.status AS obligation_status
+    const locked = await tx.rawQueryRow<{ status: PaymentStatus; obligation_status: string; settlement_amount: string }>(
+      `SELECT i.status, o.status AS obligation_status,o.settlement_amount::text AS settlement_amount
          FROM payment_intents i JOIN payment_obligations o ON o.id = i.order_id
         WHERE i.id = $1 FOR UPDATE OF i, o`,
       row.payment_intent_id,
     );
     if (!locked) throw APIError.notFound("Payment intent not found");
-    if (locked.status === "settled" && locked.obligation_status === "settled") {
+    if (locked.status === "settled" && locked.obligation_status === "paid") {
       await tx.commit();
       return { ...retryableResult(row, "already_settled"), status: "settled", confirmations: evaluation.confirmations };
     }
@@ -235,38 +237,70 @@ export async function verifyAndSettlePaymentAttempt(
       JSON.stringify({ attemptId: row.attempt_id }));
     }
 
-    const finalIntentStatus: PaymentStatus = decision === "confirmed" ? "settled" : decision;
+    let finalIntentStatus: PaymentStatus = decision === "confirmed" ? "settled" : decision;
+    const creditable = decision === "confirmed" || decision === "underpaid";
     await tx.rawExec(`UPDATE payment_attempts SET verification_status = $2,
       chain_sender_wallet = $3, chain_receiver_wallet = $4, chain_amount = $5::numeric,
       block_number = $6, confirmations = $7, verification_error_code = $8, block_timestamp = $9::timestamptz,
       verification_error_detail = NULL, verified_at = now() WHERE id = $1`,
-    row.attempt_id, decision, evaluation.sender, evaluation.receiver, evaluation.receivedAmount,
+    row.attempt_id, creditable ? "confirmed" : decision, evaluation.sender, evaluation.receiver, evaluation.receivedAmount,
     evaluation.blockNumber ?? null, evaluation.confirmations,
-    decision === "confirmed" ? null : decisionReason, evaluation.blockTimestamp);
+    creditable ? null : decisionReason, evaluation.blockTimestamp);
 
-    if (decision === "confirmed") {
-      assertPaymentTransition("verifying", "confirmed");
-      assertPaymentTransition("confirmed", "settling");
-      assertPaymentTransition("settling", "settled");
-      await tx.rawExec(`UPDATE payment_intents SET status = 'settled', confirmed_at = COALESCE(confirmed_at, now()),
-        settled_at = COALESCE(settled_at, now()), updated_at = now() WHERE id = $1`, row.payment_intent_id);
-      await tx.rawExec(`UPDATE payment_obligations SET status = 'settled', settled_at = COALESCE(settled_at, now()),
-        updated_at = now() WHERE id = $1 AND status = 'open'`, row.obligation_id);
+    if (creditable) {
+      await tx.rawExec(`INSERT INTO payment_credits
+        (id,obligation_id,payment_session_id,provider,provider_reference,asset,amount,status,evidence,observed_at,finalized_at)
+        VALUES ($1,$2,(SELECT id FROM payment_sessions
+          WHERE provider='remitano_direct_usdt' AND provider_session_id=$7),
+          'remitano_direct_usdt',$3,'USDT',$4::numeric,'confirmed',$5::jsonb,
+          COALESCE($6::timestamptz,now()),now())
+        ON CONFLICT (provider,provider_reference,asset) DO NOTHING`,
+      crypto.randomUUID(), row.obligation_id, row.transaction_hash, evaluation.receivedAmount,
+      JSON.stringify({ attemptId: row.attempt_id, confirmations: evaluation.confirmations, reason: decisionReason }),
+      evaluation.blockTimestamp, row.payment_intent_id);
+      const recordedCredit = await tx.rawQueryRow<{ obligation_id: string; amount: string }>(
+        `SELECT obligation_id,amount::text AS amount FROM payment_credits
+          WHERE provider='remitano_direct_usdt' AND provider_reference=$1 AND asset='USDT'`,
+        row.transaction_hash);
+      if (!recordedCredit || recordedCredit.obligation_id !== row.obligation_id
+        || decimalToUnits(recordedCredit.amount, 6) !== decimalToUnits(evaluation.receivedAmount, 6)) {
+        throw APIError.alreadyExists("Blockchain credit reference was reused with different payment evidence");
+      }
+      const credits = await tx.rawQueryAll<{ amount: string }>(`SELECT amount::text AS amount FROM payment_credits
+        WHERE obligation_id=$1 AND status='confirmed' ORDER BY created_at`, row.obligation_id);
+      const funding = classifyObligationFunding(locked.settlement_amount, credits.map((credit) => credit.amount));
+      await tx.rawExec("UPDATE payment_obligations SET status=$2,updated_at=now() WHERE id=$1",
+        row.obligation_id, funding.status);
+      if (funding.status === "paid") {
+        finalIntentStatus = "settled";
+        await tx.rawExec(`UPDATE payment_intents SET status='settled',confirmed_at=COALESCE(confirmed_at,now()),
+          settled_at=COALESCE(settled_at,now()),updated_at=now() WHERE id=$1`, row.payment_intent_id);
+        await tx.rawExec("UPDATE payment_obligations SET settled_at=COALESCE(settled_at,now()) WHERE id=$1", row.obligation_id);
+        const settlementId = crypto.randomUUID();
+        await tx.rawExec(`INSERT INTO payment_settlements (id,obligation_id,currency,amount,status)
+          VALUES ($1,$2,'USDT',$3::numeric,'settled') ON CONFLICT (obligation_id) DO NOTHING`,
+        settlementId, row.obligation_id, locked.settlement_amount);
+        await tx.rawExec(`INSERT INTO payment_outbox
+          (id,event_key,event_type,schema_version,aggregate_type,aggregate_id,payload)
+          VALUES ($1,$2,'payment_obligation.settled','payment-obligation-settled.v1','payment_obligation',$3,$4::jsonb)
+          ON CONFLICT (event_key) DO NOTHING`, crypto.randomUUID(),
+        `payment-obligation:${row.obligation_id}:settled`, row.obligation_id,
+        JSON.stringify({ obligationId: row.obligation_id, subjectType: row.subject_type,
+          subjectReference: row.subject_reference, settlementId }));
+      } else {
+        finalIntentStatus = funding.status === "review_required" ? "manual_review" : "underpaid";
+        await tx.rawExec("UPDATE payment_intents SET status=$2,updated_at=now() WHERE id=$1",
+          row.payment_intent_id, finalIntentStatus);
+      }
       await tx.rawExec(`INSERT INTO payment_state_history
-        (payment_intent_id, prior_status, new_status, actor_type, actor_reference, evidence) VALUES
-        ($1,'verifying','confirmed','system','chain.verify',jsonb_build_object(
-          'attemptId',$2::text,'confirmations',$3::int,'reason',$4::text)),
-        ($1,'confirmed','settling','system','payment.settle','{}'::jsonb),
-        ($1,'settling','settled','system','payment.settle',$5::jsonb)`, row.payment_intent_id,
-      row.attempt_id, evaluation.confirmations, decisionReason,
-      JSON.stringify({ obligationId: row.obligation_id, subjectType: row.subject_type, subjectReference: row.subject_reference }));
-      await tx.rawExec(`INSERT INTO payment_events (payment_intent_id,event_key,event_type,payload) VALUES
-        ($1,$2,'payment.confirmed',jsonb_build_object(
-          'attemptId',$3::text,'reason',$4::text)),
-        ($1,$5,'payment.settled',$6::jsonb)
-        ON CONFLICT (event_key) DO NOTHING`, row.payment_intent_id,
-      `payment-intent:${row.payment_intent_id}:confirmed`, row.attempt_id, decisionReason,
-      `payment-intent:${row.payment_intent_id}:settled`, JSON.stringify({ obligationId: row.obligation_id, subjectType: row.subject_type, subjectReference: row.subject_reference }));
+        (payment_intent_id,prior_status,new_status,actor_type,actor_reference,evidence)
+        VALUES ($1,'verifying',$2,'system','payment.credit',$3::jsonb)`, row.payment_intent_id,
+      finalIntentStatus, JSON.stringify({ attemptId: row.attempt_id, obligationStatus: funding.status }));
+      await tx.rawExec(`INSERT INTO payment_events (payment_intent_id,event_key,event_type,payload)
+        VALUES ($1,$2,$3,$4::jsonb) ON CONFLICT (event_key) DO NOTHING`, row.payment_intent_id,
+      `payment-attempt:${row.attempt_id}:credited`, funding.status === "paid" ? "payment.settled" : "payment.credited",
+      JSON.stringify({ obligationId: row.obligation_id, creditedAmount: evaluation.receivedAmount,
+        obligationStatus: funding.status }));
     } else {
       assertPaymentTransition("verifying", decision);
       await tx.rawExec("UPDATE payment_intents SET status = $2, updated_at = now() WHERE id = $1", row.payment_intent_id, decision);

@@ -35,7 +35,7 @@ describe("isolated KaSiShares applicant portal", () => {
     expect(migration).toContain("order_id UUID REFERENCES presale_orders(id)");
     expect(migration).toContain("uq_presale_reservation_email_delivery");
     expect(api).toContain("presale-reservation-created/${input.orderId}");
-    expect(api).toContain('await tx.commit();\n      const intent = order.payment_rail === "remitano_usdt" ? await ensurePresalePaymentIntent(order, campaign) : undefined;');
+    expect(api).toContain('await tx.commit();\n      const intent = await ensurePresalePaymentAuthority(order, campaign);');
     expect(api).toContain('const emailStatus = await safelyEnsurePresaleReservationCreatedEmail(order, campaign, intent?.network ?? "webpay");');
     expect(api).toContain('return { order: orderResponse(order, campaign, null, 0, intent), accessToken, emailStatus };');
   });

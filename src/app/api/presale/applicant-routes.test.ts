@@ -185,32 +185,24 @@ describe("KaSiShares applicant BFF routes", () => {
     expect(mocks.encoreRequest).not.toHaveBeenCalled();
   });
 
-  test("forwards session token and access token to start webpay checkout", async () => {
+  test("uses the authenticated applicant session to start webpay checkout", async () => {
     mocks.encoreRequest.mockResolvedValue({ actionUrl: "https://webpay.example/pay", fields: { m_payment_id: "1" } });
     const req = new NextRequest("https://shares.kasihub.net/api/presale/orders/KSP-ONE/webpay-checkout", {
       method: "POST",
-      headers: { "x-presale-access-token": "order-access-token-123" },
     });
     const response = await startWebPayCheckout(req, { params: Promise.resolve({ reference: "KSP-ONE" }) });
     expect(response.status).toBe(200);
     expect(mocks.encoreRequest).toHaveBeenCalledWith(
       "/presale/orders/KSP-ONE/webpay-checkout",
-      { method: "POST", headers: { "X-Presale-Access-Token": "order-access-token-123" } },
+      { method: "POST" },
       "presale-token",
     );
   });
 
-  test("rejects webpay checkout without access token or session token", async () => {
-    const noAccess = new NextRequest("https://shares.kasihub.net/api/presale/orders/KSP-ONE/webpay-checkout", { method: "POST" });
-    const resNoAccess = await startWebPayCheckout(noAccess, { params: Promise.resolve({ reference: "KSP-ONE" }) });
-    expect(resNoAccess.status).toBe(401);
-
+  test("rejects webpay checkout without an applicant session", async () => {
     mocks.presaleSessionToken.mockResolvedValueOnce(undefined);
-    const withAccess = new NextRequest("https://shares.kasihub.net/api/presale/orders/KSP-ONE/webpay-checkout", {
-      method: "POST",
-      headers: { "x-presale-access-token": "order-access-token-123" },
-    });
-    const resNoSession = await startWebPayCheckout(withAccess, { params: Promise.resolve({ reference: "KSP-ONE" }) });
+    const request = new NextRequest("https://shares.kasihub.net/api/presale/orders/KSP-ONE/webpay-checkout", { method: "POST" });
+    const resNoSession = await startWebPayCheckout(request, { params: Promise.resolve({ reference: "KSP-ONE" }) });
     expect(resNoSession.status).toBe(401);
   });
 });

@@ -280,19 +280,14 @@ describe("presale BFF contracts", () => {
     expect(await failed.json()).toEqual({ error: "The unpaid reservation could not be cancelled." });
   });
 
-  test("WebPay checkout requires the private order token and preserves it in a header", async () => {
-    const missing = await startWebPayCheckout(request("/api/presale/orders/KSP/webpay-checkout", { method: "POST" }), orderContext);
-    expect(missing.status).toBe(401);
-    expect(mocks.encoreRequest).not.toHaveBeenCalled();
-
+  test("WebPay checkout uses authenticated ownership without a secondary order credential", async () => {
     const response = await startWebPayCheckout(request("/api/presale/orders/KSP/webpay-checkout", {
       method: "POST",
-      headers: { "x-presale-access-token": " private-token " },
     }), orderContext);
     expect(response.status).toBe(200);
     expect(mocks.encoreRequest).toHaveBeenCalledWith(
       "/presale/orders/KSP%2FORDER%201/webpay-checkout",
-      { method: "POST", headers: { "X-Presale-Access-Token": "private-token" } },
+      { method: "POST" },
       "admin-token",
     );
   });
@@ -301,7 +296,6 @@ describe("presale BFF contracts", () => {
     const { EncoreRequestError } = await import("@/lib/encore-client");
     const req = () => request("/api/presale/orders/KSP/webpay-checkout", {
       method: "POST",
-      headers: { "x-presale-access-token": "private-token" },
     });
     mocks.encoreRequest.mockRejectedValueOnce(new EncoreRequestError("missing", 503, null));
     const unavailable = await startWebPayCheckout(req(), orderContext);

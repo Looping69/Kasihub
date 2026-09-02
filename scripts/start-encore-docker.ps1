@@ -67,6 +67,7 @@ $runArgs = @(
     "run", "-d", "--name", $devName,
     "--restart", "unless-stopped",
     "--network", "container:$dindName",
+    "--workdir", "/workspace/encore",
     "--entrypoint", "bash",
     "-e", "DOCKER_HOST=tcp://127.0.0.1:2375",
     "-v", "${repoRoot}:/workspace",
