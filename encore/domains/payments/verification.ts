@@ -203,9 +203,10 @@ export async function verifyAndSettlePaymentAttempt(
     if (custodyDecision.decision === "retryable") return persistRetryableResult(row, custodyDecision.reason, evaluation);
     if (custodyDecision.decision === "manual_review") decision = "manual_review";
   }
-  const decisionReason = decision === "manual_review" && evaluation.reason === "chain_evidence_satisfied"
-    ? deadlineDecision === "late" ? "transaction_mined_after_deadline" : "transaction_block_time_unavailable"
-    : custodyDecision?.reason ?? evaluation.reason;
+  const decisionReason = custodyDecision?.reason
+    ?? (decision === "manual_review" && evaluation.reason === "chain_evidence_satisfied"
+      ? deadlineDecision === "late" ? "transaction_mined_after_deadline" : "transaction_block_time_unavailable"
+      : evaluation.reason);
 
   const tx = await paymentsDb.begin();
   try {
