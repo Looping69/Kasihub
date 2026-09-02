@@ -2,6 +2,7 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 
 export const WEBPAY_UNIT_PRICE_ZAR = "450.00";
+export const WEBPAY_ROUTING_CODE = "KSH";
 export type PresalePaymentRail = "remitano_usdt" | "webpay_card";
 
 export function resolveWebPayUnitPrice(input: {
@@ -127,4 +128,21 @@ export function webPayReconciliationFields(input: {
     m_category_2: orderReference,
     m_category_3: applicationNumber,
   };
+}
+
+export function webPayBuyerFields(input: {
+  buyerName: string;
+  buyerEmail: string;
+  buyerPhone: string | null;
+}): Record<string, string> {
+  const [firstName = "", ...surnameParts] = input.buyerName.trim().split(/\s+/);
+  const fields: Record<string, string> = {};
+  if (firstName) fields.b_name = firstName.slice(0, 80);
+  const surname = surnameParts.join(" ");
+  if (surname) fields.b_surname = surname.slice(0, 80);
+  const email = input.buyerEmail.trim();
+  if (email.length <= 80) fields.b_email = email;
+  const phone = input.buyerPhone?.trim() ?? "";
+  if (phone && phone.length <= 15) fields.b_mobile = phone;
+  return fields;
 }

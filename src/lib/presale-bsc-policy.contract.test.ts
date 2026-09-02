@@ -83,6 +83,19 @@ describe("KaSiShares BSC-only policy", () => {
     expect(api).toContain("WebPay settlement reference was already used for different payment evidence");
   });
 
+  test("WebPay checkout follows current provider field limits and callback authority", () => {
+    const api = source("encore/domains/presale/api.ts");
+    const webPay = source("encore/domains/presale/webpay.ts");
+    expect(api).toContain("webPayOrderNumber(WEBPAY_ROUTING_CODE");
+    expect(api).toContain('m_ozow_allowed: "false"');
+    expect(api).not.toContain("m_trident_allowed");
+    expect(api).toContain("webPayBuyerFields");
+    expect(webPay).toContain("email.length <= 80");
+    expect(webPay).toContain("phone.length <= 15");
+    expect(api).toContain("status,incorporation_status");
+    expect(api).toContain("Completed WebPay payment is missing its payment-system reference");
+  });
+
   test("the admin allocation override cannot manufacture paid ownership", () => {
     const api = source("encore/domains/presale/api.ts");
     expect(api).toContain("Manual presale share allocation is disabled; settled payment authority is required");
