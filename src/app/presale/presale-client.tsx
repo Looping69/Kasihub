@@ -20,6 +20,7 @@ import {
   readApplicantAuthority,
   type ApplicantAuthority,
 } from "@/lib/applicant-portal-contract";
+import { applicantAuthorityView } from "@/lib/applicant-authority-view";
 
 type Offer = PresaleDevPreviewOffer & {
   invitationEmail?: string;
@@ -355,8 +356,9 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
   );
   const passwordValid = validAccountPassword(password);
   const confirmPasswordValid = passwordValid && confirmPassword === password;
-  const reservation = applicantAuthority?.reservation ?? null;
-  const canCreateReservation = allowsApplicantAction(applicantAuthority, "create_reservation");
+  const authorityView = applicantAuthorityView(applicantAuthority);
+  const reservation = authorityView.showReservation ? applicantAuthority?.reservation ?? null : null;
+  const canCreateReservation = authorityView.canCreateReservation;
 
   async function createOrder(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

@@ -10,4 +10,19 @@ describe("presale crypto payment copy", () => {
     expect(source).toContain('>Open applicant account</Link>');
     expect(source).not.toContain('"Submit transaction for confirmation"');
   });
+
+  test("keeps financial CTAs behind one parsed server authority snapshot", async () => {
+    const source = await readFile(path.join(process.cwd(), "src", "app", "presale", "presale-client.tsx"), "utf8");
+    expect(source).toContain("const authorityView = applicantAuthorityView(applicantAuthority)");
+    expect(source).toContain("const canCreateReservation = authorityView.canCreateReservation");
+    expect(source).toContain("const reservation = authorityView.showReservation");
+    expect(source).toContain('allowsApplicantAction(applicantAuthority, "submit_payment_hash")');
+    expect(source).toContain('allowsApplicantAction(applicantAuthority, "start_card_checkout")');
+  });
+
+  test("records the KIP-029 response-ordering gap for Phase 2", async () => {
+    const source = await readFile(path.join(process.cwd(), "src", "app", "presale", "presale-client.tsx"), "utf8");
+    expect(source).toContain("setApplicantAuthority(authority)");
+    expect(source).not.toMatch(/portal(Request|Response)(Id|Sequence|Generation)/);
+  });
 });
