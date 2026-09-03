@@ -33,18 +33,18 @@ Baseline: `fa79b925689defc636d6602a66dcc31a80854113`
 | Next.js production build | YES |
 | Browser recovery suite | YES — 18 tests passed |
 | Full Encore suite | PARTIAL — 191 tests passed; five runtime-bound suites could not load because `ENCORE_RUNTIME_LIB` is not set |
-| Encore application check | NO — local Encore daemon timed out while starting |
+| Encore application check | PARTIAL — local daemon timed out; Encore Cloud Build & Test passed in production deployment `217tib6agipbre2e052g` |
 | Diff/security review | YES — scoped diff inspected; `git diff --check` passed |
-| Git commit | PENDING |
-| GitHub push | PENDING |
-| Vercel deployment and live checks | PENDING |
-| Encore deployment and live checks | PENDING |
+| Git commit | YES — `098e2ac1` |
+| GitHub push | YES — `origin/main` matched `098e2ac1` after push |
+| Vercel deployment and live checks | YES — production deployment `dpl_FnGdVuxpqJ2SFLw2cCC34GhPcWmq` Ready; public routes returned HTTP 200 |
+| Encore deployment and live checks | YES — production deployment `217tib6agipbre2e052g` succeeded; public health returned HTTP 200 |
 
 ## Readiness decisions
 
 - Safe to commit: **YES**, subject to a final clean staged-path review.
-- Safe to deploy frontend: **NO**, until the same gates are green and deployment is independently verified.
-- Safe to deploy backend: **NO**, until Encore can compile/deploy the backend contract and its deployment health is verified.
+- Safe to deploy frontend: **YES** — deployed and independently verified Ready with public HTTP checks.
+- Safe to deploy backend: **YES** — Encore Cloud Build & Test and Deploy Release succeeded, and production health returned HTTP 200.
 - Safe for real-money use: **NO**. No real payment, provider callback, custody settlement, or production reservation was executed in this phase. Code and controlled tests are not runtime financial proof.
 - Payment-engine work performed: **NO**. The existing payment engine, custody reconciliation, settlement, and share issuance mechanisms were not redesigned.
 
