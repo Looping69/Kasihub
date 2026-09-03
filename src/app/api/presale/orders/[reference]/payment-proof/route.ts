@@ -14,6 +14,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ refere
     }, token));
   } catch (error) {
     const status = error instanceof EncoreRequestError ? error.status : 500;
-    return NextResponse.json({ error: "Unable to submit the transaction hash" }, { status });
+    const message = error instanceof Error ? error.message : "Unable to submit the transaction hash";
+    return NextResponse.json({ error: message }, { status });
   }
 }

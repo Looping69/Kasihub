@@ -419,7 +419,7 @@ const saveApplicationPhaseInput = z.object({
 
 const proofInput = z.object({
   orderReference: z.string().min(8).max(80),
-  accessToken: z.string().min(32).max(256),
+  accessToken: z.string().min(32).max(256).optional(),
   txHash: z.string().trim().min(16).max(160),
   senderAddress: z.string().trim().max(200).optional(),
 });
@@ -2394,10 +2394,19 @@ export const submitPresalePaymentProof = api<PresalePaymentProofRequest, Presale
   { method: "POST", path: "/presale/orders/:orderReference/payment-proof", expose: true },
   async (request) => {
     const payload = proofInput.parse(request);
-    const order = await presaleDb.rawQueryRow<{ id: string; status: string; external_profile_id: string | null; payment_intent_id: string | null }>(
-      `SELECT o.id,o.status,o.external_profile_id,o.payment_intent_id
-       FROM presale_orders o
-       WHERE o.order_reference = $1 AND o.access_token_hash = $2`, payload.orderReference, hashSecret(payload.accessToken));
+    let order: { id: string; status: string; external_profile_id: string | null; payment_intent_id: string | null } | null = null;
+    if (payload.accessToken) {
+      order = await presaleDb.rawQueryRow<{ id: string; status: string; external_profile_id: string | null; payment_intent_id: string | null }>(
+        `SELECT o.id,o.status,o.external_profile_id,o.payment_intent_id
+         FROM presale_orders o
+         WHERE o.order_reference = $1 AND o.access_token_hash = $2`, payload.orderReference, hashSecret(payload.accessToken));
+    } else {
+      const session = await requirePresaleSession();
+      order = await presaleDb.rawQueryRow<{ id: string; status: string; external_profile_id: string | null; payment_intent_id: string | null }>(
+        `SELECT o.id,o.status,o.external_profile_id,o.payment_intent_id
+         FROM presale_orders o
+         WHERE o.order_reference = $1 AND o.external_profile_id::text = $2::text`, payload.orderReference, session.profile.id);
+    }
     if (!order) throw APIError.notFound("Presale order not found");
     if (["confirmed", "expired", "cancelled", "incorporated"].includes(order.status)) throw APIError.failedPrecondition("This order no longer accepts payment proof");
     if (!order.external_profile_id || !order.payment_intent_id) throw APIError.failedPrecondition("This order does not have a payment intent");

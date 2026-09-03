@@ -4,7 +4,8 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { CheckCircle2, Clock3, CreditCard, Download, FileCheck2, Layers3, LoaderCircle, LogOut, RefreshCw, ShieldCheck } from "lucide-react";
+import { Check, CheckCircle2, Clock3, Copy, CreditCard, Download, ExternalLink, FileCheck2, Layers3, LoaderCircle, LogOut, RefreshCw, ShieldCheck } from "lucide-react";
+import { validSubmittedTransactionHash, submittedTransactionHashMessage } from "@/lib/payment-transaction-hash";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CryptoVerificationProgress } from "@/components/presale/crypto-verification-progress";
@@ -228,13 +229,37 @@ export function SharesAccountClient() {
     }
   }
 
+  const [submittingHash, setSubmittingHash] = useState(false);
+  const [hashError, setHashError] = useState("");
+
+  async function submitPaymentHash(orderReference: string, txHash: string) {
+    setSubmittingHash(true);
+    setHashError("");
+    try {
+      const response = await fetch(`/api/presale/orders/${encodeURIComponent(orderReference)}/payment-proof`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ txHash }),
+      });
+      const payload = await response.json() as { error?: string };
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Transaction could not be submitted");
+      }
+      await loadPortal();
+    } catch (err) {
+      setHashError(err instanceof Error ? err.message : "Transaction could not be submitted");
+    } finally {
+      setSubmittingHash(false);
+    }
+  }
+
   return <main className="presale-shell min-h-screen px-5 py-8 text-white">
     <div className="mx-auto w-full max-w-5xl">
       <header className="mb-10 flex items-center justify-between gap-4">
         <Link href="/" className="relative h-[76px] w-[134px]"><Image src="/kasishares-logo.png" alt="KaSiShares home" fill sizes="134px" className="object-contain object-left" priority /></Link>
         {portal ? <Button variant="outline" onClick={() => void logout()} className="border-white/20 bg-transparent text-white"><LogOut className="mr-2 h-4 w-4" />Sign out</Button> : null}
       </header>
-      {loading ? <p className="text-slate-300">Loading applicant account…</p> : portal ? <><span className="sr-only" aria-live="polite">Applicant authority {authorityHydration}</span><PortalView portal={portal} error={error} confirmingPayment={confirmingPayment} recheckingPayment={recheckingPayment} paymentNotice={paymentNotice} onCancel={cancelReservation} onRecheck={recheckPayment} onStartWebPay={startWebPayCheckout} startingWebPay={startingWebPay} webPayError={webPayError} /></> : <LoginForm error={error} onSubmit={login} />}
+      {loading ? <p className="text-slate-300">Loading applicant account…</p> : portal ? <><span className="sr-only" aria-live="polite">Applicant authority {authorityHydration}</span><PortalView portal={portal} error={error} confirmingPayment={confirmingPayment} recheckingPayment={recheckingPayment} paymentNotice={paymentNotice} onCancel={cancelReservation} onRecheck={recheckPayment} onStartWebPay={startWebPayCheckout} startingWebPay={startingWebPay} webPayError={webPayError} onSubmitHash={submitPaymentHash} submittingHash={submittingHash} hashError={hashError} /></> : <LoginForm error={error} onSubmit={login} />}
     </div>
   </main>;
 }
@@ -259,10 +284,34 @@ function LoginForm({ error, onSubmit }: { error: string; onSubmit: (event: FormE
   </section>;
 }
 
-function PortalView({ portal, error, confirmingPayment, recheckingPayment, paymentNotice, onCancel, onRecheck, onStartWebPay, startingWebPay, webPayError }: {
-  portal: Portal; error: string; confirmingPayment: boolean; recheckingPayment: boolean; paymentNotice: string;
-  onCancel: (orderReference: string) => Promise<void>; onRecheck: (orderReference: string) => Promise<void>;
-  onStartWebPay: (orderReference: string) => Promise<void>; startingWebPay: boolean; webPayError: string;
+function PortalView({
+  portal,
+  error,
+  confirmingPayment,
+  recheckingPayment,
+  paymentNotice,
+  onCancel,
+  onRecheck,
+  onStartWebPay,
+  startingWebPay,
+  webPayError,
+  onSubmitHash,
+  submittingHash,
+  hashError,
+}: {
+  portal: Portal;
+  error: string;
+  confirmingPayment: boolean;
+  recheckingPayment: boolean;
+  paymentNotice: string;
+  onCancel: (orderReference: string) => Promise<void>;
+  onRecheck: (orderReference: string) => Promise<void>;
+  onStartWebPay: (orderReference: string) => Promise<void>;
+  startingWebPay: boolean;
+  webPayError: string;
+  onSubmitHash: (orderReference: string, txHash: string) => Promise<void>;
+  submittingHash: boolean;
+  hashError: string;
 }) {
   const shareholder = portal.shareholder ?? { totalIssuedShares: 0, holdings: [] };
   const isShareholder = shareholder.totalIssuedShares > 0;
@@ -279,7 +328,20 @@ function PortalView({ portal, error, confirmingPayment, recheckingPayment, payme
     {portal.order?.webPayProcessStatus && ["FAILED", "REJECTED", "EXPIRED", "REVERSED"].includes(portal.order.webPayProcessStatus) ? <p role="status" className="rounded-xl border border-rose-300/30 bg-rose-400/10 p-4 text-sm text-rose-100">The last WebPay attempt was {portal.order.webPayProcessStatus.toLowerCase()}. No successful card payment was recorded and no shares were allocated.</p> : null}
     {confirmingPayment ? <p role="status" className="rounded-xl border border-sky-300/30 bg-sky-400/10 p-4 text-sm text-sky-100">WebPay returned successfully. We are waiting for the signed payment notification before confirming your shares.</p> : null}
     {portal.order?.paymentRail === "webpay_card" && reservation && allowsApplicantAction(portal.authority, "start_card_checkout") ? <WebPayPaymentRecovery order={portal.order} reservation={reservation} journeyState={portal.authority.journey.state} onStartCheckout={onStartWebPay} starting={startingWebPay} error={webPayError} /> : null}
-    {portal.order?.paymentRail === "remitano_usdt" && reservation && allowsApplicantAction(portal.authority, "recheck_payment") ? <CryptoPaymentRecovery order={portal.order} reservation={reservation} journeyState={portal.authority.journey.state} rechecking={recheckingPayment} notice={paymentNotice} onRecheck={onRecheck} /> : null}
+    {portal.order?.paymentRail === "remitano_usdt" && reservation && (
+      allowsApplicantAction(portal.authority, "submit_payment_hash") ||
+      allowsApplicantAction(portal.authority, "recheck_payment")
+    ) ? <CryptoPaymentRecovery
+      order={portal.order}
+      reservation={reservation}
+      journeyState={portal.authority.journey.state}
+      rechecking={recheckingPayment}
+      notice={paymentNotice}
+      onRecheck={onRecheck}
+      onSubmitHash={onSubmitHash}
+      submittingHash={submittingHash}
+      hashError={hashError}
+    /> : null}
     {shareholder.holdings.length > 0 ? <ShareholderPortfolio shareholder={shareholder} /> : null}
     <ContinuationPanel portal={portal} error={error} onCancel={onCancel} />
     <p className="flex items-center gap-2 text-xs text-slate-400"><ShieldCheck className="h-4 w-4" />KaSiShares access remains separate. Normal dashboard and matrix access require an activated membership subscription.</p>
@@ -329,28 +391,187 @@ function paymentStatusMessage(status?: string, reason?: string): string {
   return "Verification is still pending. Your submitted hash is saved and automatic retries remain active.";
 }
 
-function CryptoPaymentRecovery({ order, reservation, journeyState, rechecking, notice, onRecheck }: {
-  order: PortalOrder; reservation: PresaleReservationContract; journeyState: ApplicantAuthority["journey"]["state"]; rechecking: boolean; notice: string; onRecheck: (orderReference: string) => Promise<void>;
+function CryptoPaymentRecovery({
+  order,
+  reservation,
+  journeyState,
+  rechecking,
+  notice,
+  onRecheck,
+  onSubmitHash,
+  submittingHash,
+  hashError,
+}: {
+  order: PortalOrder;
+  reservation: PresaleReservationContract;
+  journeyState: ApplicantAuthority["journey"]["state"];
+  rechecking: boolean;
+  notice: string;
+  onRecheck: (orderReference: string) => Promise<void>;
+  onSubmitHash: (orderReference: string, txHash: string) => Promise<void>;
+  submittingHash: boolean;
+  hashError: string;
 }) {
+  const [txHashInput, setTxHashInput] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [localError, setLocalError] = useState("");
+
   const statusMessage = paymentStatusMessage(order.paymentVerificationStatus, order.paymentVerificationReason);
-  return <section className="rounded-2xl border border-amber-300/30 bg-[#0f2744] p-7" aria-labelledby="crypto-payment-heading">
+  const hasHash = Boolean(order.transactionHash);
+
+  async function handleCopy(text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // ignore
+    }
+  }
+
+  async function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    setLocalError("");
+    const trimmed = txHashInput.trim();
+    if (!validSubmittedTransactionHash("bsc", trimmed)) {
+      setLocalError(submittedTransactionHashMessage("bsc"));
+      return;
+    }
+    await onSubmitHash(reservation.orderReference, trimmed);
+    setTxHashInput("");
+  }
+
+  return <section className="overflow-hidden rounded-2xl border border-amber-300/30 bg-[#0f2744] p-7" aria-labelledby="crypto-payment-heading">
     <div className="flex flex-wrap items-start justify-between gap-5">
       <div className="max-w-2xl">
-        <p className="text-xs font-bold uppercase tracking-[.18em] text-amber-300">Crypto payment recovery</p>
-        <h2 id="crypto-payment-heading" className="mt-2 text-2xl font-black">Your share choice is preserved</h2>
-        <p className="mt-2 text-sm leading-6 text-slate-300">{reservation.paidShares.toLocaleString()} paid {reservation.paidShares === 1 ? "share is" : "shares are"} reserved for {reservation.totalUsdt} USDT. A second purchase form is intentionally locked while this payment is verified.</p>
+        <p className="text-xs font-bold uppercase tracking-[.18em] text-amber-300">Crypto payment (BNB Smart Chain / BSC)</p>
+        <h2 id="crypto-payment-heading" className="mt-2 text-2xl font-black">
+          {hasHash ? "Your share choice is preserved" : "Complete your USDT transfer"}
+        </h2>
+        <p className="mt-2 text-sm leading-6 text-slate-300">
+          {reservation.paidShares.toLocaleString()} paid {reservation.paidShares === 1 ? "share is" : "shares are"} reserved for {reservation.totalUsdt} USDT.
+          {" "}A second purchase form is intentionally locked while this payment is verified. Send payment on the BNB Smart Chain (BSC / BEP-20) network to the address below.
+        </p>
       </div>
-      <Button type="button" disabled={rechecking || !order.transactionHash} onClick={() => void onRecheck(reservation.orderReference)} className="bg-amber-400 font-bold text-slate-950 hover:bg-amber-300 disabled:opacity-60">
+      {hasHash ? <Button
+        type="button"
+        disabled={rechecking || !order.transactionHash}
+        onClick={() => void onRecheck(reservation.orderReference)}
+        className="bg-amber-400 font-bold text-slate-950 hover:bg-amber-300 disabled:opacity-60"
+      >
         {rechecking ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
         {rechecking ? "Checking payment…" : "Recheck payment"}
-      </Button>
+      </Button> : null}
     </div>
-    <div className="mt-6"><CryptoVerificationProgress journeyState={journeyState} transactionHash={order.transactionHash} confirmations={order.paymentConfirmations} requiredConfirmations={order.paymentMinConfirmations ?? reservation.requiredConfirmations} verificationReason={order.paymentVerificationReason} /></div>
-    <dl className="mt-6 grid gap-4 rounded-xl border border-white/10 bg-black/15 p-5 sm:grid-cols-2">
-      <div><dt className="text-xs uppercase tracking-wider text-slate-400">Transaction hash</dt><dd className="mt-2 break-all font-mono text-sm text-slate-100">{order.transactionHash ?? "No hash has been submitted"}</dd></div>
-      <div><dt className="text-xs uppercase tracking-wider text-slate-400">Verification</dt><dd className="mt-2 text-sm font-semibold text-amber-100">{order.paymentVerificationStatus ?? "submitted"}{typeof order.paymentConfirmations === "number" ? ` · ${order.paymentConfirmations}/${order.paymentMinConfirmations ?? "required"} confirmations` : ""}</dd></div>
-    </dl>
-    <p role="status" className="mt-4 rounded-lg border border-sky-300/30 bg-sky-400/10 p-4 text-sm leading-6 text-sky-100">{notice || statusMessage}</p>
+
+    {/* Payment Details / Receiving Instructions */}
+    <div className="mt-6 grid gap-4 rounded-xl border border-white/10 bg-black/20 p-5 sm:grid-cols-2">
+      <div>
+        <p className="text-xs uppercase tracking-wider text-slate-400">Network & Asset</p>
+        <p className="mt-1 text-base font-bold text-white">USDT on BNB Smart Chain (BEP-20)</p>
+        <p className="mt-1 text-xs text-slate-400">BEP-20 Contract: <span className="break-all font-mono text-amber-200/80">{reservation.tokenContract ?? "0x55d398326f99059fF775485246999027B3197955"}</span></p>
+      </div>
+      <div>
+        <p className="text-xs uppercase tracking-wider text-slate-400">Exact Amount to Send</p>
+        <p className="mt-1 text-2xl font-black text-amber-300">{reservation.totalUsdt} USDT</p>
+        <p className="mt-1 text-xs text-slate-400">Minimum confirmations: {reservation.requiredConfirmations ?? 12} blocks</p>
+      </div>
+      <div className="sm:col-span-2">
+        <p className="text-xs uppercase tracking-wider text-slate-400">Designated Receiving Address</p>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <code className="flex-1 break-all rounded-lg border border-white/15 bg-black/40 px-3 py-2 font-mono text-sm text-amber-100">
+            {reservation.receivingAddress || "Address being assigned by payment engine..."}
+          </code>
+          {reservation.receivingAddress ? <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => void handleCopy(reservation.receivingAddress!)}
+            className="border-white/20 bg-white/5 text-white hover:bg-white/10"
+          >
+            {copied ? <Check className="mr-2 h-4 w-4 text-emerald-400" /> : <Copy className="mr-2 h-4 w-4" />}
+            {copied ? "Copied" : "Copy address"}
+          </Button> : null}
+        </div>
+      </div>
+    </div>
+
+    {/* Progress tracker if hash submitted */}
+    {hasHash ? <div className="mt-6">
+      <CryptoVerificationProgress
+        journeyState={journeyState}
+        transactionHash={order.transactionHash}
+        confirmations={order.paymentConfirmations}
+        requiredConfirmations={order.paymentMinConfirmations ?? reservation.requiredConfirmations}
+        verificationReason={order.paymentVerificationReason}
+      />
+    </div> : null}
+
+    {/* Transaction status card */}
+    {hasHash ? <dl className="mt-6 grid gap-4 rounded-xl border border-white/10 bg-black/15 p-5 sm:grid-cols-2">
+      <div>
+        <dt className="text-xs uppercase tracking-wider text-slate-400">Submitted Transaction Hash</dt>
+        <dd className="mt-2 break-all font-mono text-sm text-slate-100">
+          <a
+            href={`https://bscscan.com/tx/${encodeURIComponent(order.transactionHash!)}`}
+            target="_blank"
+            rel="noreferrer"
+            className="break-all text-amber-200 underline hover:text-amber-100"
+          >
+            {order.transactionHash}
+            <ExternalLink className="ml-1 inline h-3 w-3 align-baseline" />
+          </a>
+        </dd>
+      </div>
+      <div>
+        <dt className="text-xs uppercase tracking-wider text-slate-400">Verification Status</dt>
+        <dd className="mt-2 text-sm font-semibold text-amber-100">
+          {order.paymentVerificationStatus ?? "submitted"}
+          {typeof order.paymentConfirmations === "number"
+            ? ` · ${order.paymentConfirmations}/${order.paymentMinConfirmations ?? reservation.requiredConfirmations ?? 12} confirmations`
+            : ""}
+        </dd>
+      </div>
+    </dl> : null}
+
+    {/* Submission Form (shown when awaiting payment or when buyer wants to update/resubmit hash) */}
+    {(!hasHash || order.paymentVerificationStatus === "rejected" || order.paymentVerificationStatus === "underpaid") ? (
+      <form onSubmit={handleSubmit} className="mt-6 rounded-xl border border-amber-300/20 bg-black/25 p-5">
+        <label className="block text-sm font-semibold text-slate-200">
+          {hasHash ? "Update / Resubmit BSC Transaction Hash" : "Submit your BSC Transaction Hash"}
+          <span className="mt-1 block text-xs font-normal text-slate-400">
+            After transferring {reservation.totalUsdt} USDT from your wallet or exchange, paste the transaction hash (TxID) below.
+          </span>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Input
+              type="text"
+              placeholder="0x... (66-character BSC transaction hash)"
+              value={txHashInput}
+              onChange={(e) => setTxHashInput(e.target.value)}
+              required
+              pattern="^0x[0-9a-fA-F]{64}$"
+              title="Must be a valid 66-character hexadecimal BSC transaction hash starting with 0x"
+              className="flex-1 border-white/15 bg-black/40 font-mono text-sm text-white"
+            />
+            <Button
+              type="submit"
+              disabled={submittingHash || !txHashInput.trim()}
+              className="bg-amber-400 font-bold text-slate-950 hover:bg-amber-300 disabled:opacity-60"
+            >
+              {submittingHash ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : null}
+              {submittingHash ? "Submitting…" : "Submit transaction hash"}
+            </Button>
+          </div>
+        </label>
+        {localError || hashError ? <p role="alert" className="mt-3 text-sm text-red-300">
+          {localError || hashError}
+        </p> : null}
+      </form>
+    ) : null}
+
+    {hasHash && (notice || statusMessage) ? <p role="status" className="mt-4 rounded-lg border border-sky-300/30 bg-sky-400/10 p-4 text-sm leading-6 text-sky-100">
+      {notice || statusMessage}
+    </p> : null}
   </section>;
 }
 
