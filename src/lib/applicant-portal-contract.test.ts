@@ -43,9 +43,9 @@ const validReservation: PresaleReservationContract = {
 
 describe("applicant portal authority boundary", () => {
   test("accepts a complete server authority contract", () => {
-    const authority = readApplicantAuthority({ journey: validJourney, reservation: validReservation });
+    const authority = readApplicantAuthority({ journey: validJourney, currentReservation: validReservation });
     expect(authority.available).toBe(true);
-    expect(authority.reservation?.orderReference).toBe("KSP-ONE");
+    expect(authority.currentReservation?.orderReference).toBe("KSP-ONE");
     expect(allowsApplicantAction(authority, "cancel_reservation")).toBe(true);
     expect(allowsApplicantAction(authority, "start_card_checkout")).toBe(false);
   });
@@ -53,8 +53,8 @@ describe("applicant portal authority boundary", () => {
   test.each([
     {},
     { journey: validJourney },
-    { journey: { ...validJourney, allowedActions: ["invented_action"] }, reservation: validReservation },
-    { journey: validJourney, reservation: { ...validReservation, cancellation: { eligible: true, reason: "invented_reason" } } },
+    { journey: { ...validJourney, allowedActions: ["invented_action"] }, currentReservation: validReservation },
+    { journey: validJourney, currentReservation: { ...validReservation, cancellation: { eligible: true, reason: "invented_reason" } } },
   ])("fails closed for missing or malformed authority %#", (payload) => {
     const authority = readApplicantAuthority(payload);
     expect(authority.available).toBe(false);

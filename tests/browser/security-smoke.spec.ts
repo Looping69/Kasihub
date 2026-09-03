@@ -396,7 +396,7 @@ test("applicant portal continues signup at the first server-authoritative unfini
       },
       kyc: { status: "pending", verified: false },
       order: null,
-      reservation: null,
+      currentReservation: null,
       journey: {
         state: "application_in_progress",
         reason: "application_incomplete",
@@ -457,7 +457,7 @@ test("applicant portal does not open a second signup path for an active reservat
         paymentRail: "remitano_usdt", quantity: 2, totalUsdt: "50.000000",
         cancellation: { eligible: true, reason: "unpaid_no_payment_activity" },
       },
-      reservation: {
+      currentReservation: {
         orderReference: "KSP-RESERVED", phaseNumber: 1, phaseLabel: "Phase 1",
         campaignName: "KaSiShares Private Allocation", issuerName: "Solidus Holdings (Pty) Ltd", shareClass: "Class B",
         paidShares: 2, bonusShares: 2, totalAllocatedShares: 4, paymentMethod: "remitano_usdt",
@@ -530,6 +530,7 @@ test("invited buyer can reserve shares without exposing the order access token i
       priceUsdt: "25.000000",
       priceUsd: "25.00",
       cryptoPaymentUnitPriceUsdt: "1.000000",
+      paymentMethods: [{ id: "remitano_usdt", label: "International payment — Remitano USDT", currency: "USDT", unitPrice: "1.000000", pricingMode: "bounded_test", enabled: true }],
       network: "BSC",
       tokenContract,
       receivingAddress,
@@ -555,7 +556,7 @@ test("invited buyer can reserve shares without exposing the order access token i
         application: { applicationNumber: "KSA-ONE", campaignName: "KaSiShares Private Allocation", status: "draft", applicantType: "individual", phaseCompleted: 4, completionPercent: 80, nextStep: kycVerified ? 5 : 4, resumeUrl: null },
         kyc: { status: kycVerified ? "approved" : "pending", verified: kycVerified },
         order: null,
-        reservation: null,
+        currentReservation: null,
         journey: kycVerified ? {
           state: "eligible_to_reserve", reason: "application_and_kyc_complete", allowedActions: ["resume_application", "create_reservation"],
           applicationEditable: true, reservationEditable: true, polling: "none", terminal: false,
@@ -584,7 +585,7 @@ test("invited buyer can reserve shares without exposing the order access token i
             ? { eligible: false, reason: "crypto_hash_submitted" }
             : { eligible: true, reason: "unpaid_no_payment_activity" },
         },
-        reservation: {
+        currentReservation: {
           orderReference, phaseNumber: 1, phaseLabel: "Phase 1", campaignName: "KaSiShares Private Allocation",
           issuerName: "Solidus Holdings (Pty) Ltd", shareClass: "Class B", paidShares: 2, bonusShares: 2,
           totalAllocatedShares: 4, paymentMethod: "remitano_usdt", unitPriceUsd: "25.00", totalUsd: "50.00",
@@ -739,7 +740,7 @@ test("invited buyer can reserve shares without exposing the order access token i
   await page.getByRole("button", { name: "Verify ID" }).click();
 
   await expect(page.getByRole("heading", { name: "Terms and reservation" })).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByText("Bounded test payment if reserved now: 2 USDT", { exact: true })).toBeVisible();
+  await expect(page.getByText("Estimated total: 2 USDT", { exact: true })).toBeVisible();
   await page.getByLabel("Investor terms").evaluate((node) => { node.scrollTop = node.scrollHeight; node.dispatchEvent(new Event("scroll", { bubbles: true })); });
   await page.getByLabel(/I accept the presale reservation acknowledgement/).check();
   expect(await page.locator("form :invalid").evaluateAll((fields) => fields.map((field) => field.getAttribute("name")))).toEqual([]);
@@ -762,9 +763,8 @@ test("invited buyer can reserve shares without exposing the order access token i
   await page.getByLabel("Transaction hash").fill(transactionHash);
   await page.getByRole("button", { name: "Start verification" }).click();
   await expect(page.getByRole("heading", { name: "Payment submitted" })).toBeVisible();
-  expect(refreshUrl).not.toContain(accessToken);
-  expect(refreshUrl).not.toContain("accessToken=");
-  expect(refreshAccessToken).toBe(accessToken);
+  expect(refreshUrl).toBe("");
+  expect(refreshAccessToken).toBe("");
 
   await page.reload();
   await expect(page.getByRole("heading", { name: "Payment submitted" })).toBeVisible();

@@ -85,7 +85,7 @@ export type PresaleReservationContract = {
 export type ApplicantAuthority = {
   available: boolean;
   journey: ApplicantJourneyDecision;
-  reservation: PresaleReservationContract | null;
+  currentReservation: PresaleReservationContract | null;
 };
 
 export type ApplicantJourneyPresentation = {
@@ -164,11 +164,11 @@ function parseReservation(value: unknown): PresaleReservationContract | null | u
 export function readApplicantAuthority(value: unknown): ApplicantAuthority {
   const input = record(value);
   const journey = parseJourney(input?.journey);
-  const reservation = parseReservation(input?.reservation);
+  const reservation = parseReservation(input?.currentReservation);
   if (!journey || reservation === undefined) {
-    return { available: false, journey: FAIL_CLOSED_JOURNEY, reservation: null };
+    return { available: false, journey: FAIL_CLOSED_JOURNEY, currentReservation: null };
   }
-  return { available: true, journey, reservation };
+  return { available: true, journey, currentReservation: reservation };
 }
 
 export function allowsApplicantAction(authority: ApplicantAuthority | null, action: ApplicantJourneyAction): boolean {

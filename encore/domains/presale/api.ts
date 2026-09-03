@@ -42,6 +42,7 @@ import {
   type ReservationCancellationPolicy,
 } from "./reservation-contract";
 import { shouldRetryPresaleCryptoReconciliation } from "./crypto-reconciliation-retry";
+import { authoritativePaymentMethods, paymentRailAvailability, type AuthoritativePaymentMethod } from "./payment-method-authority";
 
 const PresaleWebhookSecret = secret("PresaleWebhookSecret");
 const InvestorApplicationEncryptionKey = secret("InvestorApplicationEncryptionKey");
@@ -318,7 +319,7 @@ const orderInput = z.object({
   buyerEmail: z.string().email().max(254),
   buyerPhone: internationalCellphoneSchema.optional(),
   quantity: z.number().int().positive().max(1_000_000),
-  paymentRail: z.enum(["remitano_usdt", "webpay_card"]).default("remitano_usdt"),
+  paymentRail: z.enum(["remitano_usdt", "webpay_card"]),
   termsAccepted: z.literal(true),
   investorApplication: z.object({
     applicantType: z.enum(["individual", "company", "trust"]),
@@ -515,7 +516,24 @@ interface PresaleOfferResponse {
   isMock: boolean;
   startsAt?: string;
   endsAt?: string;
+  phaseLabel: string;
+  bonusPolicy: string;
+  paymentMethods: AuthoritativePaymentMethod[];
 }
+
+function configuredSecret(read: () => string): boolean {
+  try {
+    return read().trim().length > 0;
+  } catch {
+    return false;
+  }
+}
+
+function webPayConfigured(): boolean {
+  return [WebPayMerchantUuid, WebPayAccountUuid, WebPaySecurityKey, WebPayCheckoutUrl, WebPayNotifyUrl, WebPaySiteId]
+    .every((read) => configuredSecret(read));
+}
+
 
 interface PresaleOrderResponse {
   orderReference: string;
@@ -1128,7 +1146,8 @@ interface PresalePortalResponse {
     webPayProcessStatus?: string; webPayProcessStage?: string;
     cancellation: ReservationCancellationPolicy;
   };
-  reservation: PresaleReservationContract | null;
+  currentReservation: PresaleReservationContract | null;
+  reservationHistory: Array<{ orderReference: string; status: string; incorporationStatus: string; createdAt: string }>;
   journey: ApplicantJourneyDecision;
   shareholder: {
     totalIssuedShares: number;
@@ -1433,7 +1452,18 @@ export const presaleApplicantPortal = api<void, PresalePortalResponse>(
               o.investor_application_ciphertext, o.investor_application_nonce, o.investor_application_auth_tag,
               c.name AS campaign_name, c.issuer_name, c.share_class, c.share_phase_number, c.bonus_buy_one_get_one
        FROM presale_orders o JOIN presale_campaigns c ON c.id = o.campaign_id
-       WHERE o.external_profile_id = $1 ORDER BY o.created_at DESC LIMIT 1`,
+       WHERE o.external_profile_id = $1 AND o.status NOT IN ('cancelled', 'expired')
+         AND NOT (o.status = 'awaiting_payment' AND o.payment_deadline <= now())
+       ORDER BY o.created_at DESC LIMIT 1`,
+      session.profile.id,
+    );
+    const reservationHistory = await presaleDb.rawQueryAll<{
+      order_reference: string; status: string; incorporation_status: string; created_at: string;
+    }>(
+      `SELECT order_reference,status,incorporation_status,created_at
+         FROM presale_orders
+        WHERE external_profile_id = $1
+        ORDER BY created_at DESC`,
       session.profile.id,
     );
     const paymentAttempt = order?.payment_intent_id
@@ -1579,7 +1609,13 @@ export const presaleApplicantPortal = api<void, PresalePortalResponse>(
         webPayProcessStatus: order.webpay_process_status ?? undefined,
         webPayProcessStage: order.webpay_process_stage ?? undefined,
         cancellation: cancellation! } : null,
-      reservation,
+      currentReservation: reservation,
+      reservationHistory: reservationHistory.map((record) => ({
+        orderReference: record.order_reference,
+        status: record.status,
+        incorporationStatus: record.incorporation_status,
+        createdAt: record.created_at,
+      })),
       journey,
       shareholder,
       ecosystemMembership: {
@@ -1895,6 +1931,16 @@ function offerResponse(
   webPayUnitPriceZar = WEBPAY_UNIT_PRICE_ZAR,
   cryptoPaymentUnitPriceUsdt = campaign.price_usdt,
 ): PresaleOfferResponse {
+  const paymentMethods = authoritativePaymentMethods({
+    network: campaign.network,
+    tokenContract: campaign.token_contract,
+    receivingAddress: campaign.receiving_address,
+    campaignUnitPriceUsdt: campaign.price_usdt,
+    cryptoUnitPriceUsdt: cryptoPaymentUnitPriceUsdt,
+    webPayUnitPriceZar,
+    webPayConfigured: webPayConfigured(),
+    invitationWebPayOverride: webPayUnitPriceZar !== WEBPAY_UNIT_PRICE_ZAR,
+  });
   return {
     slug: campaign.slug,
     name: campaign.name,
@@ -1918,6 +1964,9 @@ function offerResponse(
     isMock: campaign.is_mock,
     startsAt: campaign.starts_at ?? undefined,
     endsAt: campaign.ends_at ?? undefined,
+    phaseLabel: `Phase ${campaign.share_phase_number}`,
+    bonusPolicy: campaign.bonus_buy_one_get_one ? "One bonus share for every paid share" : "No bonus shares",
+    paymentMethods,
   };
 }
 
@@ -2003,10 +2052,10 @@ export const createPresaleOrder = api<CreatePresaleOrderRequest, { order: Presal
       const email = normalizeEmail(session.user.email);
       if (invitation.email && normalizeEmail(invitation.email) !== email) throw APIError.permissionDenied("This invitation belongs to a different email address");
       if (exceedsInvitationShareLimit(invitation.used_shares, payload.quantity, invitation.max_shares)) throw APIError.failedPrecondition("The invitation share limit would be exceeded");
-      const campaignBefore = await tx.rawQueryRow<Pick<CampaignRow, "bonus_buy_one_get_one" | "share_phase_number"> & {
+      const campaignBefore = await tx.rawQueryRow<Pick<CampaignRow, "bonus_buy_one_get_one" | "share_phase_number" | "network" | "token_contract" | "receiving_address" | "price_usdt"> & {
         webpay_test_unit_price_zar: string | null; webpay_test_orders_remaining: number;
         crypto_test_unit_price_usdt: string | null; crypto_test_orders_remaining: number;
-      }>(`SELECT bonus_buy_one_get_one,share_phase_number,
+      }>(`SELECT bonus_buy_one_get_one,share_phase_number,network,token_contract,receiving_address,price_usdt::text AS price_usdt,
                  webpay_test_unit_price_zar::text AS webpay_test_unit_price_zar,webpay_test_orders_remaining,
                  crypto_test_unit_price_usdt::text AS crypto_test_unit_price_usdt,crypto_test_orders_remaining
           FROM presale_campaigns WHERE id = $1 FOR UPDATE`, invitation.campaign_id);
@@ -2026,6 +2075,17 @@ export const createPresaleOrder = api<CreatePresaleOrderRequest, { order: Presal
         campaignTestUnitPriceUsdt: campaignBefore.crypto_test_unit_price_usdt,
         campaignTestOrdersRemaining: campaignBefore.crypto_test_orders_remaining,
       });
+      const availability = paymentRailAvailability(authoritativePaymentMethods({
+        network: campaignBefore.network,
+        tokenContract: campaignBefore.token_contract,
+        receivingAddress: campaignBefore.receiving_address,
+        campaignUnitPriceUsdt: campaignBefore.price_usdt,
+        cryptoUnitPriceUsdt: settlementUnitUsdtOverride ?? campaignBefore.price_usdt,
+        webPayUnitPriceZar,
+        webPayConfigured: webPayConfigured(),
+        invitationWebPayOverride: Boolean(invitation.webpay_unit_price_zar_override),
+      }), payload.paymentRail);
+      if (!availability.allowed) throw APIError.failedPrecondition(availability.reason);
       const campaign = await tx.rawQueryRow<CampaignRow>(
         `UPDATE presale_campaigns SET reserved_shares = reserved_shares + $2,
            webpay_test_orders_remaining = webpay_test_orders_remaining - $3,

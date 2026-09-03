@@ -1,7 +1,7 @@
 "use client";
 
 // Author: Klaasvaakie ( |╲ )
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { CheckCircle2, Clock3, Download, FileCheck2, Layers3, LoaderCircle, LogOut, RefreshCw, ShieldCheck } from "lucide-react";
@@ -26,6 +26,7 @@ import {
   type ApplicantAuthority,
   type PresaleReservationContract,
 } from "@/lib/applicant-portal-contract";
+import { ApplicantAuthorityFreshness, type ApplicantAuthorityHydration } from "@/lib/applicant-authority-hydration";
 
 type Portal = {
   applicant: { profileNumber: string; email: string };
@@ -53,7 +54,7 @@ type Portal = {
     resumeUrl: string | null;
   };
   journey?: unknown;
-  reservation?: unknown;
+  currentReservation?: unknown;
   authority: ApplicantAuthority;
 };
 
@@ -72,14 +73,29 @@ export function SharesAccountClient() {
   const [confirmingPayment, setConfirmingPayment] = useState(false);
   const [recheckingPayment, setRecheckingPayment] = useState(false);
   const [paymentNotice, setPaymentNotice] = useState("");
+  const [authorityHydration, setAuthorityHydration] = useState<ApplicantAuthorityHydration>("initial");
+  const authorityFreshnessRef = useRef(new ApplicantAuthorityFreshness());
 
   const loadPortal = useCallback(async () => {
-    const response = await fetch("/api/presale/portal", { cache: "no-store" });
-    if (response.status === 401 || response.status === 403) { setPortal(null); return; }
+    const generation = authorityFreshnessRef.current.begin();
+    setAuthorityHydration((state) => state === "loaded" || state === "refreshing" ? "refreshing" : "loading");
+    let response: Response;
+    try {
+      response = await fetch("/api/presale/portal", { cache: "no-store" });
+    } catch (reason) {
+      if (authorityFreshnessRef.current.isLatest(generation)) setAuthorityHydration((state) => state === "refreshing" ? "loaded" : "unavailable");
+      throw reason;
+    }
+    if (!authorityFreshnessRef.current.isLatest(generation)) return;
+    if (response.status === 401 || response.status === 403) { setPortal(null); setAuthorityHydration("unavailable"); return; }
     const body = await response.json();
-    if (!response.ok) throw new Error(body.error ?? "Applicant status is unavailable");
+    if (!response.ok) {
+      setAuthorityHydration((state) => state === "refreshing" ? "loaded" : "unavailable");
+      throw new Error(body.error ?? "Applicant status is unavailable");
+    }
     const authority = readApplicantAuthority(body);
     setPortal({ ...body, authority });
+    setAuthorityHydration(authority.available ? "loaded" : "unavailable");
     if (authority.journey.state !== "awaiting_payment") setConfirmingPayment(false);
   }, []);
 
@@ -91,7 +107,7 @@ export function SharesAccountClient() {
   }, [loadPortal]);
 
   useEffect(() => {
-    if (!portal?.authority.available || portal.authority.reservation?.paymentMethod !== "webpay_card" || portal.authority.journey.state !== "awaiting_payment") return;
+    if (!portal?.authority.available || portal.authority.currentReservation?.paymentMethod !== "webpay_card" || portal.authority.journey.state !== "awaiting_payment") return;
     const returnState = new URLSearchParams(window.location.search).get("payment");
     if (returnState !== "webpay" && returnState !== "cancelled") return;
     const startTimer = returnState === "webpay" ? window.setTimeout(() => setConfirmingPayment(true), 0) : undefined;
@@ -108,7 +124,7 @@ export function SharesAccountClient() {
       if (startTimer !== undefined) window.clearTimeout(startTimer);
       window.clearInterval(interval);
     };
-  }, [loadPortal, portal?.authority.available, portal?.authority.journey.state, portal?.authority.reservation?.paymentMethod]);
+  }, [loadPortal, portal?.authority.available, portal?.authority.journey.state, portal?.authority.currentReservation?.paymentMethod]);
 
   useEffect(() => {
     if (!portal?.authority.available || !["payment", "incorporation"].includes(portal.authority.journey.polling)) return;
@@ -182,7 +198,7 @@ export function SharesAccountClient() {
         <Link href="/" className="relative h-[76px] w-[134px]"><Image src="/kasishares-logo.png" alt="KaSiShares home" fill sizes="134px" className="object-contain object-left" priority /></Link>
         {portal ? <Button variant="outline" onClick={() => void logout()} className="border-white/20 bg-transparent text-white"><LogOut className="mr-2 h-4 w-4" />Sign out</Button> : null}
       </header>
-      {loading ? <p className="text-slate-300">Loading applicant account…</p> : portal ? <PortalView portal={portal} error={error} confirmingPayment={confirmingPayment} recheckingPayment={recheckingPayment} paymentNotice={paymentNotice} onCancel={cancelReservation} onRecheck={recheckPayment} /> : <LoginForm error={error} onSubmit={login} />}
+      {loading ? <p className="text-slate-300">Loading applicant account…</p> : portal ? <><span className="sr-only" aria-live="polite">Applicant authority {authorityHydration}</span><PortalView portal={portal} error={error} confirmingPayment={confirmingPayment} recheckingPayment={recheckingPayment} paymentNotice={paymentNotice} onCancel={cancelReservation} onRecheck={recheckPayment} /></> : <LoginForm error={error} onSubmit={login} />}
     </div>
   </main>;
 }
@@ -214,7 +230,7 @@ function PortalView({ portal, error, confirmingPayment, recheckingPayment, payme
   const shareholder = portal.shareholder ?? { totalIssuedShares: 0, holdings: [] };
   const isShareholder = shareholder.totalIssuedShares > 0;
   const journey = applicantJourneyPresentation(portal.authority.journey);
-  const reservation = portal.authority.reservation;
+  const reservation = portal.authority.currentReservation;
   return <div className="space-y-6">
     <div><p className="text-xs font-bold uppercase tracking-[.18em] text-amber-300">{isShareholder ? "Shareholder account" : "Applicant account"}</p><h1 className="mt-2 text-3xl font-black">Welcome back</h1><p className="mt-2 text-slate-300">{portal.applicant.email} · {portal.applicant.profileNumber}</p></div>
     <div className="grid gap-5 md:grid-cols-3">
@@ -320,7 +336,7 @@ function ContinuationPanel({ portal, error, onCancel }: { portal: Portal; error:
     continuation.reason === "no_application" || continuation.reason === "resume_credential_unavailable"
   ));
   const canResume = allowsApplicantAction(portal.authority, "resume_application") || allowsApplicantAction(portal.authority, "resume_kyc");
-  const reservation = portal.authority.reservation;
+  const reservation = portal.authority.currentReservation;
   const canCancel = Boolean(
     reservation?.cancellation.eligible
     && allowsApplicantAction(portal.authority, "cancel_reservation"),

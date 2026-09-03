@@ -21,36 +21,38 @@ import {
   type ApplicantAuthority,
 } from "@/lib/applicant-portal-contract";
 import { applicantAuthorityView } from "@/lib/applicant-authority-view";
+import {
+  ApplicantAuthorityFreshness,
+  beginAuthorityHydration,
+  completeAuthorityHydration,
+  failAuthorityHydration,
+  type ApplicantAuthorityHydration,
+} from "@/lib/applicant-authority-hydration";
+
+type PaymentRail = "remitano_usdt" | "webpay_card";
+type AuthoritativePaymentMethod = {
+  id: PaymentRail;
+  label: string;
+  currency: "USDT" | "ZAR";
+  unitPrice: string;
+  pricingMode: "campaign" | "invitation_override" | "bounded_test";
+  enabled: boolean;
+  unavailableReason?: string;
+};
 
 type Offer = PresaleDevPreviewOffer & {
   invitationEmail?: string;
   webPayUnitPriceZar?: string;
   cryptoPaymentUnitPriceUsdt?: string;
+  phaseLabel?: string;
+  bonusPolicy?: string;
+  paymentMethods?: AuthoritativePaymentMethod[];
 };
 
 type Order = {
   orderReference: string;
-  campaign: string;
-  issuerName: string;
-  shareClass: string;
-  buyerName: string;
-  buyerEmail: string;
-  quantity: number;
-  paymentRail: "remitano_usdt" | "webpay_card";
-  unitPriceZar?: string;
-  totalZar?: string;
-  unitPriceUsdt: string;
-  totalUsdt: string;
-  status: string;
-  network: string;
-  tokenContract?: string;
-  receivingAddress: string;
-  minConfirmations: number;
-  paymentDeadline: string;
   transactionHash?: string;
   confirmations: number;
-  confirmedAt?: string;
-  incorporationStatus: string;
 };
 
 type KycVerification = {
@@ -78,7 +80,7 @@ type ResumePortal = {
   };
   continuation?: { nextStep: number | null; reason: string; resumeUrl: string | null };
   journey?: unknown;
-  reservation?: unknown;
+  currentReservation?: unknown;
 };
 
 const APPLICATION_PHASES = [
@@ -149,7 +151,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
   const [copied, setCopied] = useState(false);
   const [applicationPhase, setApplicationPhase] = useState(1);
   const [quantity, setQuantity] = useState("1");
-  const [paymentRail, setPaymentRail] = useState<"remitano_usdt" | "webpay_card">("remitano_usdt");
+  const [paymentRail, setPaymentRail] = useState<PaymentRail | "">("");
   const [applicantType, setApplicantType] = useState<"individual" | "company" | "trust">("individual");
   const [termsRead, setTermsRead] = useState(false);
   const [verificationStarted, setVerificationStarted] = useState(false);
@@ -172,45 +174,49 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
   const [resumeLoading, setResumeLoading] = useState(!devPreview);
   const [resumeDraft, setResumeDraft] = useState<Record<string, string | boolean> | null>(null);
   const [applicantAuthority, setApplicantAuthority] = useState<ApplicantAuthority | null>(null);
+  const [authorityHydration, setAuthorityHydration] = useState<ApplicantAuthorityHydration>(devPreview ? "unavailable" : "initial");
   const applicationFormRef = useRef<HTMLFormElement | null>(null);
   const portalHydratedRef = useRef(false);
+  const authorityFreshnessRef = useRef(new ApplicantAuthorityFreshness());
+  const authorityRef = useRef<ApplicantAuthority | null>(null);
 
   const loadApplicantPortal = useCallback(async (): Promise<ApplicantAuthority | null> => {
     if (devPreview) return null;
-    const response = await fetch("/api/presale/portal", { cache: "no-store" });
-    if (response.status === 401 || response.status === 403) return null;
-    if (!response.ok) throw new Error("Applicant status is temporarily unavailable");
+    const generation = authorityFreshnessRef.current.begin();
+    setAuthorityHydration((hydration) => beginAuthorityHydration({ authority: authorityRef.current, hydration }).hydration);
+    let response: Response;
+    try {
+      response = await fetch("/api/presale/portal", { cache: "no-store" });
+      if (!authorityFreshnessRef.current.isLatest(generation)) return null;
+      if (response.status === 401 || response.status === 403) {
+        setAuthorityHydration("unavailable");
+        setApplicantAuthority(null);
+        return null;
+      }
+      if (!response.ok) throw new Error("Applicant status is temporarily unavailable");
+    } catch (reason) {
+      if (authorityFreshnessRef.current.isLatest(generation)) {
+        setAuthorityHydration((hydration) => failAuthorityHydration({ authority: authorityRef.current, hydration }).hydration);
+      }
+      throw reason;
+    }
     const portal = await response.json() as ResumePortal;
+    if (!authorityFreshnessRef.current.isLatest(generation)) return null;
     const authority = readApplicantAuthority(portal);
+    authorityRef.current = authority;
     setApplicantAuthority(authority);
+    setAuthorityHydration(completeAuthorityHydration({ authority: authorityRef.current, hydration: "loading" }, authority).hydration);
     setMemberProfileNumber(portal.applicant.profileNumber);
     setKycVerification({ required: true, verified: portal.kyc.verified, status: portal.kyc.status, caseId: null });
     if (portal.kyc.verified || portal.kyc.status.toLowerCase() !== "pending") setVerificationStarted(true);
-    if (portal.order && authority.reservation) {
-      const reservation = authority.reservation;
+    if (portal.order && authority.currentReservation) {
       setOrder({
         orderReference: portal.order.orderReference,
-        campaign: reservation.campaignName,
-        issuerName: reservation.issuerName,
-        shareClass: reservation.shareClass,
-        buyerName: portal.applicant.legalName,
-        buyerEmail: portal.applicant.email,
-        quantity: portal.order.quantity,
-        paymentRail: portal.order.paymentRail,
-        unitPriceZar: reservation.unitPriceZar,
-        totalZar: reservation.totalZar,
-        unitPriceUsdt: reservation.unitPriceUsdt,
-        totalUsdt: portal.order.totalUsdt,
-        status: portal.order.status,
-        network: portal.order.paymentNetwork ?? reservation.network ?? "",
-        tokenContract: reservation.tokenContract,
-        receivingAddress: reservation.receivingAddress ?? "",
-        minConfirmations: portal.order.paymentMinConfirmations ?? reservation.requiredConfirmations ?? 0,
-        paymentDeadline: reservation.paymentDeadline,
         transactionHash: portal.order.transactionHash,
         confirmations: portal.order.paymentConfirmations ?? 0,
-        incorporationStatus: portal.order.incorporationStatus,
       });
+    } else if (!authority.currentReservation) {
+      setOrder(null);
     }
     const shouldHydrate = !portalHydratedRef.current;
     if (shouldHydrate) {
@@ -252,6 +258,8 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
         const payload = await response.json();
         if (!response.ok) throw new Error(payload.error ?? "Invitation unavailable");
         setOffer(payload.offer);
+        const enabledMethods = (payload.offer.paymentMethods ?? []).filter((method: AuthoritativePaymentMethod) => method.enabled);
+        setPaymentRail(enabledMethods.length === 1 ? enabledMethods[0].id : "");
       })
       .catch((reason) => setError(reason instanceof Error ? reason.message : "Invitation unavailable"))
       .finally(() => setLoading(false));
@@ -283,18 +291,8 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
   }, [resumeDraft]);
 
   const refreshOrder = useCallback(async () => {
-    const orderReference = order?.orderReference;
-    if (orderReference && accessToken) {
-      // Keep the bearer-style access token out of browser history and request URLs.
-      // Author: Klaasvaakie ( |╲ )
-      const response = await fetch(`/api/presale/orders/${encodeURIComponent(orderReference)}`, {
-        cache: "no-store",
-        headers: { "X-Presale-Access-Token": accessToken },
-      });
-      if (response.ok) setOrder((await response.json()).order);
-    }
     await loadApplicantPortal();
-  }, [accessToken, loadApplicantPortal, order?.orderReference]);
+  }, [loadApplicantPortal]);
 
   const refreshKycVerification = useCallback(async () => {
     if (devPreview) return null;
@@ -330,20 +328,6 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
 
   const maximumPaidShares = offer ? availablePaidShares(offer.invitationSharesRemaining, offer.sharesRemaining) : 0;
   const totalPreview = offer ? multiplyDecimalByWhole(offer.priceUsdt, quantity || "0") : null;
-  const webPayUnitPriceZar = offer?.webPayUnitPriceZar && /^\d+(?:\.\d+)?$/.test(offer.webPayUnitPriceZar)
-    ? offer.webPayUnitPriceZar
-    : null;
-  const webPayTotalZar = webPayUnitPriceZar ? multiplyDecimalByWhole(webPayUnitPriceZar, quantity || "0") : null;
-  const cryptoPaymentUnitPriceUsdt = offer?.cryptoPaymentUnitPriceUsdt && /^\d+(?:\.\d+)?$/.test(offer.cryptoPaymentUnitPriceUsdt)
-    ? offer.cryptoPaymentUnitPriceUsdt
-    : offer?.priceUsdt ?? null;
-  const cryptoPaymentTotalUsdt = cryptoPaymentUnitPriceUsdt
-    ? multiplyDecimalByWhole(cryptoPaymentUnitPriceUsdt, quantity || "0")
-    : null;
-  const cryptoTestPricingActive = Boolean(
-    offer && cryptoPaymentUnitPriceUsdt
-    && Number(cryptoPaymentUnitPriceUsdt) !== Number(offer.priceUsdt),
-  );
   const validatedPhoneNumber = validatedInternationalCellphone(phoneCountryCode, phoneNumber);
   const validatedConfirmPhoneNumber = validatedInternationalCellphone(confirmPhoneCountryCode, confirmPhoneNumber);
   const fundingDetailsRequired = applicantType !== "individual";
@@ -357,13 +341,17 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
   const passwordValid = validAccountPassword(password);
   const confirmPasswordValid = passwordValid && confirmPassword === password;
   const authorityView = applicantAuthorityView(applicantAuthority);
-  const reservation = authorityView.showReservation ? applicantAuthority?.reservation ?? null : null;
-  const canCreateReservation = authorityView.canCreateReservation;
+  const reservation = authorityView.showReservation ? applicantAuthority?.currentReservation ?? null : null;
+  const canCreateReservation = authorityHydration === "loaded" && authorityView.canCreateReservation;
 
   async function createOrder(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (devPreview) return;
     if (!offer) return;
+    if (!paymentRail) {
+      setError("Select an available payment method before creating the reservation.");
+      return;
+    }
     if (!canCreateReservation) {
       setError("The server has not authorised reservation creation. Refresh your identity status or open your KaSiShares account.");
       return;
@@ -424,7 +412,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
           buyerEmail: data.get("buyerEmail"),
           buyerPhone: cellphone,
           quantity,
-          paymentRail: data.get("paymentRail"),
+          paymentRail,
           termsAccepted: data.get("termsAccepted") === "on",
           investorApplication: {
             applicantType: data.get("applicantType"),
@@ -469,7 +457,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
       setAccessToken(payload.accessToken);
       setReservationEmailDelayed(payload.emailStatus === "failed");
       const authority = await loadApplicantPortal();
-      if (!authority?.available || !authority.reservation) {
+      if (!authority?.available || !authority.currentReservation) {
         throw new Error("The reservation was created, but its authoritative status could not be loaded. Open your KaSiShares account before taking payment action.");
       }
     } catch (reason) {
@@ -481,7 +469,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
 
   async function submitProof(event: FormEvent) {
     event.preventDefault();
-    const reservation = applicantAuthority?.reservation;
+    const reservation = applicantAuthority?.currentReservation;
     if (!order || !reservation || !allowsApplicantAction(applicantAuthority, "submit_payment_hash")) return;
     const paymentNetwork = reservation.network?.toLowerCase() as SupportedPaymentNetwork;
     if ((paymentNetwork !== "bsc" && paymentNetwork !== "tron") || !validSubmittedTransactionHash(paymentNetwork, txHash)) {
@@ -510,7 +498,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
   }
 
   async function copyAddress() {
-    const receivingAddress = applicantAuthority?.reservation?.receivingAddress;
+    const receivingAddress = applicantAuthority?.currentReservation?.receivingAddress;
     if (!receivingAddress) return;
     await navigator.clipboard.writeText(receivingAddress);
     setCopied(true);
@@ -795,12 +783,13 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
               <SectionTitle>Terms and reservation</SectionTitle>
               <fieldset className="space-y-3">
                 <legend className="text-sm font-semibold text-white">Choose how you want to pay</legend>
-                <label className={`block cursor-pointer rounded-xl border p-4 transition ${paymentRail === "remitano_usdt" ? "border-amber-300 bg-amber-300/10" : "border-white/15 bg-black/20"}`}>
-                  <span className="flex items-start gap-3"><input name="paymentRail" type="radio" value="remitano_usdt" checked={paymentRail === "remitano_usdt"} onChange={() => setPaymentRail("remitano_usdt")} className="mt-1" required /><span><strong className="block text-white">International payment — Remitano</strong><span className="mt-1 block text-xs leading-5 text-slate-300">Pay the locked USDT amount using the displayed blockchain network and receiving address.</span>{cryptoPaymentTotalUsdt ? <span className="mt-2 block font-bold text-amber-100">{cryptoTestPricingActive ? "Bounded test payment" : "Payment amount"} if reserved now: {formatUsdt(cryptoPaymentTotalUsdt)} USDT</span> : null}</span></span>
-                </label>
-                {webPayUnitPriceZar && webPayTotalZar ? <label className={`block cursor-pointer rounded-xl border p-4 transition ${paymentRail === "webpay_card" ? "border-sky-300 bg-sky-300/10" : "border-white/15 bg-black/20"}`}>
-                  <span className="flex items-start gap-3"><input name="paymentRail" type="radio" value="webpay_card" checked={paymentRail === "webpay_card"} onChange={() => setPaymentRail("webpay_card")} className="mt-1" required /><span><strong className="block text-white">Debit or credit card — WebPay</strong><span className="mt-1 block text-xs leading-5 text-slate-300">R{webPayUnitPriceZar} per paid share. Your card details are entered only on the secure WebPay checkout.</span><span className="mt-2 block font-bold text-sky-100">Estimated total: R{webPayTotalZar}</span></span></span>
-                </label> : null}
+                {(offer.paymentMethods ?? []).filter((method) => method.enabled).map((method) => {
+                  const estimate = multiplyDecimalByWhole(method.unitPrice, quantity || "0");
+                  return <label key={method.id} className={`block cursor-pointer rounded-xl border p-4 transition ${paymentRail === method.id ? "border-amber-300 bg-amber-300/10" : "border-white/15 bg-black/20"}`}>
+                    <span className="flex items-start gap-3"><input name="paymentRail" type="radio" value={method.id} checked={paymentRail === method.id} onChange={() => setPaymentRail(method.id)} className="mt-1" required /><span><strong className="block text-white">{method.label}</strong><span className="mt-1 block text-xs leading-5 text-slate-300">{method.currency === "USDT" ? `Pay using the locked ${offer.network} route shown only after reservation.` : "Card details are entered only on the secure hosted checkout."}</span><span className="mt-2 block font-bold text-amber-100">Estimated total: {method.currency === "ZAR" ? "R" : ""}{estimate} {method.currency === "USDT" ? "USDT" : ""}</span></span></span>
+                  </label>;
+                })}
+                {!devPreview && !(offer.paymentMethods ?? []).some((method) => method.enabled) ? <p role="alert" className="rounded-lg border border-rose-300/30 bg-rose-400/10 p-3 text-sm text-rose-100">No payment method is currently available. Reservation creation is locked; no funds should be sent.</p> : null}
               </fieldset>
               <a href={TERMS_PDF_PATH} target="_blank" rel="noreferrer" className="inline-flex text-sm font-semibold text-amber-200 underline underline-offset-4 hover:text-amber-100">Open the authoritative terms PDF</a>
               <div tabIndex={0} onScroll={(event) => { const node = event.currentTarget; if (node.scrollTop + node.clientHeight >= node.scrollHeight - 8) setTermsRead(true); }} className="h-[32rem] overflow-y-auto rounded-xl border border-white/15 bg-slate-100 p-2" aria-label="Investor terms document">
@@ -847,7 +836,7 @@ function ReservationStateCard({ authority, order, accessToken, error, submitting
   onCopyAddress: () => Promise<void>;
   onStartWebPay: () => Promise<void>;
 }) {
-  const reservation = authority.reservation;
+  const reservation = authority.currentReservation;
   if (!reservation) return null;
   const presentation = applicantJourneyPresentation(authority.journey);
   const paymentNetwork = reservation.network?.toLowerCase() as SupportedPaymentNetwork;
@@ -893,9 +882,9 @@ function ReservationStateCard({ authority, order, accessToken, error, submitting
         </div>
       </>}
       {canStartCard ? <div className="space-y-3"><div className="rounded-xl border border-sky-400/20 bg-sky-400/10 p-4 text-sm leading-6 text-sky-100">Your reservation is locked to WebPay. You will enter card details only on WebPay&apos;s secure hosted checkout.</div><Button type="button" className="w-full bg-sky-300 font-bold text-slate-950 hover:bg-sky-200" disabled={submitting} onClick={() => void onStartWebPay()}>{submitting ? "Opening WebPay…" : "Continue to secure WebPay checkout"}</Button></div> : null}
-      {reservation.paymentMethod === "remitano_usdt" ? <CryptoVerificationProgress journeyState={authority.journey.state} transactionHash={order?.transactionHash} confirmations={order?.confirmations} requiredConfirmations={reservation.requiredConfirmations ?? order?.minConfirmations} /> : null}
+      {reservation.paymentMethod === "remitano_usdt" ? <CryptoVerificationProgress journeyState={authority.journey.state} transactionHash={order?.transactionHash} confirmations={order?.confirmations} requiredConfirmations={reservation.requiredConfirmations} /> : null}
       {canSubmitHash ? <form className="space-y-4 rounded-xl border border-sky-300/25 bg-sky-400/10 p-5" onSubmit={(event) => void onSubmitProof(event)}><div><p className="text-xs font-bold uppercase tracking-[.16em] text-sky-200">After your wallet broadcasts</p><h3 className="mt-1 text-lg font-black text-white">Submit the transaction hash</h3><p className="mt-2 text-sm leading-6 text-sky-100/80">We save the hash, check the chain automatically, and keep polling until the configured confirmation depth is met.</p></div><Field label="Transaction hash"><Input value={txHash} onChange={(event) => onTxHashChange(event.target.value)} required minLength={64} maxLength={66} pattern={submittedTransactionHashPattern(paymentNetwork)} title={submittedTransactionHashMessage(paymentNetwork)} placeholder="Paste the blockchain transaction hash" spellCheck={false} autoComplete="off" className="border-white/15 bg-black/20 font-mono" /></Field><Button className="w-full" disabled={submitting}>{submitting ? "Saving hash…" : "Start verification"}</Button></form> : null}
-      {order?.transactionHash ? <div className="rounded-xl border border-white/10 bg-black/15 p-4 text-xs text-slate-400"><p className="font-semibold text-slate-200">Submitted transaction</p><p className="mt-2">Confirmations: {order.confirmations}/{reservation.requiredConfirmations ?? order.minConfirmations}</p><code className="mt-2 block break-all text-slate-300">{order.transactionHash}</code></div> : null}
+      {order?.transactionHash ? <div className="rounded-xl border border-white/10 bg-black/15 p-4 text-xs text-slate-400"><p className="font-semibold text-slate-200">Submitted transaction</p><p className="mt-2">Confirmations: {order.confirmations}/{reservation.requiredConfirmations ?? 0}</p><code className="mt-2 block break-all text-slate-300">{order.transactionHash}</code></div> : null}
       {needsAccountAction ? <Button asChild variant="outline" className="w-full border-white/20 bg-transparent text-white hover:bg-white/10"><Link href="/shares/account">Open applicant account</Link></Button> : null}
       {error ? <p role="alert" className="text-sm text-red-300">{error}</p> : null}
       <p className="text-xs leading-5 text-slate-500">Never send assets on another network. A transaction hash is not accepted as settled until the configured blockchain verifier confirms the receiver, token contract, amount, and confirmation depth.</p>

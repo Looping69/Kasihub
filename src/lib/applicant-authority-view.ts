@@ -9,7 +9,7 @@ export type ApplicantAuthorityView = {
 /** Reduces one server authority snapshot to browser presentation gates. */
 export function applicantAuthorityView(authority: ApplicantAuthority | null): ApplicantAuthorityView {
   const available = Boolean(authority?.available);
-  const showReservation = Boolean(available && authority?.reservation);
+  const showReservation = Boolean(available && authority?.currentReservation);
   return {
     showReservation,
     canCreateReservation: Boolean(!showReservation && allowsApplicantAction(authority, "create_reservation")),

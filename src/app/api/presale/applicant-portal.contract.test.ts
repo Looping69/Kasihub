@@ -187,6 +187,27 @@ describe("isolated KaSiShares applicant portal", () => {
     expect(migration).toContain("uq_presale_account_created_email_delivery");
   });
 
+  test("separates current reservation authority from preserved reservation history", () => {
+    const api = source("encore/domains/presale/api.ts");
+    const boundary = source("src/lib/applicant-portal-contract.ts");
+    expect(api).toContain("currentReservation: reservation");
+    expect(api).toContain("reservationHistory: reservationHistory.map");
+    expect(api).toContain("o.status NOT IN ('cancelled', 'expired')");
+    expect(api).toContain("o.payment_deadline <= now()");
+    expect(boundary).toContain("parseReservation(input?.currentReservation)");
+    expect(boundary).not.toContain("parseReservation(input?.reservation)");
+  });
+
+  test("requires an explicitly selected backend-enabled payment rail", () => {
+    const api = source("encore/domains/presale/api.ts");
+    const methods = source("encore/domains/presale/payment-method-authority.ts");
+    expect(api).toContain('paymentRail: z.enum(["remitano_usdt", "webpay_card"]),');
+    expect(api).not.toContain('paymentRail: z.enum(["remitano_usdt", "webpay_card"]).default');
+    expect(api).toContain("paymentRailAvailability(authoritativePaymentMethods");
+    expect(methods).toContain("The controlled USDT receiving route is unavailable");
+    expect(methods).toContain("WebPay checkout is not configured");
+  });
+
   test("shows presale application and reservation state in the admin member record", () => {
     const adminApi = source("encore/domains/admin/api.ts");
     const adminMembers = source("src/components/admin/admin-members.tsx");

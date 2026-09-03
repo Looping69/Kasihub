@@ -26,7 +26,7 @@ function portalPayload(settled: boolean) {
       paymentConfirmations: settled ? 12 : 0,
       cancellation: { eligible: false, reason: "crypto_hash_submitted" },
     },
-    reservation: {
+    currentReservation: {
       orderReference: ORDER_REFERENCE,
       phaseNumber: 1,
       phaseLabel: "Phase 1",
