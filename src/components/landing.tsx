@@ -244,9 +244,9 @@ export function Landing() {
           >
             <BrandLogo className="mx-auto mb-5 h-32 w-auto max-w-[340px] drop-shadow-2xl sm:h-40" priority />
             <h1 className="text-4xl font-black leading-[1.05] tracking-tight drop-shadow-xl sm:text-5xl lg:text-7xl">
-              Make your money go further.
+              Make your money <span className="block">go further.</span>
             </h1>
-            <h2 className="mt-3 bg-gradient-to-r from-[#ff9d13] via-[#ff7a18] to-[#ff5a00] bg-clip-text text-2xl font-black text-transparent drop-shadow-lg sm:text-3xl lg:text-4xl">
+            <h2 className="mt-3 bg-[linear-gradient(110deg,#ffb21d_0%,#ff7a18_45%,#ff5a00_100%)] bg-clip-text text-2xl font-black text-transparent drop-shadow-lg sm:text-3xl lg:text-4xl">
               Save More. Earn More. Live Better.
             </h2>
             <p className="mx-auto mt-7 max-w-3xl text-base leading-relaxed text-blue-50 sm:text-lg">
@@ -358,21 +358,22 @@ export function Landing() {
 
               <article className="relative flex flex-col overflow-hidden rounded-3xl bg-gradient-to-br from-[#0f172a] via-[#172554] to-[#263470] p-5 text-white shadow-2xl shadow-slate-950/20 sm:p-9">
                 <div className="absolute right-0 top-0 h-48 w-48 -translate-y-1/2 translate-x-1/3 rounded-full bg-[#ff9d13]/20 blur-3xl" />
-                <div className="relative flex items-start justify-between gap-4">
-                  <div>
-                    <p className="kasi-eyebrow font-black uppercase tracking-wider text-[#ff9d13]">Subscription member</p>
-                    <h3 className="mt-2 text-4xl font-black">R140<span className="text-base font-bold text-blue-100">/month</span></h3>
-                  </div>
-                  <BrandGradientIcon icon={Wallet} tone="green" className="h-10 w-10" />
-                </div>
-                <p className="relative mt-6 font-black">Unlock even more value:</p>
+                <Image
+                  src="/images/kasi-rapid-legal-assist-v2.png"
+                  alt="KaSi Rapid & Legal Assist"
+                  width={1672}
+                  height={820}
+                  className="relative z-10 mx-auto h-auto w-full max-w-sm object-contain"
+                />
+                <h3 className="relative mt-4 text-center text-4xl font-black">R140<span className="text-base font-bold text-blue-100">/month</span></h3>
+                <p className="relative mt-6 font-black">Two essential products from day one:</p>
                 <ul className="relative mt-5 flex-1 space-y-3 text-sm text-blue-50">
-                  {["More ecosystem benefits", "Value-added products & services", "Additional earning opportunities", "Eligibility for KaSi Shareholder Access*"].map((item) => (
+                  {["Kasi Rapid road-accident fund cover", "Private-hospital admission after a qualifying road accident", "Claims and accident paperwork assistance", "24/7 access to real attorneys", "Legal help with contracts, landlord problems and debt disputes", "Cash in your pocket and a place in KaSiHuB"].map((item) => (
                     <li key={item} className="flex items-start gap-3"><CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-[#ff9d13]" /><span>{item}</span></li>
                   ))}
                 </ul>
                 <Button size="lg" brandTone="orange" onClick={openRegistration} className="relative mt-8 bg-[#ff9d13] font-black text-[#0f172a] hover:bg-[#ffad32]">
-                  Explore membership <Search className="h-5 w-5" />
+                  Choose the Rapid &amp; Legal Combo <Search className="h-5 w-5" />
                 </Button>
               </article>
             </div>

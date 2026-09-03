@@ -5,6 +5,7 @@ import {
   LayoutDashboard, Users, Network, Coins, ShoppingBag, Building2,
   Droplets, Landmark, Settings, LogOut, Menu, Bell, ChevronRight,
   ShieldCheck, Crown, UserRound, ArrowLeftRight, Wallet, Ticket, UserPlus, MessageCircle,
+  Palette,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -26,10 +27,7 @@ import { AdminVouchers } from "@/components/admin/admin-vouchers";
 import { AdminReferrals } from "@/components/admin/admin-referrals";
 import { AdminNotifications } from "@/components/admin/admin-notifications";
 import { AdminSettings } from "@/components/admin/admin-settings";
-// Design Studio is intentionally dormant while its persistence path is stabilised.
-// Restore its signed import, navigation entry and view together.
-// Author: Klaasvaakie ( |╲ )
-// import { AdminDesignSuite } from "@/components/admin/admin-design-suite";
+import { AdminDesignSuite } from "@/components/admin/admin-design-suite";
 import { BrandLogo } from "@/components/brand-logo";
 import { BrandGradientIcon, brandIconTone } from "@/components/brand-gradient-icon";
 
@@ -45,7 +43,7 @@ const NAV: { key: AdminViewKey; label: string; icon: typeof LayoutDashboard; des
   { key: "vouchers", label: "Vouchers", icon: Ticket, desc: "WABlast & vouchers" },
   { key: "referrals", label: "Referrals", icon: UserPlus, desc: "Enabler referrals" },
   { key: "notifications", label: "Notifications", icon: MessageCircle, desc: "WhatsApp reminders" },
-  // { key: "design", label: "Design Suite", icon: Palette, desc: "App styling & themes" },
+  { key: "design", label: "Look & Feel", icon: Palette, desc: "Colours & styling" },
   { key: "settings", label: "Settings", icon: Settings, desc: "Exco config" },
 ];
 
@@ -149,7 +147,7 @@ export function AdminShell() {
               {visibleAdminView === "vouchers" && <AdminVouchers />}
               {visibleAdminView === "referrals" && <AdminReferrals />}
               {visibleAdminView === "notifications" && <AdminNotifications />}
-              {/* {adminView === "design" && <AdminDesignSuite />} */}
+              {visibleAdminView === "design" && <AdminDesignSuite />}
               {visibleAdminView === "settings" && <AdminSettings />}
             </motion.div>
           </AnimatePresence>

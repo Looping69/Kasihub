@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import "./action-buttons-v2.css";
 import { Toaster } from "@/components/ui/toaster";
 import { ThemeRuntime } from "@/components/theme-runtime";
 import { ThemeProvider } from "@/components/theme-provider";

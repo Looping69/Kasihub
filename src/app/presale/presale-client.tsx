@@ -4,7 +4,7 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { CheckCircle2, ChevronLeft, ChevronRight, ClipboardCheck, Clock3, Copy, FileCheck2, Landmark, LockKeyhole, ShieldCheck, UserRound, WalletCards } from "lucide-react";
+import { CheckCircle2, ChevronLeft, ClipboardCheck, Clock3, Copy, FileCheck2, Landmark, LockKeyhole, ShieldCheck, UserRound, WalletCards } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -331,7 +331,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
                     <ChevronLeft className="mr-1 h-4 w-4" />Back
                   </Button>
                 )}
-                {applicationPhase < 6 ? <Button type="button" className="flex-1 bg-amber-400 font-bold text-slate-950 hover:bg-amber-300" onClick={advanceApplication}>Continue<ChevronRight className="ml-1 h-4 w-4" /></Button> : devPreview ? <Button type="button" className="flex-1 bg-slate-500 font-bold text-white" disabled>Read-only preview — no reservation</Button> : <Button className="flex-1 bg-amber-400 font-bold text-slate-950 hover:bg-amber-300" disabled={submitting}>{submitting ? "Creating reservation…" : "Reserve and view payment"}</Button>}
+                {applicationPhase < 6 ? <Button type="button" className="flex-1 bg-amber-400 font-bold text-slate-950 hover:bg-amber-300" onClick={advanceApplication}>Continue</Button> : devPreview ? <Button type="button" className="flex-1 bg-slate-500 font-bold text-white" disabled>Read-only preview — no reservation</Button> : <Button className="flex-1 bg-amber-400 font-bold text-slate-950 hover:bg-amber-300" disabled={submitting}>{submitting ? "Creating reservation…" : "Reserve and view payment"}</Button>}
               </div>
             </form></CardContent>
           </Card>

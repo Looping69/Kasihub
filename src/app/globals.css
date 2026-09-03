@@ -162,7 +162,7 @@
   [data-page-background="soft"] body { background-image: radial-gradient(circle at 80% 0%, color-mix(in srgb, var(--primary) 8%, transparent), transparent 36rem); }
 }
 
-/* Branded action button: angled colour face + white icon wing. */
+/* Branded action button: clean gradient face with balanced content. */
 [data-kasi-action="true"] {
   --kasi-action-start: #ff9d13;
   --kasi-action-end: #ff5a00;
@@ -173,17 +173,14 @@
   overflow: hidden;
   border: 0 !important;
   border-radius: 6px !important;
-  background:
-    linear-gradient(#fff, #fff) 10px 50% / 2px calc(100% - 14px) no-repeat,
-    linear-gradient(110deg, var(--kasi-action-start), var(--kasi-action-end)) !important;
+  background: linear-gradient(110deg, var(--kasi-action-start), var(--kasi-action-end)) !important;
   box-shadow: 3px 4px 0 rgba(38, 52, 112, 0.35) !important;
   color: #000 !important;
   font-family: var(--font-inter-sans), Inter, Arial, sans-serif !important;
   font-size: 1rem;
-  font-weight: 600 !important;
+  font-weight: 400 !important;
   letter-spacing: 0;
-  padding-left: 1.25rem !important;
-  padding-right: 4.35rem !important;
+  padding-inline: 1.25rem !important;
   text-transform: uppercase;
 }
 
@@ -199,43 +196,19 @@
 }
 
 [data-kasi-action="true"]::before {
-  position: absolute;
-  inset: 0 0 0 auto;
-  z-index: 0;
-  width: 3.55rem;
-  background:
-    linear-gradient(var(--kasi-action-end), var(--kasi-action-end)) calc(100% - 10px) 50% / 2px calc(100% - 14px) no-repeat,
-    #fff;
-  clip-path: polygon(24% 0, 100% 0, 100% 100%, 24% 100%, 0 50%);
-  content: "";
+  display: none;
 }
 
 [data-kasi-action="true"]::after {
-  position: absolute;
-  right: 1.15rem;
-  z-index: 1;
-  width: 0.9rem;
-  height: 0.9rem;
-  border-top: 2.5px solid #07152f;
-  border-right: 2.5px solid #07152f;
-  content: "";
-  transform: rotate(45deg);
-}
-
-[data-kasi-action="true"]:has(> svg)::after {
   display: none;
 }
 
 [data-kasi-action="true"] > svg {
-  position: absolute;
-  right: 0.9rem;
-  z-index: 1;
-  width: 1.65rem !important;
-  height: 1.65rem !important;
-  margin: 0 !important;
-  color: #07152f !important;
-  stroke: currentColor;
-  stroke-width: 2.25;
+  display: none !important;
+}
+
+[data-slot="button"] {
+  font-weight: 400 !important;
 }
 
 [data-kasi-action="true"]:hover {
@@ -277,23 +250,10 @@
 }
 
 .dashboard-compact-buttons [data-kasi-action="true"] {
-  padding-left: 1rem !important;
-  padding-right: 3.25rem !important;
-}
-
-.dashboard-compact-buttons [data-kasi-action="true"]::before {
-  width: 2.7rem;
-}
-
-.dashboard-compact-buttons [data-kasi-action="true"]::after {
-  right: 0.85rem;
-  width: 0.7rem;
-  height: 0.7rem;
-  border-width: 2px;
+  padding-inline: 1rem !important;
 }
 
 .dashboard-compact-buttons [data-kasi-action="true"] > svg {
-  right: 0.72rem;
   width: 1.2rem !important;
   height: 1.2rem !important;
 }
@@ -367,8 +327,7 @@
 .presale-assurance svg { color: var(--presale-gold); }
 .presale-form-card { border: 1px solid rgb(193 202 247 / 24%) !important; border-radius: 1.7rem !important; background: linear-gradient(145deg, rgb(45 58 126 / 91%), rgb(21 29 72 / 93%)) !important; box-shadow: 0 2rem 5rem rgb(0 0 0 / 27%), inset 0 1px rgb(255 255 255 / 8%); }
 .presale-shell [data-kasi-action="true"] { --kasi-action-start: #ffe17d; --kasi-action-end: #bc8121; color: #131329 !important; box-shadow: 3px 4px 0 rgb(0 0 0 / 22%) !important; }
-.presale-shell [data-kasi-action="true"]::before { background-color: #fffdf7; }
-.presale-shell [data-kasi-action="true"]::after, .presale-shell [data-kasi-action="true"] > svg { color: #131329 !important; }
+.presale-shell [data-kasi-action="true"] > svg { color: currentColor !important; }
 .presale-shell input, .presale-shell textarea, .presale-shell select { background-color: rgb(10 16 46 / 68%) !important; border-color: rgb(181 192 238 / 20%) !important; }
 
 @media (max-width: 639px) {

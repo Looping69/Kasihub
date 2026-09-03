@@ -1,0 +1,28 @@
+/* Cache-busted global action-button surface. Keep loaded after globals.css. */
+[data-kasi-action="true"] {
+  background: linear-gradient(110deg, var(--kasi-action-start), var(--kasi-action-end)) !important;
+  font-weight: 400 !important;
+  padding-inline: 1.25rem !important;
+}
+
+[data-kasi-action="true"]::before,
+[data-kasi-action="true"]::after {
+  display: none !important;
+  content: none !important;
+}
+
+[data-kasi-action="true"] > svg {
+  display: none !important;
+}
+
+[data-slot="button"] {
+  font-weight: 400 !important;
+}
+
+.dashboard-compact-buttons [data-kasi-action="true"] {
+  padding-inline: 1rem !important;
+}
+
+.dashboard-compact-buttons [data-kasi-action="true"] > svg {
+  display: none !important;
+}
