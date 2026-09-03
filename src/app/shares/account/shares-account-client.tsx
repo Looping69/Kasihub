@@ -4,7 +4,7 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { CheckCircle2, Clock3, Download, FileCheck2, Layers3, LoaderCircle, LogOut, RefreshCw, ShieldCheck } from "lucide-react";
+import { CheckCircle2, Clock3, CreditCard, Download, FileCheck2, Layers3, LoaderCircle, LogOut, RefreshCw, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CryptoVerificationProgress } from "@/components/presale/crypto-verification-progress";
@@ -192,13 +192,49 @@ export function SharesAccountClient() {
     }
   }
 
+  const [startingWebPay, setStartingWebPay] = useState(false);
+  const [webPayError, setWebPayError] = useState("");
+
+  async function startWebPayCheckout(orderReference: string) {
+    setStartingWebPay(true);
+    setWebPayError("");
+    try {
+      const response = await fetch(`/api/presale/orders/${encodeURIComponent(orderReference)}/webpay-checkout`, {
+        method: "POST",
+      });
+      const payload = await response.json() as { actionUrl?: string; fields?: Record<string, string>; error?: string };
+      if (!response.ok) {
+        throw new Error(payload.error ?? "WebPay checkout could not be started");
+      }
+      if (!payload.actionUrl?.startsWith("https://") || !payload.fields) {
+        throw new Error("WebPay returned an invalid checkout");
+      }
+      const form = document.createElement("form");
+      form.method = "POST";
+      form.action = payload.actionUrl;
+      for (const [name, value] of Object.entries(payload.fields)) {
+        const input = document.createElement("input");
+        input.type = "hidden";
+        input.name = name;
+        input.value = value;
+        form.appendChild(input);
+      }
+      document.body.appendChild(form);
+      form.submit();
+    } catch (err) {
+      setWebPayError(err instanceof Error ? err.message : "WebPay checkout could not be started");
+    } finally {
+      setStartingWebPay(false);
+    }
+  }
+
   return <main className="presale-shell min-h-screen px-5 py-8 text-white">
     <div className="mx-auto w-full max-w-5xl">
       <header className="mb-10 flex items-center justify-between gap-4">
         <Link href="/" className="relative h-[76px] w-[134px]"><Image src="/kasishares-logo.png" alt="KaSiShares home" fill sizes="134px" className="object-contain object-left" priority /></Link>
         {portal ? <Button variant="outline" onClick={() => void logout()} className="border-white/20 bg-transparent text-white"><LogOut className="mr-2 h-4 w-4" />Sign out</Button> : null}
       </header>
-      {loading ? <p className="text-slate-300">Loading applicant account…</p> : portal ? <><span className="sr-only" aria-live="polite">Applicant authority {authorityHydration}</span><PortalView portal={portal} error={error} confirmingPayment={confirmingPayment} recheckingPayment={recheckingPayment} paymentNotice={paymentNotice} onCancel={cancelReservation} onRecheck={recheckPayment} /></> : <LoginForm error={error} onSubmit={login} />}
+      {loading ? <p className="text-slate-300">Loading applicant account…</p> : portal ? <><span className="sr-only" aria-live="polite">Applicant authority {authorityHydration}</span><PortalView portal={portal} error={error} confirmingPayment={confirmingPayment} recheckingPayment={recheckingPayment} paymentNotice={paymentNotice} onCancel={cancelReservation} onRecheck={recheckPayment} onStartWebPay={startWebPayCheckout} startingWebPay={startingWebPay} webPayError={webPayError} /></> : <LoginForm error={error} onSubmit={login} />}
     </div>
   </main>;
 }
@@ -223,9 +259,10 @@ function LoginForm({ error, onSubmit }: { error: string; onSubmit: (event: FormE
   </section>;
 }
 
-function PortalView({ portal, error, confirmingPayment, recheckingPayment, paymentNotice, onCancel, onRecheck }: {
+function PortalView({ portal, error, confirmingPayment, recheckingPayment, paymentNotice, onCancel, onRecheck, onStartWebPay, startingWebPay, webPayError }: {
   portal: Portal; error: string; confirmingPayment: boolean; recheckingPayment: boolean; paymentNotice: string;
   onCancel: (orderReference: string) => Promise<void>; onRecheck: (orderReference: string) => Promise<void>;
+  onStartWebPay: (orderReference: string) => Promise<void>; startingWebPay: boolean; webPayError: string;
 }) {
   const shareholder = portal.shareholder ?? { totalIssuedShares: 0, holdings: [] };
   const isShareholder = shareholder.totalIssuedShares > 0;
@@ -241,11 +278,43 @@ function PortalView({ portal, error, confirmingPayment, recheckingPayment, payme
     {!portal.authority.available ? <p role="alert" className="rounded-xl border border-rose-300/30 bg-rose-400/10 p-4 text-sm leading-6 text-rose-100"><strong className="block text-white">Applicant controls are safely locked</strong>The server authority contract is unavailable or incomplete. No payment, cancellation, or continuation action has been enabled.</p> : null}
     {portal.order?.webPayProcessStatus && ["FAILED", "REJECTED", "EXPIRED", "REVERSED"].includes(portal.order.webPayProcessStatus) ? <p role="status" className="rounded-xl border border-rose-300/30 bg-rose-400/10 p-4 text-sm text-rose-100">The last WebPay attempt was {portal.order.webPayProcessStatus.toLowerCase()}. No successful card payment was recorded and no shares were allocated.</p> : null}
     {confirmingPayment ? <p role="status" className="rounded-xl border border-sky-300/30 bg-sky-400/10 p-4 text-sm text-sky-100">WebPay returned successfully. We are waiting for the signed payment notification before confirming your shares.</p> : null}
+    {portal.order?.paymentRail === "webpay_card" && reservation && allowsApplicantAction(portal.authority, "start_card_checkout") ? <WebPayPaymentRecovery order={portal.order} reservation={reservation} journeyState={portal.authority.journey.state} onStartCheckout={onStartWebPay} starting={startingWebPay} error={webPayError} /> : null}
     {portal.order?.paymentRail === "remitano_usdt" && reservation && allowsApplicantAction(portal.authority, "recheck_payment") ? <CryptoPaymentRecovery order={portal.order} reservation={reservation} journeyState={portal.authority.journey.state} rechecking={recheckingPayment} notice={paymentNotice} onRecheck={onRecheck} /> : null}
     {shareholder.holdings.length > 0 ? <ShareholderPortfolio shareholder={shareholder} /> : null}
     <ContinuationPanel portal={portal} error={error} onCancel={onCancel} />
     <p className="flex items-center gap-2 text-xs text-slate-400"><ShieldCheck className="h-4 w-4" />KaSiShares access remains separate. Normal dashboard and matrix access require an activated membership subscription.</p>
   </div>;
+}
+
+function WebPayPaymentRecovery({
+  order,
+  reservation,
+  journeyState,
+  onStartCheckout,
+  starting,
+  error,
+}: {
+  order: PortalOrder;
+  reservation: PresaleReservationContract;
+  journeyState: ApplicantAuthority["journey"]["state"];
+  onStartCheckout: (orderReference: string) => Promise<void>;
+  starting: boolean;
+  error?: string;
+}) {
+  return <section className="rounded-2xl border border-sky-300/30 bg-[#0f2744] p-7" aria-labelledby="webpay-payment-heading">
+    <div className="flex flex-wrap items-start justify-between gap-5">
+      <div className="max-w-2xl">
+        <p className="text-xs font-bold uppercase tracking-[.18em] text-sky-300">Card payment recovery</p>
+        <h2 id="webpay-payment-heading" className="mt-2 text-2xl font-black">Your share choice is preserved</h2>
+        <p className="mt-2 text-sm leading-6 text-slate-300">{reservation.paidShares.toLocaleString()} paid {reservation.paidShares === 1 ? "share is" : "shares are"} reserved for R{reservation.totalZar}. A second purchase form is intentionally locked while this payment is verified.</p>
+      </div>
+      <Button type="button" disabled={starting} onClick={() => void onStartCheckout(reservation.orderReference)} className="bg-sky-400 font-bold text-slate-950 hover:bg-sky-300 disabled:opacity-60">
+        {starting ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : <CreditCard className="mr-2 h-4 w-4" />}
+        {starting ? "Opening WebPay…" : "Continue to secure WebPay checkout"}
+      </Button>
+    </div>
+    {error ? <p role="alert" className="mt-4 text-sm text-red-300">{error}</p> : null}
+  </section>;
 }
 
 type PortalOrder = NonNullable<Portal["order"]>;

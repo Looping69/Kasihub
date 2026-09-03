@@ -62,6 +62,37 @@ export interface ApplicantJourneyDecision {
   terminal: boolean;
 }
 
+export const APPLICANT_JOURNEY_TRANSITIONS: Record<ApplicantJourneyState, {
+  legalNext: ApplicantJourneyState[];
+  actors: string[];
+  requiredEvidence: string[];
+  reversible: boolean;
+  terminal: boolean;
+}> = {
+  invite_required: { legalNext: ["application_in_progress"], actors: ["applicant"], requiredEvidence: ["invitation_code"], reversible: false, terminal: false },
+  application_in_progress: { legalNext: ["kyc_pending", "eligible_to_reserve", "manual_review"], actors: ["applicant", "system"], requiredEvidence: ["application_form_v1"], reversible: false, terminal: false },
+  kyc_pending: { legalNext: ["eligible_to_reserve", "manual_review"], actors: ["system", "compliance"], requiredEvidence: ["didit_decision"], reversible: false, terminal: false },
+  eligible_to_reserve: { legalNext: ["awaiting_payment", "manual_review"], actors: ["applicant"], requiredEvidence: ["signed_terms_v1"], reversible: false, terminal: false },
+  awaiting_payment: { legalNext: ["payment_submitted", "pending_confirmations", "confirmed", "manual_review", "cancelled", "expired"], actors: ["applicant", "system"], requiredEvidence: ["payment_obligation"], reversible: false, terminal: false },
+  payment_submitted: { legalNext: ["pending_confirmations", "underpaid", "manual_review", "confirmed"], actors: ["system"], requiredEvidence: ["provider_tx_hash"], reversible: false, terminal: false },
+  pending_confirmations: { legalNext: ["underpaid", "manual_review", "confirmed"], actors: ["system"], requiredEvidence: ["chain_receipt"], reversible: false, terminal: false },
+  underpaid: { legalNext: ["payment_submitted", "manual_review", "confirmed"], actors: ["applicant", "system"], requiredEvidence: ["cumulative_credit_calculation"], reversible: false, terminal: false },
+  manual_review: { legalNext: ["confirmed", "cancelled"], actors: ["admin", "compliance"], requiredEvidence: ["audited_manual_resolution"], reversible: false, terminal: false },
+  confirmed: { legalNext: ["awaiting_incorporation", "manual_review"], actors: ["system", "issuer"], requiredEvidence: ["settled_payment_obligation"], reversible: false, terminal: false },
+  awaiting_incorporation: { legalNext: ["issued", "manual_review"], actors: ["issuer", "system"], requiredEvidence: ["idempotent_issuance_operation"], reversible: false, terminal: false },
+  issued: { legalNext: ["revoked"], actors: ["issuer"], requiredEvidence: ["sealed_certificate"], reversible: false, terminal: true },
+  revoked: { legalNext: [], actors: ["issuer"], requiredEvidence: ["revocation_audit"], reversible: false, terminal: true },
+  cancelled: { legalNext: ["manual_review"], actors: ["system", "compliance"], requiredEvidence: ["cancellation_audit"], reversible: false, terminal: true },
+  expired: { legalNext: ["manual_review"], actors: ["system", "compliance"], requiredEvidence: ["deadline_evidence"], reversible: false, terminal: true },
+};
+
+export function assertApplicantJourneyTransition(from: ApplicantJourneyState, to: ApplicantJourneyState): void {
+  const definition = APPLICANT_JOURNEY_TRANSITIONS[from];
+  if (!definition || !definition.legalNext.includes(to)) {
+    throw new Error(`invalid_applicant_journey_transition:${from}->${to}`);
+  }
+}
+
 export interface ApplicantJourneySource {
   application: null | { status: string; phaseCompleted: number };
   kycStatus: string | null;
@@ -166,7 +197,7 @@ export function deriveApplicantJourney(source: ApplicantJourneySource): Applican
   if (order?.status === "payment_submitted" || order?.hasTransactionHash) return decision("payment_submitted", "payment_hash_submitted");
   if (order?.status === "awaiting_payment") {
     const paymentActions: ApplicantJourneyAction[] = order.paymentRail === "webpay_card"
-      ? order.cardCheckoutStarted ? [] : ["start_card_checkout"]
+      ? ["start_card_checkout"]
       : ["submit_payment_hash"];
     const cancellationAction: ApplicantJourneyAction[] = order.cancellationEligible ? ["cancel_reservation"] : [];
     return decision("awaiting_payment", "reservation_awaiting_payment", [...paymentActions, ...cancellationAction]);

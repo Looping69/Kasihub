@@ -896,6 +896,27 @@ export async function fulfilWebPayPresalePayment(orderReference: string, provide
       if (order.status === "confirmed") await attemptImmediatePresaleIssuance(orderReference);
       return;
     }
+    if (["cancelled", "expired", "manual_review"].includes(order.status)
+      || new Date(order.payment_deadline).getTime() <= Date.now()) {
+      if (order.status !== "manual_review") {
+        assertApplicantJourneyTransition(orderJourneyState(order.status), "manual_review");
+      }
+      await tx.rawExec(`UPDATE presale_orders SET status='manual_review',
+        webpay_system_reference=COALESCE(webpay_system_reference,$2),
+        webpay_payment_method=COALESCE(webpay_payment_method,$3),
+        payment_settled_at=COALESCE(payment_settled_at,now()),updated_at=now()
+        WHERE id=$1 AND status IN ('awaiting_payment','payment_submitted','payment_detected','cancelled','expired','manual_review')`,
+      order.id, providerReference, paymentMethod);
+      await tx.rawExec(`INSERT INTO presale_audit_events
+        (event_key,order_id,event_type,actor_type,actor_reference,evidence)
+        VALUES ($1,$2,'payment.late_detected','system','webpay.notification',$3::jsonb)
+        ON CONFLICT (event_key) DO NOTHING`, `presale:${orderReference}:late-webpay-payment`, order.id,
+      JSON.stringify({ providerReference, paymentMethod, priorStatus: order.status,
+        paymentDeadline: order.payment_deadline, reason: order.status === "cancelled" ? "payment_after_cancellation" : "payment_after_deadline" }));
+      await tx.commit();
+      return;
+    }
+    assertApplicantJourneyTransition(orderJourneyState(order.status), "confirmed");
     if (!["awaiting_payment", "payment_submitted", "payment_detected"].includes(order.status)) {
       throw APIError.failedPrecondition(`Presale order cannot be fulfilled while ${order.status}`);
     }
@@ -2246,11 +2267,11 @@ export const createPresaleWebPayCheckout = api<
   if (order.status !== "awaiting_payment" || new Date(order.payment_deadline) <= new Date()) {
     throw APIError.failedPrecondition("This reservation no longer accepts payment");
   }
-  const transactionId = order.webpay_transaction_id ?? crypto.randomUUID();
+  const transactionId = crypto.randomUUID();
   const orderNumber = order.webpay_order_number ?? webPayOrderNumber("KSH", order.order_reference);
   await presaleDb.rawExec(
     `UPDATE presale_orders SET webpay_transaction_id = $2, webpay_order_number = $3, updated_at = now()
-      WHERE id = $1 AND (webpay_transaction_id IS NULL OR webpay_transaction_id = $2)`,
+      WHERE id = $1`,
     order.id, transactionId, orderNumber,
   );
   const [firstName, ...surnameParts] = order.buyer_name.trim().split(/\s+/);
@@ -2291,6 +2312,16 @@ export const createPresaleWebPayCheckout = api<
     amountZar: order.total_zar,
     securityKey: WebPaySecurityKey(),
   });
+  await presaleDb.rawExec(
+    `INSERT INTO presale_audit_events
+      (event_key, order_id, event_type, actor_type, actor_reference, evidence)
+     VALUES ($1, $2, 'payment.attempt_started', 'profile', $3, $4::jsonb)
+     ON CONFLICT (event_key) DO NOTHING`,
+    `presale:${order.order_reference}:attempt:${transactionId}`,
+    order.id,
+    order.buyer_email,
+    JSON.stringify({ transactionId, orderNumber, totalZar: order.total_zar }),
+  );
   return { actionUrl, fields };
 });
 
@@ -2605,8 +2636,10 @@ export const receivePresaleWebPayNotification = api<
   const order = await presaleDb.rawQueryRow<{
     id: string; order_reference: string; payment_rail: PresalePaymentRail; total_zar: string | null;
     webpay_transaction_id: string | null; webpay_order_number: string | null; status: string;
+    incorporation_status: string; payment_deadline: string;
   }>(`SELECT id,order_reference,payment_rail,total_zar::text AS total_zar,
-             webpay_transaction_id::text AS webpay_transaction_id,webpay_order_number,status
+             webpay_transaction_id::text AS webpay_transaction_id,webpay_order_number,status,
+             incorporation_status,payment_deadline
         FROM presale_orders
        WHERE webpay_transaction_id::text = $1 OR webpay_order_number = $1`, event.payeeRefInfo);
   if (!order || order.payment_rail !== "webpay_card" || order.webpay_order_number !== event.payeeOrderNr) {
@@ -2626,6 +2659,25 @@ export const receivePresaleWebPayNotification = api<
   if (!Number.isFinite(paidAmount) || paidAmount.toFixed(2) !== requestedAmount
     || event.paymentCurrency !== "ZAR" || !event.paymentMethod?.startsWith("CARD")) {
     throw APIError.failedPrecondition("Completed WebPay payment evidence does not match the reservation");
+  }
+  if (!event.paymentSystemReference) {
+    throw APIError.failedPrecondition("Completed WebPay payment is missing its payment-system reference");
+  }
+  const isLateOrCancelled = ["cancelled", "expired", "manual_review"].includes(order.status)
+    || new Date(order.payment_deadline).getTime() <= Date.now();
+  if (!isLateOrCancelled && order.incorporation_status === "pending") {
+    assertApplicantJourneyTransition(orderJourneyState(order.status, order.incorporation_status), "awaiting_incorporation");
+  }
+  await presaleDb.rawExec(`INSERT INTO presale_webpay_settlements
+    (provider_reference,order_id,request_token_id,amount_zar,payment_method)
+    VALUES ($1,$2,$3,$4::numeric,$5) ON CONFLICT (provider_reference) DO NOTHING`,
+  providerReference, order.id, event.requestTokenId, requestedAmount, event.paymentMethod);
+  const settlementClaim = await presaleDb.rawQueryRow<{ order_id: string; amount_zar: string; payment_method: string }>(
+    `SELECT order_id,amount_zar::text AS amount_zar,payment_method
+       FROM presale_webpay_settlements WHERE provider_reference=$1`, providerReference);
+  if (!settlementClaim || settlementClaim.order_id !== order.id || settlementClaim.amount_zar !== requestedAmount
+    || settlementClaim.payment_method !== event.paymentMethod) {
+    throw APIError.alreadyExists("WebPay settlement reference was already used for different payment evidence");
   }
   await fulfilWebPayPresalePayment(order.order_reference, providerReference, event.paymentMethod);
   return { accepted: true, outcome: "confirmed", orderReference: order.order_reference };
@@ -2781,6 +2833,134 @@ export const listPresaleOrders = api<
   return { orders: rows.map((row) => ({ orderReference: row.order_reference, buyerName: row.buyer_name, buyerEmail: row.buyer_email,
     quantity: row.quantity, totalUsdt: row.total_usdt, status: row.status, txHash: row.tx_hash ?? undefined,
     confirmations: row.confirmations ?? 0, incorporationStatus: row.incorporation_status, createdAt: row.created_at })) };
+});
+
+export interface ResolvePresaleManualReviewRequest {
+  orderReference: string;
+  action: "approve_settlement" | "reject_and_cancel";
+  reason: string;
+}
+
+export interface ResolvePresaleManualReviewResponse {
+  orderReference: string;
+  status: string;
+  action: "approve_settlement" | "reject_and_cancel";
+  auditEventKey: string;
+}
+
+export const resolvePresaleManualReview = api<
+  ResolvePresaleManualReviewRequest,
+  ResolvePresaleManualReviewResponse
+>({ method: "POST", path: "/admin/presale/orders/:orderReference/resolve-manual-review", expose: true }, async (req) => {
+  const admin = await requireAdminAccess();
+  const reason = req.reason?.trim();
+  if (!reason) throw APIError.invalidArgument("A reason is required to resolve a manual review");
+  if (!["approve_settlement", "reject_and_cancel"].includes(req.action)) {
+    throw APIError.invalidArgument("Invalid resolution action; must be approve_settlement or reject_and_cancel");
+  }
+
+  const tx = await presaleDb.begin();
+  try {
+    const order = await tx.rawQueryRow<{
+      id: string; campaign_id: string; quantity: number; status: string; payment_rail: PresalePaymentRail;
+      payment_transaction_hash: string | null; webpay_system_reference: string | null;
+      payment_obligation_id: string | null; bonus_buy_one_get_one: boolean;
+    }>(
+      `SELECT o.id, o.campaign_id, o.quantity, o.status, o.payment_rail,
+              o.payment_transaction_hash, o.webpay_system_reference,
+              o.payment_obligation_id, c.bonus_buy_one_get_one
+         FROM presale_orders o
+         JOIN presale_campaigns c ON c.id = o.campaign_id
+        WHERE o.order_reference = $1 FOR UPDATE OF o`,
+      req.orderReference,
+    );
+    if (!order) throw APIError.notFound("Presale order not found");
+    if (order.status !== "manual_review") {
+      throw APIError.failedPrecondition(`Presale order cannot be resolved from status '${order.status}'`);
+    }
+
+    const auditEventKey = `presale:${req.orderReference}:manual-review-resolved:${Date.now()}`;
+
+    if (req.action === "approve_settlement") {
+      const hasEvidence = Boolean(order.payment_transaction_hash?.trim() || order.webpay_system_reference?.trim());
+      if (!hasEvidence) {
+        throw APIError.failedPrecondition("Cannot approve manual review without verified payment evidence on the order");
+      }
+
+      assertApplicantJourneyTransition("manual_review", "confirmed");
+      const issuedQuantity = issuedSharesForPresale(order.quantity, order.bonus_buy_one_get_one);
+
+      await tx.rawExec(
+        `UPDATE presale_campaigns SET sold_shares = sold_shares + $2, updated_at = now()
+          WHERE id = $1 AND sold_shares + $2 <= total_shares`,
+        order.campaign_id, issuedQuantity,
+      );
+
+      await tx.rawExec(
+        `UPDATE presale_orders SET status = 'confirmed', confirmed_at = COALESCE(confirmed_at, now()),
+           payment_settled_at = COALESCE(payment_settled_at, now()), updated_at = now() WHERE id = $1`,
+        order.id,
+      );
+
+      await tx.rawExec(
+        `INSERT INTO presale_audit_events
+          (event_key, order_id, event_type, actor_type, actor_reference, evidence)
+         VALUES ($1, $2, 'payment.manual_review_resolved', 'admin', $3, $4::jsonb)
+         ON CONFLICT (event_key) DO NOTHING`,
+        auditEventKey, order.id, admin.user.email,
+        JSON.stringify({ action: req.action, reason, adminUserId: admin.user.id, resolvedAt: new Date().toISOString() }),
+      );
+
+      await enqueuePresaleIssuanceRequest(tx, order.id, req.orderReference);
+      await tx.commit();
+      await attemptImmediatePresaleIssuance(req.orderReference);
+
+      return {
+        orderReference: req.orderReference,
+        status: "confirmed",
+        action: req.action,
+        auditEventKey,
+      };
+    } else {
+      assertApplicantJourneyTransition("manual_review", "cancelled");
+      await tx.rawExec(
+        `UPDATE presale_orders SET status = 'cancelled', updated_at = now() WHERE id = $1`,
+        order.id,
+      );
+
+      if (order.payment_obligation_id) {
+        try {
+          await cancelPaymentObligation({
+            obligationId: order.payment_obligation_id,
+            reason: `Manual review rejected by admin: ${reason}`,
+          });
+        } catch (error) {
+          log.error(error, "could not cancel obligation for rejected manual review", { orderReference: req.orderReference });
+        }
+      }
+
+      await tx.rawExec(
+        `INSERT INTO presale_audit_events
+          (event_key, order_id, event_type, actor_type, actor_reference, evidence)
+         VALUES ($1, $2, 'payment.manual_review_rejected', 'admin', $3, $4::jsonb)
+         ON CONFLICT (event_key) DO NOTHING`,
+        auditEventKey, order.id, admin.user.email,
+        JSON.stringify({ action: req.action, reason, adminUserId: admin.user.id, resolvedAt: new Date().toISOString() }),
+      );
+
+      await tx.commit();
+
+      return {
+        orderReference: req.orderReference,
+        status: "cancelled",
+        action: req.action,
+        auditEventKey,
+      };
+    }
+  } catch (error) {
+    try { await tx.rollback(); } catch { /* transaction may already be closed */ }
+    throw error;
+  }
 });
 
 export const preparePresaleIncorporation = api<
