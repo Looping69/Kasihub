@@ -56,6 +56,8 @@ describe("KaSiShares Phase 3: Payment Engine Integrity & Recovery Contracts", ()
 
   test("provides privileged manual review operational resolution endpoint", () => {
     const api = source("encore/domains/presale/api.ts");
+    expect(api).toContain('verification.status === "manual_review"');
+    expect(api).toContain("UPDATE presale_orders SET status = 'manual_review'");
     expect(api).toContain("export const resolvePresaleManualReview = api<");
     expect(api).toContain("/admin/presale/orders/:orderReference/resolve-manual-review");
     expect(api).toContain("requireAdminAccess()");

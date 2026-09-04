@@ -2405,7 +2405,9 @@ async function applyPresalePaymentVerification(
   } else if (verification.status === "rejected") {
     await cancelPaymentObligation({ obligationId: verification.obligationId, reason: `Rejected chain evidence for ${orderReference}` });
     await rejectPresalePayment(orderReference, verification.paymentIntentId);
-  } else if (["pending_confirmations", "underpaid", "manual_review"].includes(verification.status)) {
+  } else if (verification.status === "manual_review") {
+    await presaleDb.rawExec("UPDATE presale_orders SET status = 'manual_review', updated_at = now() WHERE id = $1", orderId);
+  } else if (["pending_confirmations", "underpaid"].includes(verification.status)) {
     await presaleDb.rawExec("UPDATE presale_orders SET status = 'payment_detected', updated_at = now() WHERE id = $1", orderId);
   }
   return {
