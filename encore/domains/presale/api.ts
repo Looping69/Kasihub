@@ -34,7 +34,11 @@ import { resolveWebPayUnitPrice, WEBPAY_UNIT_PRICE_ZAR, verifyWebPayChecksum, ve
 import { buildShareholderPortfolio, type PresaleCertificate, type PresalePaidOrder } from "./shareholder-portfolio";
 import { applicantLoginSchema, internationalCellphoneSchema, missingRequiredFundingFields, physicalAddressLine, strongPasswordSchema } from "./applicant-validation";
 import { issueShares } from "../shares/issuance";
-import { deriveApplicantJourney, type ApplicantJourneyDecision } from "./applicant-journey";
+import {
+  assertApplicantJourneyTransition,
+  deriveApplicantJourney,
+  type ApplicantJourneyDecision,
+} from "./applicant-journey";
 import {
   buildPresaleReservationContract,
   deriveReservationCancellationPolicy,
