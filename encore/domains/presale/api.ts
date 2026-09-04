@@ -1190,6 +1190,11 @@ interface PresalePortalResponse {
         issuePricePerShareSnapshot?: number; issuePriceCurrencySnapshot?: string; integrityPayload?: string; integrityHash?: string };
     }>;
   };
+  additionalPurchase: {
+    eligible: boolean;
+    campaignName?: string;
+    sharesAvailable: number;
+  };
   ecosystemMembership: {
     enabled: boolean;
     subscriptionStatus: string | null;
@@ -1527,6 +1532,41 @@ export const presaleApplicantPortal = api<void, PresalePortalResponse>(
       session.profile.id,
     );
     const shareholder = buildShareholderPortfolio(paidOrders, certificates);
+    const additionalPurchaseCampaign = shareholder.totalIssuedShares > 0
+      ? await presaleDb.rawQueryRow<{
+          campaign_name: string; total_shares: number; reserved_shares: number; sold_shares: number;
+          bonus_buy_one_get_one: boolean; invitation_status: string;
+          has_resume_credential: boolean; has_open_order: boolean;
+        }>(
+          `SELECT c.name AS campaign_name,c.total_shares,c.reserved_shares,c.sold_shares,c.bonus_buy_one_get_one,
+                  i.status AS invitation_status,
+                  (a.resume_token_ciphertext IS NOT NULL AND a.resume_token_nonce IS NOT NULL AND a.resume_token_auth_tag IS NOT NULL) AS has_resume_credential,
+                  EXISTS (SELECT 1 FROM presale_orders pending
+                    WHERE pending.external_profile_id=$1 AND pending.campaign_id=c.id
+                      AND pending.status NOT IN ('cancelled','expired','incorporated')) AS has_open_order
+             FROM presale_orders issued
+             JOIN presale_campaigns c ON c.id=issued.campaign_id
+             JOIN presale_invitations i ON i.id=issued.invitation_id
+             JOIN presale_applications a ON a.id=issued.application_id
+            WHERE issued.external_profile_id=$1 AND issued.status='incorporated'
+              AND c.status='active' AND (c.starts_at IS NULL OR c.starts_at<=now()) AND (c.ends_at IS NULL OR c.ends_at>now())
+            ORDER BY issued.confirmed_at DESC NULLS LAST,issued.created_at DESC LIMIT 1`,
+          session.profile.id,
+        )
+      : null;
+    const remainingAllocation = additionalPurchaseCampaign
+      ? Math.max(0, additionalPurchaseCampaign.total_shares - additionalPurchaseCampaign.reserved_shares - additionalPurchaseCampaign.sold_shares)
+      : 0;
+    const additionalPaidSharesAvailable = additionalPurchaseCampaign?.bonus_buy_one_get_one
+      ? Math.floor(remainingAllocation / 2)
+      : remainingAllocation;
+    const additionalPurchaseEligible = Boolean(
+      additionalPurchaseCampaign
+      && additionalPaidSharesAvailable > 0
+      && !additionalPurchaseCampaign.has_open_order
+      && additionalPurchaseCampaign.has_resume_credential
+      && additionalPurchaseCampaign.invitation_status !== "revoked"
+    );
     const transactionHash = order?.payment_transaction_hash ?? paymentAttempt?.transaction_hash ?? null;
     const cancellation = order ? deriveReservationCancellationPolicy({
       status: order.status,
@@ -1561,7 +1601,7 @@ export const presaleApplicantPortal = api<void, PresalePortalResponse>(
     const currentHolding = order
       ? shareholder.holdings.find((holding) => holding.orderReference === order.order_reference)
       : undefined;
-    const journey = deriveApplicantJourney({
+    const baseJourney = deriveApplicantJourney({
       application: application ? { status: application.status, phaseCompleted: application.phase_completed } : null,
       kycStatus: kyc?.status ?? null,
       order: order ? {
@@ -1575,6 +1615,15 @@ export const presaleApplicantPortal = api<void, PresalePortalResponse>(
       } : null,
       holdingStatus: currentHolding?.status ?? null,
     });
+    const journey = additionalPurchaseEligible && !baseJourney.allowedActions.includes("create_reservation")
+      ? {
+          ...baseJourney,
+          allowedActions: [...baseJourney.allowedActions, "create_reservation" as const],
+          applicationEditable: true,
+          reservationEditable: true,
+          terminal: false,
+        }
+      : baseJourney;
     const continuation = deriveApplicantContinuation({
       application: application ? {
         status: application.status,
@@ -1647,6 +1696,11 @@ export const presaleApplicantPortal = api<void, PresalePortalResponse>(
       })),
       journey,
       shareholder,
+      additionalPurchase: {
+        eligible: additionalPurchaseEligible,
+        campaignName: additionalPurchaseCampaign?.campaign_name,
+        sharesAvailable: additionalPaidSharesAvailable,
+      },
       ecosystemMembership: {
         enabled: ecosystemRole?.enabled ?? false,
         subscriptionStatus: ecosystemSubscription?.status ?? null,
@@ -1656,6 +1710,79 @@ export const presaleApplicantPortal = api<void, PresalePortalResponse>(
       },
       continuation: { ...continuation, resumeUrl },
     };
+  },
+);
+
+export const authorizeAdditionalPresalePurchase = api<void, { purchaseUrl: string; campaignName: string; sharesAvailable: number }>(
+  { method: "POST", path: "/presale/applicant/additional-purchase", expose: true },
+  async () => {
+    const session = await requirePresaleSession();
+    const tx = await presaleDb.begin();
+    try {
+      const row = await tx.rawQueryRow<{
+        application_id: string; application_version_id: string | null; campaign_id: string; campaign_name: string; campaign_ends_at: string | null;
+        total_shares: number; reserved_shares: number; sold_shares: number; bonus_buy_one_get_one: boolean;
+        invitation_id: string; invitation_status: string; invitation_expires_at: string | null;
+        used_shares: number; max_shares: number; token_hash: string;
+        resume_token_ciphertext: DatabaseBinary; resume_token_nonce: DatabaseBinary; resume_token_auth_tag: DatabaseBinary;
+      }>(
+        `SELECT a.id AS application_id,issued.application_version_id,c.id AS campaign_id,c.name AS campaign_name,c.ends_at AS campaign_ends_at,
+                c.total_shares,c.reserved_shares,c.sold_shares,c.bonus_buy_one_get_one,
+                i.id AS invitation_id,i.status AS invitation_status,i.expires_at AS invitation_expires_at,
+                i.used_shares,i.max_shares,i.token_hash,a.resume_token_ciphertext,a.resume_token_nonce,a.resume_token_auth_tag
+           FROM presale_orders issued
+           JOIN presale_campaigns c ON c.id=issued.campaign_id
+           JOIN presale_invitations i ON i.id=issued.invitation_id
+           JOIN presale_applications a ON a.id=issued.application_id
+          WHERE issued.external_profile_id=$1 AND issued.status='incorporated'
+            AND a.resume_token_ciphertext IS NOT NULL AND a.resume_token_nonce IS NOT NULL AND a.resume_token_auth_tag IS NOT NULL
+            AND c.status='active' AND (c.starts_at IS NULL OR c.starts_at<=now()) AND (c.ends_at IS NULL OR c.ends_at>now())
+          ORDER BY issued.confirmed_at DESC NULLS LAST,issued.created_at DESC
+          LIMIT 1 FOR UPDATE OF c,i,a`,
+        session.profile.id,
+      );
+      if (!row) throw APIError.failedPrecondition("No active campaign is available for another purchase");
+      if (row.invitation_status === "revoked") {
+        throw APIError.permissionDenied("This shareholder's campaign access is no longer active");
+      }
+      const openOrder = await tx.rawQueryRow<{ exists: boolean }>(
+        `SELECT EXISTS (SELECT 1 FROM presale_orders
+          WHERE external_profile_id=$1 AND campaign_id=$2
+            AND status NOT IN ('cancelled','expired','incorporated')) AS exists`,
+        session.profile.id, row.campaign_id,
+      );
+      if (openOrder?.exists) throw APIError.failedPrecondition("Finish the current share purchase before starting another one");
+      const remainingAllocation = Math.max(0, row.total_shares - row.reserved_shares - row.sold_shares);
+      const sharesAvailable = row.bonus_buy_one_get_one ? Math.floor(remainingAllocation / 2) : remainingAllocation;
+      if (sharesAvailable < 1) throw APIError.failedPrecondition("This campaign has no shares available for another purchase");
+      if (row.max_shares - row.used_shares < 1 || row.invitation_status === "exhausted"
+        || (row.invitation_expires_at && new Date(row.invitation_expires_at) <= new Date())) {
+        await tx.rawExec(
+          "UPDATE presale_invitations SET max_shares=GREATEST(max_shares,used_shares+$2),status='active',expires_at=$3 WHERE id=$1",
+          row.invitation_id, sharesAvailable, row.campaign_ends_at,
+        );
+      }
+      const inviteToken = decryptPresaleSecret(row.resume_token_ciphertext, row.resume_token_nonce, row.resume_token_auth_tag);
+      if (hashSecret(inviteToken) !== row.token_hash) {
+        throw APIError.failedPrecondition("The shareholder purchase credential is inconsistent");
+      }
+      await tx.rawExec(
+        `INSERT INTO presale_application_events
+          (id,application_id,application_version_id,event_type,actor_type,actor_id,safe_metadata)
+         VALUES ($1,$2,$3,'additional_purchase_authorized','applicant',$4,$5::jsonb)`,
+        crypto.randomUUID(), row.application_id, row.application_version_id, session.profile.id,
+        JSON.stringify({ campaignId: row.campaign_id, sharesAvailable }),
+      );
+      await tx.commit();
+      return {
+        purchaseUrl: `/presale?invite=${encodeURIComponent(inviteToken)}`,
+        campaignName: row.campaign_name,
+        sharesAvailable,
+      };
+    } catch (error) {
+      try { await tx.rollback(); } catch { /* transaction may already be closed */ }
+      throw error;
+    }
   },
 );
 

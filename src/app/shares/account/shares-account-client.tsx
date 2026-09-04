@@ -4,7 +4,7 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { Check, CheckCircle2, Clock3, Copy, CreditCard, Download, ExternalLink, FileCheck2, Layers3, LoaderCircle, LogOut, RefreshCw, ShieldCheck } from "lucide-react";
+import { Check, CheckCircle2, Clock3, Copy, CreditCard, Download, ExternalLink, FileCheck2, Layers3, LoaderCircle, LogOut, RefreshCw, ShieldCheck, ShoppingCart } from "lucide-react";
 import { validSubmittedTransactionHash, submittedTransactionHashMessage } from "@/lib/payment-transaction-hash";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -48,6 +48,7 @@ type Portal = {
       certificate?: { certificateNumber: string; totalShares: number; status: string; issuedAt: string; revokedAt?: string };
     }>;
   };
+  additionalPurchase?: { eligible: boolean; campaignName?: string; sharesAvailable: number };
   testInviteUrl?: string;
   continuation?: {
     nextStep: number | null;
@@ -231,6 +232,24 @@ export function SharesAccountClient() {
 
   const [submittingHash, setSubmittingHash] = useState(false);
   const [hashError, setHashError] = useState("");
+  const [startingAdditionalPurchase, setStartingAdditionalPurchase] = useState(false);
+
+  async function startAdditionalPurchase() {
+    setStartingAdditionalPurchase(true);
+    setError("");
+    try {
+      const response = await fetch("/api/presale/additional-purchase", { method: "POST" });
+      const payload = await response.json() as { purchaseUrl?: string; error?: string };
+      if (!response.ok || !payload.purchaseUrl?.startsWith("/presale?invite=")) {
+        throw new Error(payload.error ?? "Another share purchase could not be started");
+      }
+      window.location.assign(payload.purchaseUrl);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Another share purchase could not be started");
+      await loadPortal().catch(() => undefined);
+      setStartingAdditionalPurchase(false);
+    }
+  }
 
   async function submitPaymentHash(orderReference: string, txHash: string) {
     setSubmittingHash(true);
@@ -259,7 +278,7 @@ export function SharesAccountClient() {
         <Link href="/" className="relative h-[76px] w-[134px]"><Image src="/kasishares-logo.png" alt="KaSiShares home" fill sizes="134px" className="object-contain object-left" priority /></Link>
         {portal ? <Button variant="outline" onClick={() => void logout()} className="border-white/20 bg-transparent text-white"><LogOut className="mr-2 h-4 w-4" />Sign out</Button> : null}
       </header>
-      {loading ? <p className="text-slate-300">Loading applicant account…</p> : portal ? <><span className="sr-only" aria-live="polite">Applicant authority {authorityHydration}</span><PortalView portal={portal} error={error} confirmingPayment={confirmingPayment} recheckingPayment={recheckingPayment} paymentNotice={paymentNotice} onCancel={cancelReservation} onRecheck={recheckPayment} onStartWebPay={startWebPayCheckout} startingWebPay={startingWebPay} webPayError={webPayError} onSubmitHash={submitPaymentHash} submittingHash={submittingHash} hashError={hashError} /></> : <LoginForm error={error} onSubmit={login} />}
+      {loading ? <p className="text-slate-300">Loading applicant account…</p> : portal ? <><span className="sr-only" aria-live="polite">Applicant authority {authorityHydration}</span><PortalView portal={portal} error={error} confirmingPayment={confirmingPayment} recheckingPayment={recheckingPayment} paymentNotice={paymentNotice} onCancel={cancelReservation} onRecheck={recheckPayment} onStartWebPay={startWebPayCheckout} startingWebPay={startingWebPay} webPayError={webPayError} onSubmitHash={submitPaymentHash} submittingHash={submittingHash} hashError={hashError} onPurchaseMore={startAdditionalPurchase} startingAdditionalPurchase={startingAdditionalPurchase} /></> : <LoginForm error={error} onSubmit={login} />}
     </div>
   </main>;
 }
@@ -298,6 +317,8 @@ function PortalView({
   onSubmitHash,
   submittingHash,
   hashError,
+  onPurchaseMore,
+  startingAdditionalPurchase,
 }: {
   portal: Portal;
   error: string;
@@ -312,6 +333,8 @@ function PortalView({
   onSubmitHash: (orderReference: string, txHash: string) => Promise<void>;
   submittingHash: boolean;
   hashError: string;
+  onPurchaseMore: () => Promise<void>;
+  startingAdditionalPurchase: boolean;
 }) {
   const shareholder = portal.shareholder ?? { totalIssuedShares: 0, holdings: [] };
   const isShareholder = shareholder.totalIssuedShares > 0;
@@ -342,8 +365,8 @@ function PortalView({
       submittingHash={submittingHash}
       hashError={hashError}
     /> : null}
-    {shareholder.holdings.length > 0 ? <ShareholderPortfolio shareholder={shareholder} /> : null}
-    <ContinuationPanel portal={portal} error={error} onCancel={onCancel} />
+    {shareholder.holdings.length > 0 ? <ShareholderPortfolio shareholder={shareholder} additionalPurchase={portal.additionalPurchase} onPurchaseMore={onPurchaseMore} startingAdditionalPurchase={startingAdditionalPurchase} /> : null}
+    {portal.continuation?.reason !== "signup_complete" ? <ContinuationPanel portal={portal} error={error} onCancel={onCancel} /> : error ? <p role="alert" className="rounded-xl border border-rose-300/30 bg-rose-400/10 p-4 text-sm text-rose-100">{error}</p> : null}
     <p className="flex items-center gap-2 text-xs text-slate-400"><ShieldCheck className="h-4 w-4" />KaSiShares access remains separate. Normal dashboard and matrix access require an activated membership subscription.</p>
   </div>;
 }
@@ -577,11 +600,22 @@ function CryptoPaymentRecovery({
 
 type Shareholder = NonNullable<Portal["shareholder"]>;
 
-function ShareholderPortfolio({ shareholder }: { shareholder: Shareholder }) {
+function ShareholderPortfolio({ shareholder, additionalPurchase, onPurchaseMore, startingAdditionalPurchase }: {
+  shareholder: Shareholder;
+  additionalPurchase?: Portal["additionalPurchase"];
+  onPurchaseMore: () => Promise<void>;
+  startingAdditionalPurchase: boolean;
+}) {
   return <section className="rounded-2xl border border-amber-300/20 bg-[#0f2744] p-7">
     <div className="flex flex-wrap items-end justify-between gap-4">
       <div><p className="text-xs font-bold uppercase tracking-[.18em] text-amber-300">Shareholder dashboard</p><h2 className="mt-2 text-2xl font-black">Your KaSiShares</h2><p className="mt-2 text-sm text-slate-300">Campaign allocations and certificates are read directly from the authoritative share register.</p></div>
-      <div className="rounded-xl border border-emerald-300/20 bg-emerald-400/10 px-5 py-3 text-right"><p className="text-xs uppercase tracking-wider text-emerald-200">Issued shares</p><p className="text-2xl font-black text-white">{shareholder.totalIssuedShares.toLocaleString()}</p></div>
+      <div className="flex flex-wrap items-center justify-end gap-3">
+        {additionalPurchase?.eligible ? <Button type="button" disabled={startingAdditionalPurchase} onClick={() => void onPurchaseMore()} className="bg-amber-400 font-bold text-slate-950 hover:bg-amber-300 disabled:opacity-60">
+          {startingAdditionalPurchase ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : <ShoppingCart className="mr-2 h-4 w-4" />}
+          {startingAdditionalPurchase ? "Opening purchase…" : "Purchase more shares"}
+        </Button> : null}
+        <div className="rounded-xl border border-emerald-300/20 bg-emerald-400/10 px-5 py-3 text-right"><p className="text-xs uppercase tracking-wider text-emerald-200">Issued shares</p><p className="text-2xl font-black text-white">{shareholder.totalIssuedShares.toLocaleString()}</p></div>
+      </div>
     </div>
     <div className="mt-6 grid gap-4">
       {shareholder.holdings.map((holding) => <article key={holding.orderReference} className="rounded-xl border border-white/10 bg-black/15 p-5">

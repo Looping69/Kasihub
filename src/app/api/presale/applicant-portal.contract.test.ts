@@ -269,6 +269,24 @@ describe("isolated KaSiShares applicant portal", () => {
     expect(source("encore/domains/payments/remitano.ts")).toContain("transactionHashForRpc(lookup.network, lookup.transactionHash)");
   });
 
+  test("hides the completed-signup panel and gates additional purchases on live campaign authority", () => {
+    const api = source("encore/domains/presale/api.ts");
+    const account = source("src/app/shares/account/shares-account-client.tsx");
+    const route = source("src/app/api/presale/additional-purchase/route.ts");
+    expect(account).toContain('portal.continuation?.reason !== "signup_complete"');
+    expect(account).toContain("Purchase more shares");
+    expect(account).toContain("additionalPurchase?.eligible");
+    expect(api).toContain('path: "/presale/applicant/additional-purchase"');
+    expect(api).toContain("c.status='active'");
+    expect(api).toContain("has_open_order");
+    expect(api).toContain('allowedActions: [...baseJourney.allowedActions, "create_reservation" as const]');
+    expect(api).toContain("expires_at=$3");
+    expect(api).toContain("row.campaign_ends_at");
+    expect(api).toContain("additional_purchase_authorized");
+    expect(api).toContain("campaign has no shares available");
+    expect(route).toContain("presaleSessionToken");
+  });
+
   test("treats an initial confirmation-email failure as delayed and retryable", () => {
     const api = source("encore/domains/presale/api.ts");
     const presale = source("src/app/presale/presale-client.tsx");

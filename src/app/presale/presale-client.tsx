@@ -91,10 +91,10 @@ const APPLICATION_PHASES = [
   { title: "Terms and reserve", description: "Read and accept the terms before reservation", icon: ShieldCheck },
 ] as const;
 
-const TERMS_PDF_PATH = "/legal/solidus-class-b-investor-terms-2026-08-29-v1.1.pdf";
+const TERMS_PDF_PATH = "/legal/solidus-class-b-investor-terms-2026-09-02-v1.2.pdf";
 const TERMS_PAGE_PATHS = Array.from(
   { length: 11 },
-  (_, index) => `/legal/solidus-class-b-investor-terms-2026-08-29-v1.1/page-${String(index + 1).padStart(2, "0")}.png`,
+  (_, index) => `/legal/solidus-class-b-investor-terms-2026-09-02-v1.2/page-${String(index + 1).padStart(2, "0")}.png`,
 );
 
 const COUNTRY_CALLING_CODES = getCountries().map((country) => ({ country, code: `+${getCountryCallingCode(country)}` }));

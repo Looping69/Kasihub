@@ -22,6 +22,7 @@ import { POST as logout } from "./auth/logout/route";
 import { GET as portal } from "./portal/route";
 import { POST as progress } from "./progress/route";
 import { POST as openEcosystemAccount } from "./ecosystem-account/route";
+import { POST as additionalPurchase } from "./additional-purchase/route";
 import { POST as recheckPayment } from "./orders/[reference]/payment-recheck/route";
 
 function request(path: string, body: unknown) {
@@ -133,6 +134,25 @@ describe("KaSiShares applicant BFF routes", () => {
     expect(response.headers.get("set-cookie")).toContain("HttpOnly");
     expect(mocks.encoreRequest).toHaveBeenCalledWith(
       "/presale/shareholder/ecosystem-account",
+      { method: "POST" },
+      "presale-token",
+    );
+  });
+
+  test("authorizes another purchase only through the isolated presale session", async () => {
+    mocks.presaleSessionToken.mockResolvedValueOnce(undefined);
+    expect((await additionalPurchase()).status).toBe(401);
+
+    mocks.encoreRequest.mockResolvedValue({
+      purchaseUrl: "/presale?invite=opaque-token",
+      campaignName: "Solidus Class B Share Offering",
+      sharesAvailable: 10,
+    });
+    const response = await additionalPurchase();
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ purchaseUrl: "/presale?invite=opaque-token" });
+    expect(mocks.encoreRequest).toHaveBeenCalledWith(
+      "/presale/applicant/additional-purchase",
       { method: "POST" },
       "presale-token",
     );
