@@ -93,6 +93,19 @@ export function assertApplicantJourneyTransition(from: ApplicantJourneyState, to
   }
 }
 
+/** Maps persisted presale order state to the canonical applicant journey state. */
+export function orderJourneyState(status: string, incorporationStatus = "pending"): ApplicantJourneyState {
+  if (status === "awaiting_payment") return "awaiting_payment";
+  if (status === "payment_submitted") return "payment_submitted";
+  if (status === "payment_detected") return "pending_confirmations";
+  if (status === "manual_review") return "manual_review";
+  if (status === "confirmed") return incorporationStatus === "pending" ? "confirmed" : "awaiting_incorporation";
+  if (status === "incorporated") return "issued";
+  if (status === "cancelled") return "cancelled";
+  if (status === "expired") return "expired";
+  throw new Error(`unmapped_presale_order_status:${status}`);
+}
+
 export interface ApplicantJourneySource {
   application: null | { status: string; phaseCompleted: number };
   kycStatus: string | null;

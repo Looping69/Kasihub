@@ -37,6 +37,7 @@ import { issueShares } from "../shares/issuance";
 import {
   assertApplicantJourneyTransition,
   deriveApplicantJourney,
+  orderJourneyState,
   type ApplicantJourneyDecision,
 } from "./applicant-journey";
 import {

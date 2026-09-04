@@ -54,6 +54,14 @@ describe("KaSiShares Phase 3: Payment Engine Integrity & Recovery Contracts", ()
     expect(fulfilCode).toContain("payment.late_detected");
   });
 
+  test("imports the persisted-order journey mapper used by WebPay settlement", () => {
+    const api = source("encore/domains/presale/api.ts");
+    const journey = source("encore/domains/presale/applicant-journey.ts");
+
+    expect(api).toMatch(/import\s*\{[\s\S]*?orderJourneyState[\s\S]*?\}\s*from "\.\/applicant-journey"/);
+    expect(journey).toContain("export function orderJourneyState");
+  });
+
   test("provides privileged manual review operational resolution endpoint", () => {
     const api = source("encore/domains/presale/api.ts");
     expect(api).toContain('verification.status === "manual_review"');

@@ -11,6 +11,7 @@ import {
   deriveApplicantJourney,
   assertApplicantJourneyTransition,
   APPLICANT_JOURNEY_TRANSITIONS,
+  orderJourneyState,
 } from "./applicant-journey";
 import {
   webPayChecksum,
@@ -123,6 +124,19 @@ describe("Phase 3: Payment Engine Integrity & Recovery", () => {
   });
 
   describe("3. Late-Payment WebPay Ordering", () => {
+    test("maps persisted WebPay order states before callback transition checks", () => {
+      expect(orderJourneyState("awaiting_payment")).toBe("awaiting_payment");
+      expect(orderJourneyState("payment_submitted")).toBe("payment_submitted");
+      expect(orderJourneyState("payment_detected")).toBe("pending_confirmations");
+      expect(orderJourneyState("manual_review")).toBe("manual_review");
+      expect(orderJourneyState("confirmed", "pending")).toBe("confirmed");
+      expect(orderJourneyState("confirmed", "processing")).toBe("awaiting_incorporation");
+      expect(orderJourneyState("incorporated")).toBe("issued");
+      expect(orderJourneyState("cancelled")).toBe("cancelled");
+      expect(orderJourneyState("expired")).toBe("expired");
+      expect(() => orderJourneyState("unknown")).toThrow("unmapped_presale_order_status:unknown");
+    });
+
     test("ensures cancelled and expired states have legal transitions to manual_review and not confirmed", () => {
       expect(APPLICANT_JOURNEY_TRANSITIONS.cancelled.legalNext).toContain("manual_review");
       expect(APPLICANT_JOURNEY_TRANSITIONS.cancelled.legalNext).not.toContain("confirmed");
