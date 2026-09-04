@@ -419,7 +419,10 @@ const saveApplicationPhaseInput = z.object({
 
 const proofInput = z.object({
   orderReference: z.string().min(8).max(80),
-  accessToken: z.string().min(32).max(256).optional(),
+  accessToken: z.preprocess(
+    (val) => (typeof val === "string" && val.trim().length === 0 ? undefined : val),
+    z.string().min(32).max(256).optional(),
+  ),
   txHash: z.string().trim().min(16).max(160),
   senderAddress: z.string().trim().max(200).optional(),
 });
@@ -2192,23 +2195,39 @@ export const getPresaleOrder = api<
   // Keep bearer-style order access credentials out of URLs, proxy logs, and browser history.
   // Author: Klaasvaakie ( |╲ )
   const accessToken = requestHeader("x-presale-access-token").trim();
-  if (accessToken.length < 32 || accessToken.length > 256) {
-    throw APIError.unauthenticated("A valid order access token is required");
+  let row: (OrderRow & CampaignRow & { campaign_status: string; tx_hash: string | null; confirmations: number | null }) | null = null;
+  if (accessToken.length >= 32 && accessToken.length <= 256) {
+    row = await presaleDb.rawQueryRow<OrderRow & CampaignRow & { campaign_status: string; tx_hash: string | null; confirmations: number | null }>(
+      `SELECT o.id, o.order_reference, o.campaign_id, o.buyer_name, o.buyer_email, o.external_profile_id, o.quantity,
+              o.payment_rail, o.unit_price_zar::text AS unit_price_zar, o.total_zar::text AS total_zar,
+              o.unit_price_usdt::text AS unit_price_usdt, o.total_usdt::text AS total_usdt,
+              o.unit_price_usd::text AS unit_price_usd, o.total_usd::text AS total_usd, o.usdt_per_usd::text AS usdt_per_usd, o.quote_reference, o.status,
+              o.payment_deadline, o.confirmed_at, o.incorporation_status,
+              o.payment_obligation_id,o.payment_intent_id,o.payment_network,o.payment_receiving_address,o.payment_token_contract,
+              o.payment_min_confirmations,o.payment_settled_at,o.created_at,
+              c.slug, c.name, c.issuer_name, c.share_class, c.status AS campaign_status, c.total_shares,
+              c.reserved_shares, c.sold_shares, c.price_usdt::text AS price_usdt, c.price_usd::text AS price_usd, c.usdt_per_usd::text AS usdt_per_usd, c.share_phase_number, c.network, c.token_contract,
+              c.receiving_address, c.min_confirmations, c.payment_window_minutes, c.starts_at, c.ends_at,
+              o.payment_transaction_hash AS tx_hash, o.payment_confirmations AS confirmations
+       FROM presale_orders o JOIN presale_campaigns c ON c.id = o.campaign_id
+       WHERE o.order_reference = $1 AND o.access_token_hash = $2`, req.orderReference, hashSecret(accessToken));
+  } else {
+    const session = await requirePresaleSession();
+    row = await presaleDb.rawQueryRow<OrderRow & CampaignRow & { campaign_status: string; tx_hash: string | null; confirmations: number | null }>(
+      `SELECT o.id, o.order_reference, o.campaign_id, o.buyer_name, o.buyer_email, o.external_profile_id, o.quantity,
+              o.payment_rail, o.unit_price_zar::text AS unit_price_zar, o.total_zar::text AS total_zar,
+              o.unit_price_usdt::text AS unit_price_usdt, o.total_usdt::text AS total_usdt,
+              o.unit_price_usd::text AS unit_price_usd, o.total_usd::text AS total_usd, o.usdt_per_usd::text AS usdt_per_usd, o.quote_reference, o.status,
+              o.payment_deadline, o.confirmed_at, o.incorporation_status,
+              o.payment_obligation_id,o.payment_intent_id,o.payment_network,o.payment_receiving_address,o.payment_token_contract,
+              o.payment_min_confirmations,o.payment_settled_at,o.created_at,
+              c.slug, c.name, c.issuer_name, c.share_class, c.status AS campaign_status, c.total_shares,
+              c.reserved_shares, c.sold_shares, c.price_usdt::text AS price_usdt, c.price_usd::text AS price_usd, c.usdt_per_usd::text AS usdt_per_usd, c.share_phase_number, c.network, c.token_contract,
+              c.receiving_address, c.min_confirmations, c.payment_window_minutes, c.starts_at, c.ends_at,
+              o.payment_transaction_hash AS tx_hash, o.payment_confirmations AS confirmations
+       FROM presale_orders o JOIN presale_campaigns c ON c.id = o.campaign_id
+       WHERE o.order_reference = $1 AND o.external_profile_id::text = $2::text`, req.orderReference, session.profile.id);
   }
-  const row = await presaleDb.rawQueryRow<OrderRow & CampaignRow & { campaign_status: string; tx_hash: string | null; confirmations: number | null }>(
-    `SELECT o.id, o.order_reference, o.campaign_id, o.buyer_name, o.buyer_email, o.external_profile_id, o.quantity,
-            o.payment_rail, o.unit_price_zar::text AS unit_price_zar, o.total_zar::text AS total_zar,
-            o.unit_price_usdt::text AS unit_price_usdt, o.total_usdt::text AS total_usdt,
-            o.unit_price_usd::text AS unit_price_usd, o.total_usd::text AS total_usd, o.usdt_per_usd::text AS usdt_per_usd, o.quote_reference, o.status,
-            o.payment_deadline, o.confirmed_at, o.incorporation_status,
-            o.payment_obligation_id,o.payment_intent_id,o.payment_network,o.payment_receiving_address,o.payment_token_contract,
-            o.payment_min_confirmations,o.payment_settled_at,o.created_at,
-            c.slug, c.name, c.issuer_name, c.share_class, c.status AS campaign_status, c.total_shares,
-            c.reserved_shares, c.sold_shares, c.price_usdt::text AS price_usdt, c.price_usd::text AS price_usd, c.usdt_per_usd::text AS usdt_per_usd, c.share_phase_number, c.network, c.token_contract,
-            c.receiving_address, c.min_confirmations, c.payment_window_minutes, c.starts_at, c.ends_at,
-            o.payment_transaction_hash AS tx_hash, o.payment_confirmations AS confirmations
-     FROM presale_orders o JOIN presale_campaigns c ON c.id = o.campaign_id
-     WHERE o.order_reference = $1 AND o.access_token_hash = $2`, req.orderReference, hashSecret(accessToken));
   if (!row) throw APIError.notFound("Presale order not found");
   const latestAttempt = row.payment_intent_id && !row.tx_hash
     ? await paymentsDb.rawQueryRow<{ transaction_hash: string; confirmations: number | null }>(
@@ -2241,25 +2260,42 @@ export const createPresaleWebPayCheckout = api<
   WebPayCheckoutResponse
 >({ method: "POST", path: "/presale/orders/:orderReference/webpay-checkout", expose: true }, async (req) => {
   const accessToken = requestHeader("x-presale-access-token").trim();
-  if (accessToken.length < 32 || accessToken.length > 256) {
-    throw APIError.unauthenticated("A valid order access token is required");
-  }
   const actionUrl = WebPayCheckoutUrl().trim();
   const notifyUrl = WebPayNotifyUrl().trim();
   if (!actionUrl.startsWith("https://") || !notifyUrl.startsWith("https://")) {
     throw APIError.unavailable("WebPay checkout is not configured");
   }
-  const order = await presaleDb.rawQueryRow<{
+  let order: {
     id: string; order_reference: string; buyer_name: string; buyer_email: string; buyer_phone: string | null;
     quantity: number; payment_rail: PresalePaymentRail; total_zar: string | null; status: string;
     payment_deadline: string; webpay_transaction_id: string | null; webpay_order_number: string | null;
-  }>(
-    `SELECT id,order_reference,buyer_name,buyer_email,buyer_phone,quantity,payment_rail,
-            total_zar::text AS total_zar,status,payment_deadline,
-            webpay_transaction_id::text AS webpay_transaction_id,webpay_order_number
-       FROM presale_orders WHERE order_reference = $1 AND access_token_hash = $2`,
-    req.orderReference, hashSecret(accessToken),
-  );
+  } | null = null;
+  if (accessToken.length >= 32 && accessToken.length <= 256) {
+    order = await presaleDb.rawQueryRow<{
+      id: string; order_reference: string; buyer_name: string; buyer_email: string; buyer_phone: string | null;
+      quantity: number; payment_rail: PresalePaymentRail; total_zar: string | null; status: string;
+      payment_deadline: string; webpay_transaction_id: string | null; webpay_order_number: string | null;
+    }>(
+      `SELECT id,order_reference,buyer_name,buyer_email,buyer_phone,quantity,payment_rail,
+              total_zar::text AS total_zar,status,payment_deadline,
+              webpay_transaction_id::text AS webpay_transaction_id,webpay_order_number
+         FROM presale_orders WHERE order_reference = $1 AND access_token_hash = $2`,
+      req.orderReference, hashSecret(accessToken),
+    );
+  } else {
+    const session = await requirePresaleSession();
+    order = await presaleDb.rawQueryRow<{
+      id: string; order_reference: string; buyer_name: string; buyer_email: string; buyer_phone: string | null;
+      quantity: number; payment_rail: PresalePaymentRail; total_zar: string | null; status: string;
+      payment_deadline: string; webpay_transaction_id: string | null; webpay_order_number: string | null;
+    }>(
+      `SELECT id,order_reference,buyer_name,buyer_email,buyer_phone,quantity,payment_rail,
+              total_zar::text AS total_zar,status,payment_deadline,
+              webpay_transaction_id::text AS webpay_transaction_id,webpay_order_number
+         FROM presale_orders WHERE order_reference = $1 AND external_profile_id::text = $2::text`,
+      req.orderReference, session.profile.id,
+    );
+  }
   if (!order) throw APIError.notFound("Presale order not found");
   if (order.payment_rail !== "webpay_card" || !order.total_zar) {
     throw APIError.failedPrecondition("This reservation is not configured for WebPay");

@@ -216,14 +216,17 @@ describe("presale BFF contracts", () => {
   });
 
   test("order access credentials stay in headers and never enter URLs", async () => {
+    mocks.encoreSessionToken.mockResolvedValueOnce(undefined);
     const missingToken = await getOrder(request("/api/presale/orders/KSP-ORDER-1"), orderContext);
     expect(missingToken.status).toBe(401);
     expect(mocks.encoreRequest).not.toHaveBeenCalled();
 
+    mocks.encoreSessionToken.mockResolvedValueOnce(undefined);
     await getOrder(request("/api/presale/orders/KSP-ORDER-1", { headers: { "x-presale-access-token": " private-token " } }), orderContext);
     expect(mocks.encoreRequest).toHaveBeenCalledWith(
       "/presale/orders/KSP%2FORDER%201",
       { headers: { "X-Presale-Access-Token": "private-token" } },
+      undefined,
     );
   });
 
@@ -281,10 +284,12 @@ describe("presale BFF contracts", () => {
   });
 
   test("WebPay checkout requires the private order token and preserves it in a header", async () => {
+    mocks.encoreSessionToken.mockResolvedValueOnce(undefined);
     const missing = await startWebPayCheckout(request("/api/presale/orders/KSP/webpay-checkout", { method: "POST" }), orderContext);
     expect(missing.status).toBe(401);
     expect(mocks.encoreRequest).not.toHaveBeenCalled();
 
+    mocks.encoreSessionToken.mockResolvedValueOnce(undefined);
     const response = await startWebPayCheckout(request("/api/presale/orders/KSP/webpay-checkout", {
       method: "POST",
       headers: { "x-presale-access-token": " private-token " },
@@ -293,6 +298,20 @@ describe("presale BFF contracts", () => {
     expect(mocks.encoreRequest).toHaveBeenCalledWith(
       "/presale/orders/KSP%2FORDER%201/webpay-checkout",
       { method: "POST", headers: { "X-Presale-Access-Token": "private-token" } },
+      undefined,
+    );
+  });
+
+  test("WebPay checkout supports session authentication when order access token is omitted", async () => {
+    mocks.encoreSessionToken.mockResolvedValue("session-token");
+    const response = await startWebPayCheckout(request("/api/presale/orders/KSP/webpay-checkout", {
+      method: "POST",
+    }), orderContext);
+    expect(response.status).toBe(200);
+    expect(mocks.encoreRequest).toHaveBeenCalledWith(
+      "/presale/orders/KSP%2FORDER%201/webpay-checkout",
+      { method: "POST", headers: {} },
+      "session-token",
     );
   });
 

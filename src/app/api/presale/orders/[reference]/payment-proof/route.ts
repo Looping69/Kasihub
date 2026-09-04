@@ -7,10 +7,12 @@ export async function POST(req: NextRequest, context: { params: Promise<{ refere
   try {
     const body = await req.json();
     const token = await presaleSessionToken();
-    if (!token) return NextResponse.json({ error: "Authentication is required" }, { status: 401 });
+    const rawAccessToken = typeof body?.accessToken === "string" ? body.accessToken.trim() : undefined;
+    const accessToken = rawAccessToken && rawAccessToken.length >= 32 ? rawAccessToken : undefined;
+    if (!token && !accessToken) return NextResponse.json({ error: "Authentication is required" }, { status: 401 });
     return NextResponse.json(await encoreRequest(`/presale/orders/${encodeURIComponent(reference)}/payment-proof`, {
       method: "POST",
-      body: JSON.stringify({ ...body, orderReference: reference }),
+      body: JSON.stringify({ ...body, orderReference: reference, accessToken }),
     }, token));
   } catch (error) {
     const status = error instanceof EncoreRequestError ? error.status : 500;

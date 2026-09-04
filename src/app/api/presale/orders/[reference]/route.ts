@@ -1,17 +1,21 @@
 // Author: Klaasvaakie ( |╲ )
 import { NextRequest, NextResponse } from "next/server";
-import { EncoreRequestError, encoreRequest } from "@/lib/encore-client";
+import { EncoreRequestError, encoreRequest, presaleSessionToken } from "@/lib/encore-client";
 
 export async function GET(req: NextRequest, context: { params: Promise<{ reference: string }> }) {
   const { reference } = await context.params;
   // The access token is a bearer credential. Never place it in a query string.
   // Author: Klaasvaakie ( |╲ )
   const accessToken = req.headers.get("x-presale-access-token")?.trim();
-  if (!accessToken) return NextResponse.json({ error: "Order access token is required" }, { status: 401 });
+  const sessionToken = await presaleSessionToken();
+  if (!accessToken && !sessionToken) return NextResponse.json({ error: "Order access token or session login is required" }, { status: 401 });
   try {
+    const headers: Record<string, string> = {};
+    if (accessToken) headers["X-Presale-Access-Token"] = accessToken;
     return NextResponse.json(await encoreRequest(
       `/presale/orders/${encodeURIComponent(reference)}`,
-      { headers: { "X-Presale-Access-Token": accessToken } },
+      { headers },
+      sessionToken,
     ));
   } catch (error) {
     const status = error instanceof EncoreRequestError ? error.status : 500;
