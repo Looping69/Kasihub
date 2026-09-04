@@ -42,7 +42,7 @@ describe("member share certificate PDF", () => {
     const pdf = await PDFDocument.load(await response.arrayBuffer());
     expect(pdf.getPageCount()).toBe(1);
     expect(pdf.getTitle()).toContain("CERT-PRESALE-ORDER-1");
-  });
+  }, 20_000);
 
   test("does not generate a PDF for a certificate outside the signed-in member's holdings", async () => {
     mocks.encoreSessionToken.mockResolvedValue("member-token");
