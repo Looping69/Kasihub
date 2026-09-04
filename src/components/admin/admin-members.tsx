@@ -74,6 +74,7 @@ export function AdminMembers() {
   const [kycDocuments, setKycDocuments] = useState<KycDocument[]>([]);
   const [documentsLoading, setDocumentsLoading] = useState(false);
   const [resolvingPresaleOrder, setResolvingPresaleOrder] = useState(false);
+  const [presaleResolutionReason, setPresaleResolutionReason] = useState("");
   const [preview, setPreview] = useState<{ url: string; type: string; title: string } | null>(null);
 
   async function load() {
@@ -168,18 +169,8 @@ export function AdminMembers() {
   async function resolvePresaleManualReview(member: AdminMember, action: "approve_settlement" | "reject_and_cancel") {
     const orderReference = member.presaleOrderReference;
     if (!orderReference || member.presaleReservationStatus !== "manual_review") return;
-    const reason = window.prompt(
-      action === "approve_settlement"
-        ? `Audit reason for approving settlement on ${orderReference}`
-        : `Audit reason for rejecting and cancelling ${orderReference}`,
-    )?.trim();
+    const reason = presaleResolutionReason.trim();
     if (!reason) return;
-    const confirmed = window.confirm(
-      action === "approve_settlement"
-        ? `Approve the verified settlement and issue shares for ${orderReference}?`
-        : `Reject the payment review and cancel ${orderReference}?`,
-    );
-    if (!confirmed) return;
 
     setResolvingPresaleOrder(true);
     try {
@@ -193,6 +184,7 @@ export function AdminMembers() {
       const status = payload.status ?? (action === "approve_settlement" ? "confirmed" : "cancelled");
       setMembers((current) => current.map((item) => item.id === member.id ? { ...item, presaleReservationStatus: status } : item));
       setSelected((current) => current?.id === member.id ? { ...current, presaleReservationStatus: status } : current);
+      setPresaleResolutionReason("");
       toast.success(action === "approve_settlement" ? "Settlement approved; share issuance started" : "Presale order cancelled");
       await load();
     } catch (reason) {
@@ -419,11 +411,12 @@ export function AdminMembers() {
                           <p className="text-xs font-semibold text-amber-900 dark:text-amber-200">Payment requires a controlled resolution</p>
                           <p className="text-[11px] text-amber-700 dark:text-amber-300">Verify the provider or chain evidence before approving settlement. Every decision records the administrator and reason.</p>
                         </div>
+                        <Input aria-label="Presale resolution audit reason" placeholder="Required audit reason" value={presaleResolutionReason} onChange={(event) => setPresaleResolutionReason(event.target.value)} />
                         <div className="flex flex-wrap justify-end gap-2">
-                          <Button size="sm" variant="outline" className="border-rose-300 text-rose-700" disabled={resolvingPresaleOrder} onClick={() => resolvePresaleManualReview(selected, "reject_and_cancel")}>
+                          <Button size="sm" variant="outline" className="border-rose-300 text-rose-700" disabled={resolvingPresaleOrder || !presaleResolutionReason.trim()} onClick={() => resolvePresaleManualReview(selected, "reject_and_cancel")}>
                             <X className="mr-1 h-3.5 w-3.5" />Reject and cancel
                           </Button>
-                          <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" disabled={resolvingPresaleOrder} onClick={() => resolvePresaleManualReview(selected, "approve_settlement")}>
+                          <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" disabled={resolvingPresaleOrder || !presaleResolutionReason.trim()} onClick={() => resolvePresaleManualReview(selected, "approve_settlement")}>
                             {resolvingPresaleOrder ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Check className="mr-1 h-3.5 w-3.5" />}Approve settlement
                           </Button>
                         </div>
