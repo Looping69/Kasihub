@@ -73,6 +73,7 @@ export function AdminMembers() {
   const [selected, setSelected] = useState<AdminMember | null>(null);
   const [kycDocuments, setKycDocuments] = useState<KycDocument[]>([]);
   const [documentsLoading, setDocumentsLoading] = useState(false);
+  const [resolvingPresaleOrder, setResolvingPresaleOrder] = useState(false);
   const [preview, setPreview] = useState<{ url: string; type: string; title: string } | null>(null);
 
   async function load() {
@@ -161,6 +162,43 @@ export function AdminMembers() {
       }
     } catch {
       toast.error("Network error");
+    }
+  }
+
+  async function resolvePresaleManualReview(member: AdminMember, action: "approve_settlement" | "reject_and_cancel") {
+    const orderReference = member.presaleOrderReference;
+    if (!orderReference || member.presaleReservationStatus !== "manual_review") return;
+    const reason = window.prompt(
+      action === "approve_settlement"
+        ? `Audit reason for approving settlement on ${orderReference}`
+        : `Audit reason for rejecting and cancelling ${orderReference}`,
+    )?.trim();
+    if (!reason) return;
+    const confirmed = window.confirm(
+      action === "approve_settlement"
+        ? `Approve the verified settlement and issue shares for ${orderReference}?`
+        : `Reject the payment review and cancel ${orderReference}?`,
+    );
+    if (!confirmed) return;
+
+    setResolvingPresaleOrder(true);
+    try {
+      const res = await fetch(`/api/admin/presale/orders/${encodeURIComponent(orderReference)}/resolve-manual-review`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, reason }),
+      });
+      const payload = await res.json();
+      if (!res.ok) throw new Error(payload.error ?? "Unable to resolve presale manual review");
+      const status = payload.status ?? (action === "approve_settlement" ? "confirmed" : "cancelled");
+      setMembers((current) => current.map((item) => item.id === member.id ? { ...item, presaleReservationStatus: status } : item));
+      setSelected((current) => current?.id === member.id ? { ...current, presaleReservationStatus: status } : current);
+      toast.success(action === "approve_settlement" ? "Settlement approved; share issuance started" : "Presale order cancelled");
+      await load();
+    } catch (reason) {
+      toast.error(reason instanceof Error ? reason.message : "Unable to resolve presale manual review");
+    } finally {
+      setResolvingPresaleOrder(false);
     }
   }
 
@@ -375,6 +413,22 @@ export function AdminMembers() {
                       <Detail icon={CreditCard} label="Order reference" value={selected.presaleOrderReference || "—"} mono />
                       <Detail icon={ShieldCheck} label="Incorporation" value={formatStatus(selected.presaleIncorporationStatus)} />
                     </div>
+                    {selected.presaleReservationStatus === "manual_review" && selected.presaleOrderReference && (
+                      <div className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/40">
+                        <div>
+                          <p className="text-xs font-semibold text-amber-900 dark:text-amber-200">Payment requires a controlled resolution</p>
+                          <p className="text-[11px] text-amber-700 dark:text-amber-300">Verify the provider or chain evidence before approving settlement. Every decision records the administrator and reason.</p>
+                        </div>
+                        <div className="flex flex-wrap justify-end gap-2">
+                          <Button size="sm" variant="outline" className="border-rose-300 text-rose-700" disabled={resolvingPresaleOrder} onClick={() => resolvePresaleManualReview(selected, "reject_and_cancel")}>
+                            <X className="mr-1 h-3.5 w-3.5" />Reject and cancel
+                          </Button>
+                          <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" disabled={resolvingPresaleOrder} onClick={() => resolvePresaleManualReview(selected, "approve_settlement")}>
+                            {resolvingPresaleOrder ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Check className="mr-1 h-3.5 w-3.5" />}Approve settlement
+                          </Button>
+                        </div>
+                      </div>
+                    )}
                     {selected.presalePaymentReconciliations.map((payment) => (
                       <div key={payment.orderReference} className="space-y-3 rounded-lg border border-sky-300 bg-white p-3 dark:border-sky-800 dark:bg-sky-950/70">
                         <div>
