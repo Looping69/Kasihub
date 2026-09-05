@@ -2,6 +2,7 @@
 import { appMeta } from "encore.dev";
 import { api, APIError } from "encore.dev/api";
 import { identityDb, kycDb, presaleDb, sharesDb } from "../../resources";
+import { hashPassword } from "../auth/password";
 import { hashSessionToken } from "../auth/access";
 import { fulfilWebPayPresalePayment, incorporateConfirmedPresaleOrder } from "./api";
 import { hashSecret } from "./model";
@@ -11,6 +12,7 @@ type E2ESetupResponse = {
   runId: string;
   inviteToken: string;
   sessionToken: string;
+  testPassword: string;
   email: string;
   profileId: string;
   profileNumber: string;
@@ -41,7 +43,7 @@ type E2ESettlementResponse = {
 };
 
 function requireTestEnvironment(): void {
-  if (appMeta().environment.type === "production") {
+  if (appMeta().environment.cloud !== "local") {
     // Hide the test surface completely in production rather than advertising
     // a disabled administrative capability.
     throw APIError.notFound("Not found");
@@ -53,6 +55,7 @@ export const createPresaleE2ERun = api<void, E2ESetupResponse>(
   async () => {
     requireTestEnvironment();
     const runId = crypto.randomUUID();
+    const testPassword = crypto.randomUUID() + 'Aa1!';
     const userId = crypto.randomUUID();
     const profileId = crypto.randomUUID();
     const campaignId = crypto.randomUUID();
@@ -62,7 +65,7 @@ export const createPresaleE2ERun = api<void, E2ESetupResponse>(
     const inviteToken = `${crypto.randomUUID()}${crypto.randomUUID()}`;
     const sessionToken = `${crypto.randomUUID()}${crypto.randomUUID()}`;
 
-    await identityDb.rawExec("INSERT INTO users (id,email,status) VALUES ($1,$2,'active')", userId, email);
+    await identityDb.rawExec("INSERT INTO users (id,email,status,password_hash) VALUES ($1,$2,'active',$3)", userId, email, hashPassword(testPassword));
     await identityDb.rawExec(`INSERT INTO profiles
       (id,user_id,profile_type,unique_profile_number,first_name,surname,country,address_line,city,postal_code,status,
        membership_type,citizenship_type,onboarding_authority)
@@ -97,6 +100,7 @@ export const createPresaleE2ERun = api<void, E2ESetupResponse>(
       runId,
       inviteToken,
       sessionToken,
+      testPassword,
       email,
       profileId,
       profileNumber,

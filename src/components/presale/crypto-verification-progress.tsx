@@ -18,7 +18,7 @@ export function CryptoVerificationProgress({
 }) {
   const hashSaved = Boolean(transactionHash);
   const settlementVerified = ["confirmed", "awaiting_incorporation", "issued"].includes(journeyState);
-  const custodyPending = Boolean(verificationReason?.includes("custody") || verificationReason?.includes("provider"));
+  const custodyPending = Boolean(verificationReason?.startsWith("custody_"));
   const chainVerified = settlementVerified || custodyPending;
   const certificateReady = journeyState === "issued";
   const steps: Array<{ label: string; detail: string; state: StepState; icon: typeof Send }> = [

@@ -46,6 +46,8 @@ export interface PresaleReservationContract {
   tokenContract?: string;
   receivingAddress?: string;
   requiredConfirmations?: number;
+  receivedUsdt?: string;
+  outstandingUsdt?: string;
   paymentDeadline: string;
   termsVersion: string;
   status: string;
@@ -72,6 +74,8 @@ export function buildPresaleReservationContract(input: {
   tokenContract?: string | null;
   receivingAddress?: string | null;
   requiredConfirmations?: number | null;
+  receivedUsdt?: string;
+  outstandingUsdt?: string;
   paymentDeadline: string;
   termsVersion: string;
   status: string;
@@ -100,6 +104,8 @@ export function buildPresaleReservationContract(input: {
     tokenContract: input.tokenContract ?? undefined,
     receivingAddress: input.receivingAddress ?? undefined,
     requiredConfirmations: input.requiredConfirmations ?? undefined,
+    receivedUsdt: input.receivedUsdt,
+    outstandingUsdt: input.outstandingUsdt,
     paymentDeadline: input.paymentDeadline,
     termsVersion: input.termsVersion,
     status: input.status,

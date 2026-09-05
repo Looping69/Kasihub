@@ -129,7 +129,7 @@ export function SharesAccountClient() {
   }, [loadPortal, portal?.authority.available, portal?.authority.journey.state, portal?.authority.currentReservation?.paymentMethod]);
 
   useEffect(() => {
-    if (!portal?.authority.available || !["payment", "incorporation"].includes(portal.authority.journey.polling)) return;
+    if (!portal?.authority.available || !(["payment", "incorporation"].includes(portal.authority.journey.polling) || portal.authority.journey.state === "awaiting_payment")) return;
     const refresh = () => {
       if (document.visibilityState === "visible") void loadPortal().catch((reason) => setError(reason.message));
     };
@@ -139,24 +139,33 @@ export function SharesAccountClient() {
       window.clearInterval(interval);
       document.removeEventListener("visibilitychange", refresh);
     };
-  }, [loadPortal, portal?.authority.available, portal?.authority.journey.polling]);
+  }, [loadPortal, portal?.authority.available, portal?.authority.journey.polling, portal?.authority.journey.state]);
 
+  const [loggingIn, setLoggingIn] = useState(false);
   async function login(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
+    if (loggingIn) return;
+    setLoggingIn(true);
     const data = new FormData(event.currentTarget);
-    const response = await fetch("/api/presale/auth/login", {
+    try {
+      const response = await fetch("/api/presale/auth/login", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email: data.get("email"), password: data.get("password") }),
     });
     const body = await response.json();
     if (!response.ok) { setError(body.error ?? "Login failed"); return; }
     await loadPortal();
+    } catch { setError("Connection interrupted. Please try signing in again."); }
+    finally { setLoggingIn(false); }
   }
 
   async function logout() {
-    await fetch("/api/presale/auth/logout", { method: "POST" });
-    setPortal(null);
+    try {
+      const response = await fetch("/api/presale/auth/logout", { method: "POST" });
+      if (!response.ok) throw new Error("Sign out failed");
+      setPortal(null);
+    } catch { setError("Unable to sign out. Check your connection and try again."); }
   }
 
   async function cancelReservation(orderReference: string) {
@@ -278,12 +287,12 @@ export function SharesAccountClient() {
         <Link href="/" className="relative h-[76px] w-[134px]"><Image src="/kasishares-logo.png" alt="KaSiShares home" fill sizes="134px" className="object-contain object-left" priority /></Link>
         {portal ? <Button variant="outline" onClick={() => void logout()} className="border-white/20 bg-transparent text-white"><LogOut className="mr-2 h-4 w-4" />Sign out</Button> : null}
       </header>
-      {loading ? <p className="text-slate-300">Loading applicant account…</p> : portal ? <><span className="sr-only" aria-live="polite">Applicant authority {authorityHydration}</span><PortalView portal={portal} error={error} confirmingPayment={confirmingPayment} recheckingPayment={recheckingPayment} paymentNotice={paymentNotice} onCancel={cancelReservation} onRecheck={recheckPayment} onStartWebPay={startWebPayCheckout} startingWebPay={startingWebPay} webPayError={webPayError} onSubmitHash={submitPaymentHash} submittingHash={submittingHash} hashError={hashError} onPurchaseMore={startAdditionalPurchase} startingAdditionalPurchase={startingAdditionalPurchase} /></> : <LoginForm error={error} onSubmit={login} />}
+      {loading ? <p className="text-slate-300">Loading applicant account…</p> : portal ? <><span className="sr-only" aria-live="polite">Applicant authority {authorityHydration}</span><PortalView portal={portal} error={error} confirmingPayment={confirmingPayment} recheckingPayment={recheckingPayment} paymentNotice={paymentNotice} onCancel={cancelReservation} onRecheck={recheckPayment} onStartWebPay={startWebPayCheckout} startingWebPay={startingWebPay} webPayError={webPayError} onSubmitHash={submitPaymentHash} submittingHash={submittingHash} hashError={hashError} onPurchaseMore={startAdditionalPurchase} startingAdditionalPurchase={startingAdditionalPurchase} /></> : <LoginForm error={error} onSubmit={login} working={loggingIn} />}
     </div>
   </main>;
 }
 
-function LoginForm({ error, onSubmit }: { error: string; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
+function LoginForm({ error, onSubmit, working }: { error: string; onSubmit: (event: FormEvent<HTMLFormElement>) => void; working: boolean }) {
   const [showPassword, setShowPassword] = useState(false);
   return <section className="mx-auto max-w-lg rounded-2xl border border-white/10 bg-[#0f2744] p-7 shadow-2xl">
     <p className="text-xs font-bold uppercase tracking-[.18em] text-amber-300">Separate applicant access</p>
@@ -298,7 +307,7 @@ function LoginForm({ error, onSubmit }: { error: string; onSubmit: (event: FormE
       </label>
       <Link href="/reset-password" className="inline-block text-sm font-semibold text-amber-200 hover:text-amber-100">Forgot password?</Link>
       {error ? <p role="alert" className="text-sm text-red-300">{error}</p> : null}
-      <Button className="w-full bg-amber-400 font-bold text-slate-950 hover:bg-amber-300">Sign in to KaSiShares</Button>
+      <Button disabled={working} className="w-full bg-amber-400 font-bold text-slate-950 hover:bg-amber-300">{working ? "Signing in…" : "Sign in to KaSiShares"}</Button>
     </form>
   </section>;
 }
@@ -386,31 +395,50 @@ function WebPayPaymentRecovery({
   starting: boolean;
   error?: string;
 }) {
-  return <section className="rounded-2xl border border-sky-300/30 bg-[#0f2744] p-7" aria-labelledby="webpay-payment-heading">
+  const expired = useReservationExpired(reservation.paymentDeadline);
+  return <section className="min-w-0 rounded-2xl border border-sky-300/30 bg-[#0f2744] p-7" aria-labelledby="webpay-payment-heading">
     <div className="flex flex-wrap items-start justify-between gap-5">
       <div className="max-w-2xl">
         <p className="text-xs font-bold uppercase tracking-[.18em] text-sky-300">Card payment recovery</p>
         <h2 id="webpay-payment-heading" className="mt-2 text-2xl font-black">Your share choice is preserved</h2>
         <p className="mt-2 text-sm leading-6 text-slate-300">{reservation.paidShares.toLocaleString()} paid {reservation.paidShares === 1 ? "share is" : "shares are"} reserved for R{reservation.totalZar}. A second purchase form is intentionally locked while this payment is verified.</p>
       </div>
-      <Button type="button" disabled={starting} onClick={() => void onStartCheckout(reservation.orderReference)} className="bg-sky-400 font-bold text-slate-950 hover:bg-sky-300 disabled:opacity-60">
+      <Button type="button" disabled={starting || expired} onClick={() => void onStartCheckout(reservation.orderReference)} className="h-auto min-h-12 w-full min-w-0 max-w-full whitespace-normal sm:w-auto bg-sky-400 font-bold text-slate-950 hover:bg-sky-300 disabled:opacity-60">
         {starting ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : <CreditCard className="mr-2 h-4 w-4" />}
         {starting ? "Opening WebPay…" : "Continue to secure WebPay checkout"}
       </Button>
     </div>
+    <PaymentDeadline deadline={reservation.paymentDeadline} expired={expired} />
     {error ? <p role="alert" className="mt-4 text-sm text-red-300">{error}</p> : null}
   </section>;
 }
 
 type PortalOrder = NonNullable<Portal["order"]>;
 
+function useReservationExpired(deadline: string): boolean {
+  const [expired, setExpired] = useState(false);
+  useEffect(() => {
+    const update = () => setExpired(!Number.isFinite(Date.parse(deadline)) || Date.parse(deadline) <= Date.now());
+    update();
+    const timer = window.setInterval(update, 1000);
+    return () => window.clearInterval(timer);
+  }, [deadline]);
+  return expired;
+}
+
+function PaymentDeadline({ deadline, expired }: { deadline: string; expired: boolean }) {
+  return <p role="status" className="mt-4 rounded-lg border border-amber-300/30 p-3 text-sm">
+    {expired ? "Payment window closed. Do not send more funds; your account status is being refreshed." : <>Pay before <time dateTime={deadline}>{new Date(deadline).toLocaleString("en-ZA", { timeZone: "Africa/Johannesburg" })} SAST (UTC+2)</time>. Do not send funds after this deadline.</>}
+  </p>;
+}
+
 function paymentStatusMessage(status?: string, reason?: string): string {
   if (status === "pending_confirmations") return "The transfer was found and is waiting for the required blockchain confirmations.";
   if (status === "manual_review") return "The transfer was found but needs a controlled review before shares can be issued.";
-  if (status === "underpaid") return "The transfer was found, but the verified amount is below the reserved amount. Support must review it.";
+  if (status === "underpaid") return "Your verified credits are below the reserved amount. Send only the outstanding amount before the deadline, then submit the new transaction hash.";
   if (status === "rejected") return "The submitted transaction does not match the reservation and was rejected.";
   if (reason === "chain_provider_unavailable") return "The blockchain verifier is temporarily unavailable. Your hash is saved and automatic retries remain active.";
-  if (reason?.includes("custody") || reason?.includes("provider")) return "Blockchain verification passed. Remitano credit confirmation is still pending; your hash is saved and automatic retries remain active.";
+  if (reason?.startsWith("custody_")) return "Blockchain verification passed. Remitano credit confirmation is still pending; your hash is saved and automatic retries remain active.";
   return "Verification is still pending. Your submitted hash is saved and automatic retries remain active.";
 }
 
@@ -439,6 +467,8 @@ function CryptoPaymentRecovery({
   const [copied, setCopied] = useState(false);
   const [localError, setLocalError] = useState("");
 
+  const expired = useReservationExpired(reservation.paymentDeadline);
+  const transferAmount = reservation.outstandingUsdt ?? reservation.totalUsdt;
   const statusMessage = paymentStatusMessage(order.paymentVerificationStatus, order.paymentVerificationReason);
   const hasHash = Boolean(order.transactionHash);
 
@@ -456,15 +486,15 @@ function CryptoPaymentRecovery({
     event.preventDefault();
     setLocalError("");
     const trimmed = txHashInput.trim();
+    if (expired) { setLocalError("The payment window has closed. Refresh your account before continuing."); return; }
     if (!validSubmittedTransactionHash("bsc", trimmed)) {
       setLocalError(submittedTransactionHashMessage("bsc"));
       return;
     }
     await onSubmitHash(reservation.orderReference, trimmed);
-    setTxHashInput("");
   }
 
-  return <section className="overflow-hidden rounded-2xl border border-amber-300/30 bg-[#0f2744] p-7" aria-labelledby="crypto-payment-heading">
+  return <section className="min-w-0 rounded-2xl border border-amber-300/30 bg-[#0f2744] p-7" aria-labelledby="crypto-payment-heading">
     <div className="flex flex-wrap items-start justify-between gap-5">
       <div className="max-w-2xl">
         <p className="text-xs font-bold uppercase tracking-[.18em] text-amber-300">Crypto payment (BNB Smart Chain / BSC)</p>
@@ -480,13 +510,15 @@ function CryptoPaymentRecovery({
         type="button"
         disabled={rechecking || !order.transactionHash}
         onClick={() => void onRecheck(reservation.orderReference)}
-        className="bg-amber-400 font-bold text-slate-950 hover:bg-amber-300 disabled:opacity-60"
+        className="h-auto min-h-12 w-full min-w-0 max-w-full whitespace-normal sm:w-auto bg-amber-400 font-bold text-slate-950 hover:bg-amber-300 disabled:opacity-60"
       >
         {rechecking ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
         {rechecking ? "Checking payment…" : "Recheck payment"}
       </Button> : null}
     </div>
 
+    <PaymentDeadline deadline={reservation.paymentDeadline} expired={expired} />
+    {reservation.receivedUsdt !== undefined ? <p className="mt-3 text-sm">Verified credit: {reservation.receivedUsdt} USDT · Outstanding: {transferAmount} USDT</p> : null}
     {/* Payment Details / Receiving Instructions */}
     <div className="mt-6 grid gap-4 rounded-xl border border-white/10 bg-black/20 p-5 sm:grid-cols-2">
       <div>
@@ -495,8 +527,8 @@ function CryptoPaymentRecovery({
         <p className="mt-1 text-xs text-slate-400">BEP-20 Contract: <span className="break-all font-mono text-amber-200/80">{reservation.tokenContract ?? "0x55d398326f99059fF775485246999027B3197955"}</span></p>
       </div>
       <div>
-        <p className="text-xs uppercase tracking-wider text-slate-400">Exact Amount to Send</p>
-        <p className="mt-1 text-2xl font-black text-amber-300">{reservation.totalUsdt} USDT</p>
+        <p className="text-xs uppercase tracking-wider text-slate-400">Outstanding amount</p>
+        <p className="mt-1 text-2xl font-black text-amber-300">{transferAmount} USDT</p>
         <p className="mt-1 text-xs text-slate-400">Minimum confirmations: {reservation.requiredConfirmations ?? 12} blocks</p>
       </div>
       <div className="sm:col-span-2">
@@ -563,9 +595,9 @@ function CryptoPaymentRecovery({
         <label className="block text-sm font-semibold text-slate-200">
           {hasHash ? "Update / Resubmit BSC Transaction Hash" : "Submit your BSC Transaction Hash"}
           <span className="mt-1 block text-xs font-normal text-slate-400">
-            After transferring {reservation.totalUsdt} USDT from your wallet or exchange, paste the transaction hash (TxID) below.
+            After transferring the outstanding {transferAmount} USDT from your wallet or exchange, paste the transaction hash (TxID) below.
           </span>
-          <div className="mt-3 flex flex-wrap gap-2">
+          <div className="mt-3 flex min-w-0 flex-col gap-2 lg:flex-row">
             <Input
               type="text"
               placeholder="0x... (66-character BSC transaction hash)"
@@ -574,12 +606,12 @@ function CryptoPaymentRecovery({
               required
               pattern="^0x[0-9a-fA-F]{64}$"
               title="Must be a valid 66-character hexadecimal BSC transaction hash starting with 0x"
-              className="flex-1 border-white/15 bg-black/40 font-mono text-sm text-white"
+              className="w-full min-w-0 flex-1 border-white/15 bg-black/40 font-mono text-sm text-white"
             />
             <Button
               type="submit"
-              disabled={submittingHash || !txHashInput.trim()}
-              className="bg-amber-400 font-bold text-slate-950 hover:bg-amber-300 disabled:opacity-60"
+              disabled={submittingHash || expired || !txHashInput.trim()}
+              className="h-auto min-h-12 w-full min-w-0 max-w-full whitespace-normal sm:w-auto bg-amber-400 font-bold text-slate-950 hover:bg-amber-300 disabled:opacity-60"
             >
               {submittingHash ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : null}
               {submittingHash ? "Submitting…" : "Submit transaction hash"}
@@ -610,15 +642,15 @@ function ShareholderPortfolio({ shareholder, additionalPurchase, onPurchaseMore,
     <div className="flex flex-wrap items-end justify-between gap-4">
       <div><p className="text-xs font-bold uppercase tracking-[.18em] text-amber-300">Shareholder dashboard</p><h2 className="mt-2 text-2xl font-black">Your KaSiShares</h2><p className="mt-2 text-sm text-slate-300">Campaign allocations and certificates are read directly from the authoritative share register.</p></div>
       <div className="flex flex-wrap items-center justify-end gap-3">
-        {additionalPurchase?.eligible ? <Button type="button" disabled={startingAdditionalPurchase} onClick={() => void onPurchaseMore()} className="bg-amber-400 font-bold text-slate-950 hover:bg-amber-300 disabled:opacity-60">
+        {additionalPurchase?.eligible ? <Button type="button" disabled={startingAdditionalPurchase} onClick={() => void onPurchaseMore()} className="h-auto min-h-12 w-full min-w-0 max-w-full whitespace-normal sm:w-auto bg-amber-400 font-bold text-slate-950 hover:bg-amber-300 disabled:opacity-60">
           {startingAdditionalPurchase ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : <ShoppingCart className="mr-2 h-4 w-4" />}
           {startingAdditionalPurchase ? "Opening purchase…" : "Purchase more shares"}
         </Button> : null}
         <div className="rounded-xl border border-emerald-300/20 bg-emerald-400/10 px-5 py-3 text-right"><p className="text-xs uppercase tracking-wider text-emerald-200">Issued shares</p><p className="text-2xl font-black text-white">{shareholder.totalIssuedShares.toLocaleString()}</p></div>
       </div>
     </div>
-    <div className="mt-6 grid gap-4">
-      {shareholder.holdings.map((holding) => <article key={holding.orderReference} className="rounded-xl border border-white/10 bg-black/15 p-5">
+    <div className="mt-6 grid min-w-0 gap-4">
+      {shareholder.holdings.map((holding) => <article key={holding.orderReference} className="min-w-0 break-words rounded-xl border border-white/10 bg-black/15 p-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div><p className="text-xs uppercase tracking-wider text-slate-400">Campaign</p><h3 className="mt-1 text-xl font-bold">{holding.campaignName}</h3><p className="mt-1 text-xs text-slate-400">{holding.orderReference}</p></div>
           <HoldingStatus status={holding.status} />
@@ -630,7 +662,7 @@ function ShareholderPortfolio({ shareholder, additionalPurchase, onPurchaseMore,
         </div>
         {holding.certificate ? <div className="mt-5 flex flex-wrap items-center justify-between gap-4 border-t border-white/10 pt-5">
           <div><p className="text-xs uppercase tracking-wider text-slate-400">Certificate</p><p className="mt-1 font-semibold">{holding.certificate.certificateNumber}</p><p className="mt-1 text-xs text-slate-400">Issued {new Date(holding.certificate.issuedAt).toLocaleDateString("en-ZA")}</p></div>
-          <Button asChild className="bg-amber-400 font-bold text-slate-950 hover:bg-amber-300"><a href={`/api/presale/certificates/${encodeURIComponent(holding.certificate.certificateNumber)}`}><Download className="mr-2 h-4 w-4" />Download certificate</a></Button>
+          <Button asChild className="h-auto min-h-12 w-full min-w-0 max-w-full whitespace-normal sm:w-auto bg-amber-400 font-bold text-slate-950 hover:bg-amber-300"><a href={`/api/presale/certificates/${encodeURIComponent(holding.certificate.certificateNumber)}`}><Download className="mr-2 h-4 w-4" />Download certificate</a></Button>
         </div> : <p className={`mt-5 rounded-lg border p-3 text-sm ${holding.status === "issuance_error" ? "border-rose-300/30 bg-rose-400/10 text-rose-100" : "border-sky-300/30 bg-sky-400/10 text-sky-100"}`}>{holding.status === "issuance_error" ? "The order is marked incorporated but its certificate record is missing. Support has to reconcile this issuance." : "Payment is confirmed. Certificate issuance is pending the controlled incorporation of this campaign allocation."}</p>}
       </article>)}
     </div>

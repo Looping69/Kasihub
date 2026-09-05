@@ -1,6 +1,7 @@
 // Author: Klaasvaakie ( |╲ )
 import { api, APIError } from "encore.dev/api";
 import { secret } from "encore.dev/config";
+import { readObligationFunding } from "../payments/funding";
 import { CronJob } from "encore.dev/cron";
 import * as log from "encore.dev/log";
 import { Subscription, Topic } from "encore.dev/pubsub";
@@ -263,7 +264,7 @@ async function retryPresaleEmailDelivery(delivery: RetryableEmailDelivery): Prom
   }>(
     `SELECT o.id, o.order_reference, o.buyer_name, o.buyer_email, o.quantity, o.payment_rail,
             o.total_zar::text AS total_zar, o.total_usdt::text AS total_usdt, o.payment_deadline::text,
-            c.name AS campaign_name, c.network
+            o.campaign_name_snapshot AS campaign_name, c.network
        FROM presale_orders o JOIN presale_campaigns c ON c.id = o.campaign_id
       WHERE o.id = $1`,
     delivery.order_id,
@@ -783,7 +784,7 @@ export async function rejectPresalePayment(orderReference: string, paymentIntent
   const tx = await presaleDb.begin();
   try {
     const order = await tx.rawQueryRow<{ id: string; campaign_id: string; invitation_id: string; quantity: number; status: string; payment_intent_id: string | null; bonus_buy_one_get_one: boolean }>(
-      `SELECT o.id,o.campaign_id,o.invitation_id,o.quantity,o.status,o.payment_intent_id,c.bonus_buy_one_get_one
+      `SELECT o.id,o.campaign_id,o.invitation_id,o.quantity,o.status,o.payment_intent_id,o.bonus_buy_one_get_one_snapshot AS bonus_buy_one_get_one
          FROM presale_orders o JOIN presale_campaigns c ON c.id = o.campaign_id
         WHERE o.order_reference = $1 FOR UPDATE OF o`, orderReference);
     if (!order) throw APIError.notFound("Presale order not found");
@@ -857,7 +858,7 @@ export async function fulfilSettledPresalePayment(
   const tx = await presaleDb.begin();
   try {
     const order = await tx.rawQueryRow<{ id: string; campaign_id: string; quantity: number; status: string; payment_intent_id: string | null; bonus_buy_one_get_one: boolean }>(
-      `SELECT o.id,o.campaign_id,o.quantity,o.status,o.payment_intent_id,c.bonus_buy_one_get_one
+      `SELECT o.id,o.campaign_id,o.quantity,o.status,o.payment_intent_id,o.bonus_buy_one_get_one_snapshot AS bonus_buy_one_get_one
          FROM presale_orders o JOIN presale_campaigns c ON c.id = o.campaign_id
         WHERE o.order_reference = $1 FOR UPDATE OF o`, orderReference);
     if (!order) throw APIError.notFound("Presale order not found");
@@ -893,7 +894,7 @@ export async function fulfilWebPayPresalePayment(orderReference: string, provide
   const tx = await presaleDb.begin();
   try {
     const order = await tx.rawQueryRow<{ id: string; campaign_id: string; quantity: number; status: string; payment_rail: PresalePaymentRail; bonus_buy_one_get_one: boolean }>(
-      `SELECT o.id,o.campaign_id,o.quantity,o.status,o.payment_rail,c.bonus_buy_one_get_one
+      `SELECT o.id,o.campaign_id,o.quantity,o.status,o.payment_rail,o.bonus_buy_one_get_one_snapshot AS bonus_buy_one_get_one
          FROM presale_orders o JOIN presale_campaigns c ON c.id = o.campaign_id
         WHERE o.order_reference = $1 FOR UPDATE OF o`, orderReference);
     if (!order) throw APIError.notFound("Presale order not found");
@@ -962,7 +963,7 @@ export async function incorporateConfirmedPresaleOrder(orderReference: string): 
   }>(`SELECT o.id,o.order_reference,o.external_profile_id,o.quantity,o.total_usd::text AS total_usd,
              o.buyer_name,o.unit_price_usd::text AS unit_price_usd,o.investor_application_ciphertext,
              o.investor_application_nonce,o.investor_application_auth_tag,
-             o.status,o.incorporation_status,o.target_purchase_id,c.bonus_buy_one_get_one,c.share_phase_number
+             o.status,o.incorporation_status,o.target_purchase_id,o.bonus_buy_one_get_one_snapshot AS bonus_buy_one_get_one,o.share_phase_number_snapshot AS share_phase_number
         FROM presale_orders o JOIN presale_campaigns c ON c.id=o.campaign_id
        WHERE o.order_reference=$1`, orderReference);
   if (!order) throw APIError.notFound("Presale order not found");
@@ -1484,7 +1485,7 @@ export const presaleApplicantPortal = api<void, PresalePortalResponse>(
               o.payment_transaction_hash, o.payment_confirmations, o.webpay_transaction_id,
               o.webpay_process_status, o.webpay_process_stage,
               o.investor_application_ciphertext, o.investor_application_nonce, o.investor_application_auth_tag,
-              c.name AS campaign_name, c.issuer_name, c.share_class, c.share_phase_number, c.bonus_buy_one_get_one
+              o.campaign_name_snapshot AS campaign_name, o.issuer_name_snapshot AS issuer_name, o.share_class_snapshot AS share_class, o.share_phase_number_snapshot AS share_phase_number, o.bonus_buy_one_get_one_snapshot AS bonus_buy_one_get_one
        FROM presale_orders o JOIN presale_campaigns c ON c.id = o.campaign_id
        WHERE o.external_profile_id = $1 AND o.status NOT IN ('cancelled', 'expired')
          AND NOT (o.status = 'awaiting_payment' AND o.payment_deadline <= now())
@@ -1514,7 +1515,7 @@ export const presaleApplicantPortal = api<void, PresalePortalResponse>(
         )
       : null;
     const paidOrders = await presaleDb.rawQueryAll<PresalePaidOrder>(
-      `SELECT o.order_reference, c.name AS campaign_name, o.quantity, o.total_usd::text AS total_usd, c.bonus_buy_one_get_one,
+      `SELECT o.order_reference, o.campaign_name_snapshot AS campaign_name, o.quantity, o.total_usd::text AS total_usd, o.bonus_buy_one_get_one_snapshot AS bonus_buy_one_get_one,
               o.status, o.incorporation_status
        FROM presale_orders o JOIN presale_campaigns c ON c.id = o.campaign_id
        WHERE o.external_profile_id = $1 AND o.status IN ('confirmed', 'incorporated')
@@ -1567,6 +1568,8 @@ export const presaleApplicantPortal = api<void, PresalePortalResponse>(
       && additionalPurchaseCampaign.has_resume_credential
       && additionalPurchaseCampaign.invitation_status !== "revoked"
     );
+    const funding = order?.payment_intent_id ? await paymentsDb.rawQueryRow<{ obligation_id: string }>("SELECT order_id AS obligation_id FROM payment_intents WHERE id=$1", order.payment_intent_id) : null;
+    const paymentFunding = funding && order ? await readObligationFunding(funding.obligation_id, order.total_usdt) : null;
     const transactionHash = order?.payment_transaction_hash ?? paymentAttempt?.transaction_hash ?? null;
     const cancellation = order ? deriveReservationCancellationPolicy({
       status: order.status,
@@ -1592,6 +1595,8 @@ export const presaleApplicantPortal = api<void, PresalePortalResponse>(
       tokenContract: order.payment_token_contract,
       receivingAddress: order.payment_receiving_address,
       requiredConfirmations: order.payment_min_confirmations,
+      receivedUsdt: paymentFunding?.receivedUsdt,
+      outstandingUsdt: paymentFunding?.outstandingUsdt,
       paymentDeadline: order.payment_deadline,
       termsVersion: order.terms_version,
       status: order.status,
@@ -2170,7 +2175,10 @@ export const createPresaleOrder = api<CreatePresaleOrderRequest, { order: Presal
       if (replay) {
         if (replay.request_hash !== requestHash) throw APIError.alreadyExists("Idempotency-Key was already used for a different order");
         await tx.rawExec("UPDATE presale_orders SET access_token_hash = $2, updated_at = now() WHERE id = $1", replay.id, hashSecret(accessToken));
-        const campaign = await tx.rawQueryRow<CampaignRow>("SELECT * FROM presale_campaigns WHERE id = $1", replay.campaign_id);
+        const campaign = await tx.rawQueryRow<CampaignRow>(`SELECT c.*,o.bonus_buy_one_get_one_snapshot AS bonus_buy_one_get_one,
+          o.share_phase_number_snapshot AS share_phase_number,o.campaign_name_snapshot AS name,
+          o.issuer_name_snapshot AS issuer_name,o.share_class_snapshot AS share_class
+          FROM presale_campaigns c JOIN presale_orders o ON o.campaign_id=c.id WHERE o.id=$1`, replay.id);
         if (!campaign) throw new Error("presale_campaign_not_found");
         await tx.commit();
         const intent = replay.payment_rail === "remitano_usdt" ? await ensurePresalePaymentIntent(replay, campaign) : undefined;
@@ -2195,7 +2203,10 @@ export const createPresaleOrder = api<CreatePresaleOrderRequest, { order: Presal
           throw APIError.failedPrecondition("An active reservation already exists with a different quantity or payment method");
         }
         await tx.rawExec("UPDATE presale_orders SET access_token_hash = $2, updated_at = now() WHERE id = $1", existing.id, hashSecret(accessToken));
-        const campaign = await tx.rawQueryRow<CampaignRow>("SELECT * FROM presale_campaigns WHERE id = $1", existing.campaign_id);
+        const campaign = await tx.rawQueryRow<CampaignRow>(`SELECT c.*,o.bonus_buy_one_get_one_snapshot AS bonus_buy_one_get_one,
+          o.share_phase_number_snapshot AS share_phase_number,o.campaign_name_snapshot AS name,
+          o.issuer_name_snapshot AS issuer_name,o.share_class_snapshot AS share_class
+          FROM presale_campaigns c JOIN presale_orders o ON o.campaign_id=c.id WHERE o.id=$1`, existing.id);
         if (!campaign) throw new Error("presale_campaign_not_found");
         await tx.commit();
         const intent = existing.payment_rail === "remitano_usdt" ? await ensurePresalePaymentIntent(existing, campaign) : undefined;
@@ -2291,6 +2302,17 @@ export const createPresaleOrder = api<CreatePresaleOrderRequest, { order: Presal
         JSON.stringify(applicationSummary), encryptedApplication.ciphertext, encryptedApplication.nonce,
         encryptedApplication.authTag, INVESTOR_APPLICATION_VERSION, campaign.payment_window_minutes);
       if (!order) throw new Error("presale_order_not_created");
+      // Preserve the source application link used by repeat-purchase authority.
+      // The sealed order payload remains the certificate holder source of truth.
+      await tx.rawExec(
+        `UPDATE presale_orders o SET application_id=a.id,application_version_id=v.id
+         FROM presale_applications a
+         LEFT JOIN presale_application_versions v ON v.application_id=a.id AND v.version=a.current_version
+         WHERE o.id=$1 AND a.external_profile_id=$2 AND a.campaign_id=$3 AND a.invitation_id=$4
+           AND a.status NOT IN ('withdrawn','expired','superseded','compliance_rejected','exco_rejected')`,
+        order.id,session.profile.id,campaign.id,invitation.id,
+      );
+
       const totalZar = payload.paymentRail === "webpay_card" ? webPayTotalZar(payload.quantity, webPayUnitPriceZar) : null;
       await tx.rawExec(
         `UPDATE presale_orders SET payment_rail = $2, unit_price_zar = $3::numeric, total_zar = $4::numeric,
@@ -2337,8 +2359,8 @@ export const getPresaleOrder = api<
               o.payment_deadline, o.confirmed_at, o.incorporation_status,
               o.payment_obligation_id,o.payment_intent_id,o.payment_network,o.payment_receiving_address,o.payment_token_contract,
               o.payment_min_confirmations,o.payment_settled_at,o.created_at,
-              c.slug, c.name, c.issuer_name, c.share_class, c.status AS campaign_status, c.total_shares,
-              c.reserved_shares, c.sold_shares, c.price_usdt::text AS price_usdt, c.price_usd::text AS price_usd, c.usdt_per_usd::text AS usdt_per_usd, c.share_phase_number, c.network, c.token_contract,
+              c.slug, o.campaign_name_snapshot AS name, o.issuer_name_snapshot AS issuer_name, o.share_class_snapshot AS share_class, c.status AS campaign_status, c.total_shares,
+              c.reserved_shares, c.sold_shares, c.price_usdt::text AS price_usdt, c.price_usd::text AS price_usd, c.usdt_per_usd::text AS usdt_per_usd, o.share_phase_number_snapshot AS share_phase_number, c.network, c.token_contract,
               c.receiving_address, c.min_confirmations, c.payment_window_minutes, c.starts_at, c.ends_at,
               o.payment_transaction_hash AS tx_hash, o.payment_confirmations AS confirmations
        FROM presale_orders o JOIN presale_campaigns c ON c.id = o.campaign_id
@@ -2353,8 +2375,8 @@ export const getPresaleOrder = api<
               o.payment_deadline, o.confirmed_at, o.incorporation_status,
               o.payment_obligation_id,o.payment_intent_id,o.payment_network,o.payment_receiving_address,o.payment_token_contract,
               o.payment_min_confirmations,o.payment_settled_at,o.created_at,
-              c.slug, c.name, c.issuer_name, c.share_class, c.status AS campaign_status, c.total_shares,
-              c.reserved_shares, c.sold_shares, c.price_usdt::text AS price_usdt, c.price_usd::text AS price_usd, c.usdt_per_usd::text AS usdt_per_usd, c.share_phase_number, c.network, c.token_contract,
+              c.slug, o.campaign_name_snapshot AS name, o.issuer_name_snapshot AS issuer_name, o.share_class_snapshot AS share_class, c.status AS campaign_status, c.total_shares,
+              c.reserved_shares, c.sold_shares, c.price_usdt::text AS price_usdt, c.price_usd::text AS price_usd, c.usdt_per_usd::text AS usdt_per_usd, o.share_phase_number_snapshot AS share_phase_number, c.network, c.token_contract,
               c.receiving_address, c.min_confirmations, c.payment_window_minutes, c.starts_at, c.ends_at,
               o.payment_transaction_hash AS tx_hash, o.payment_confirmations AS confirmations
        FROM presale_orders o JOIN presale_campaigns c ON c.id = o.campaign_id
@@ -2749,7 +2771,7 @@ export const cancelPresaleOrder = api<
       webpay_test_price_applied: boolean;
       crypto_test_price_applied: boolean;
     }>(
-      `SELECT o.id,o.campaign_id,o.invitation_id,o.quantity,o.payment_obligation_id,c.bonus_buy_one_get_one,
+      `SELECT o.id,o.campaign_id,o.invitation_id,o.quantity,o.payment_obligation_id,o.bonus_buy_one_get_one_snapshot AS bonus_buy_one_get_one,
               o.webpay_test_price_applied,o.crypto_test_price_applied
        FROM presale_orders o JOIN presale_campaigns c ON c.id = o.campaign_id
        WHERE o.invitation_id = $1 AND o.external_profile_id::text = $2::text
@@ -3047,7 +3069,7 @@ export const resolvePresaleManualReview = api<
     }>(
       `SELECT o.id, o.campaign_id, o.quantity, o.status, o.payment_rail,
               o.payment_transaction_hash, o.webpay_system_reference,
-              o.payment_obligation_id, c.bonus_buy_one_get_one
+              o.payment_obligation_id, o.bonus_buy_one_get_one_snapshot AS bonus_buy_one_get_one
          FROM presale_orders o
          JOIN presale_campaigns c ON c.id = o.campaign_id
         WHERE o.order_reference = $1 FOR UPDATE OF o`,
@@ -3150,7 +3172,7 @@ export const preparePresaleIncorporation = api<
   const tx = await presaleDb.begin();
   try {
     const rows = await tx.rawQueryAll<{ id: string; order_reference: string; buyer_name: string; buyer_email: string; quantity: number; total_usdt: string; tx_hash: string; bonus_buy_one_get_one: boolean }>(
-      `SELECT o.id,o.order_reference,o.buyer_name,o.buyer_email,o.quantity,o.total_usdt::text AS total_usdt,o.payment_transaction_hash AS tx_hash,c.bonus_buy_one_get_one
+      `SELECT o.id,o.order_reference,o.buyer_name,o.buyer_email,o.quantity,o.total_usdt::text AS total_usdt,o.payment_transaction_hash AS tx_hash,o.bonus_buy_one_get_one_snapshot AS bonus_buy_one_get_one
        FROM presale_orders o JOIN presale_campaigns c ON c.id = o.campaign_id
        WHERE o.campaign_id = $1 AND o.status = 'confirmed' AND o.incorporation_status = 'pending'
          AND o.payment_settled_at IS NOT NULL AND o.payment_transaction_hash IS NOT NULL
@@ -3218,7 +3240,7 @@ export const expirePresaleOrders = api<void, { expired: number }>(
         `UPDATE presale_orders SET status = 'expired', updated_at = now()
          WHERE status = 'awaiting_payment' AND payment_deadline < now()
          RETURNING id,campaign_id,invitation_id,quantity,webpay_test_price_applied,crypto_test_price_applied,
-           (SELECT bonus_buy_one_get_one FROM presale_campaigns WHERE id = presale_orders.campaign_id) AS bonus_buy_one_get_one`);
+           bonus_buy_one_get_one_snapshot AS bonus_buy_one_get_one`);
       for (const row of rows) {
         await tx.rawExec(`UPDATE presale_campaigns SET reserved_shares = reserved_shares - $2,
           webpay_test_orders_remaining = webpay_test_orders_remaining + $3,

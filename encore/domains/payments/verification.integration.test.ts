@@ -1,10 +1,15 @@
 // Author: Klaasvaakie ( |╲ )
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { paymentsDb } from "../../resources";
 import { TOKEN_TRANSFER_TOPIC } from "./chains/transfer";
 import type { ChainTransactionEvidence } from "./chains/types";
 import { CustodyProviderUnavailable, type CustodyEvidence } from "./custody";
 import { verifyAndSettlePaymentAttempt } from "./verification";
+
+import { submitPaymentAttempt } from "./attempts";
+// Authentication is covered by the HTTP harness; keep this regression focused on
+// the real submission transaction and verifier against Encore PostgreSQL.
+vi.mock("../auth/access", () => ({ requireProfileAccess: vi.fn(async () => ({})) }));
 
 const TOKEN = `0x${"11".repeat(20)}`;
 const RECEIVER = `0x${"22".repeat(20)}`;
@@ -14,7 +19,7 @@ function topic(address: string): string {
   return `0x${"0".repeat(24)}${address.replace(/^0x/, "")}`;
 }
 
-function evidence(hash: string, receiver = RECEIVER, latestBlockNumber = 102n): ChainTransactionEvidence {
+function evidence(hash: string, receiver = RECEIVER, latestBlockNumber = 102n, amount = 25_000_000n): ChainTransactionEvidence {
   return {
     network: "bsc",
     transactionHash: hash,
@@ -26,7 +31,7 @@ function evidence(hash: string, receiver = RECEIVER, latestBlockNumber = 102n): 
     logs: [{
       address: TOKEN,
       topics: [`0x${TOKEN_TRANSFER_TOPIC}`, topic(SENDER), topic(receiver)],
-      data: `0x${25_000_000n.toString(16).padStart(64, "0")}`,
+      data: `0x${amount.toString(16).padStart(64, "0")}`,
     }],
   };
 }
@@ -65,10 +70,62 @@ async function seedSubmittedPayment(custodyReconciliationRequired = false) {
   intentId, obligationId, profileId, walletId, crypto.randomUUID(), crypto.randomUUID());
   await paymentsDb.rawExec(`INSERT INTO payment_attempts
     (id,payment_intent_id,transaction_hash,verification_status) VALUES ($1,$2,$3,'submitted')`, attemptId, intentId, hash);
-  return { attemptId, obligationId, intentId, hash, reference };
+  return { attemptId, obligationId, intentId, hash, reference, profileId };
 }
 
 describe("product-neutral payment verification and settlement", () => {
+  it("accumulates verified partial credits, deduplicates concurrent replay, and settles once", async () => {
+    const seeded = await seedSubmittedPayment(true);
+    const partialReader = async () => evidence(seeded.hash, RECEIVER, 102n, 20_000_000n);
+    const partialCustody = async () => custodyEvidence(seeded.hash, "20");
+    const first = await verifyAndSettlePaymentAttempt(seeded.attemptId, partialReader, partialCustody);
+    expect(first.status).toBe("underpaid");
+    const replays = await Promise.all([
+      verifyAndSettlePaymentAttempt(seeded.attemptId, partialReader, partialCustody),
+      verifyAndSettlePaymentAttempt(seeded.attemptId, partialReader, partialCustody),
+    ]);
+    expect(replays.every((result) => result.status === "underpaid")).toBe(true);
+    const balance = await paymentsDb.rawQueryRow<{ status: string; credited: string }>(
+      "SELECT status,(SELECT SUM(amount)::text FROM payment_credits WHERE obligation_id=$1) AS credited FROM payment_obligations WHERE id=$1", seeded.obligationId);
+    expect(balance).toEqual({ status: "partially_paid", credited: "20.000000" });
+    const hash = "0x" + crypto.randomUUID().replaceAll("-", "") + crypto.randomUUID().replaceAll("-", "");
+    const submitted = await submitPaymentAttempt({intentId:seeded.intentId,profileId:seeded.profileId,transactionHash:hash});
+    const topup = submitted.id;
+    expect((await submitPaymentAttempt({intentId:seeded.intentId,profileId:seeded.profileId,transactionHash:hash})).id).toBe(topup);
+    const settle = () => verifyAndSettlePaymentAttempt(topup, async () => evidence(hash, RECEIVER, 102n, 5_000_000n), async () => custodyEvidence(hash, "5"));
+    const results = await Promise.all([settle(), settle()]);
+    expect(results.every((result) => result.status === "settled")).toBe(true);
+    const counts = await paymentsDb.rawQueryRow<{ credits: number; settlements: number; events: number }>(
+      `SELECT (SELECT count(*)::int FROM payment_credits WHERE obligation_id=$1) AS credits,
+       (SELECT count(*)::int FROM payment_settlements WHERE obligation_id=$1) AS settlements,
+       (SELECT count(*)::int FROM payment_events WHERE payment_intent_id=$2 AND event_type='payment.settled') AS events`,
+      seeded.obligationId, seeded.intentId);
+    expect(counts).toEqual({ credits: 2, settlements: 1, events: 1 });
+  });
+
+  it("does not credit a partial transfer before confirmations and custody recover", async () => {
+    const seeded = await seedSubmittedPayment(true);
+    const pending = await verifyAndSettlePaymentAttempt(seeded.attemptId, async () => evidence(seeded.hash, RECEIVER, 100n, 10_000_000n));
+    expect(pending.status).toBe("pending_confirmations");
+    const outage = await verifyAndSettlePaymentAttempt(seeded.attemptId,
+      async () => evidence(seeded.hash, RECEIVER, 102n, 10_000_000n),
+      async () => { throw new CustodyProviderUnavailable("remitano", "custody_provider_network_unavailable"); });
+    expect(outage.status).toBe("retryable");
+    const before = await paymentsDb.rawQueryRow<{ count: number }>("SELECT count(*)::int AS count FROM payment_credits WHERE obligation_id=$1", seeded.obligationId);
+    expect(before?.count).toBe(0);
+    const recovered = await verifyAndSettlePaymentAttempt(seeded.attemptId,
+      async () => evidence(seeded.hash, RECEIVER, 102n, 10_000_000n), async () => custodyEvidence(seeded.hash, "10"));
+    expect(recovered.status).toBe("underpaid");
+  });
+
+  it("preserves an overpayment for review without emitting settlement", async () => {
+    const seeded = await seedSubmittedPayment();
+    const result = await verifyAndSettlePaymentAttempt(seeded.attemptId, async () => evidence(seeded.hash, RECEIVER, 102n, 26_000_000n));
+    expect(result.status).toBe("manual_review");
+    const state = await paymentsDb.rawQueryRow<{ status: string; count: number }>(
+      "SELECT status,(SELECT count(*)::int FROM payment_settlements WHERE obligation_id=$1) AS count FROM payment_obligations WHERE id=$1", seeded.obligationId);
+    expect(state).toEqual({ status: "review_required", count: 0 });
+  });
   it("settles canonical chain evidence exactly once and emits one durable event", async () => {
     const seeded = await seedSubmittedPayment();
     const reader = async () => evidence(seeded.hash);

@@ -1,5 +1,7 @@
 // Author: Klaasvaakie ( |╲ )
 import { APIError } from "encore.dev/api";
+import { classifyObligationFunding } from "./settlement-policy";
+import { decimalToUnits } from "./chains/amount";
 import { paymentsDb } from "../../resources";
 import { evaluatePaymentEvidence } from "./chains/evaluate";
 import { ChainProviderUnavailable, readChainTransactionEvidence } from "./chains/providers";
@@ -141,6 +143,10 @@ export async function verifyAndSettlePaymentAttempt(
   if (row.intent_status === "rejected" && row.verification_status === "rejected") {
     return { ...retryableResult(row, "already_rejected"), status: "rejected" };
   }
+  const credited = await paymentsDb.rawQueryRow<{ id: string }>(
+    "SELECT id FROM payment_credits WHERE obligation_id=$1 AND provider=$2 AND provider_reference=$3 AND status='confirmed'",
+    row.obligation_id, `chain:${row.network}`, row.transaction_hash.toLowerCase().replace(/^0x/, ""));
+  if (credited) return { ...retryableResult(row, "credit_already_recorded"), status: row.intent_status };
   if (!["submitted", "verifying", "pending_confirmations"].includes(row.intent_status)) {
     throw APIError.failedPrecondition(`Payment intent cannot be verified while ${row.intent_status}`);
   }
@@ -161,11 +167,23 @@ export async function verifyAndSettlePaymentAttempt(
     tokenDecimals: row.decimals,
     minimumConfirmations: row.minimum_confirmations,
   }, evidence);
+  // A partial transfer is credit only after canonical confirmation depth.
+  if (["underpaid", "manual_review"].includes(evaluation.decision)
+      && evaluation.receivedAmount && evaluation.confirmations < row.minimum_confirmations) {
+    evaluation.decision = "pending_confirmations";
+    evaluation.reason = "insufficient_confirmations";
+  }
   let decision = targetStatus(evaluation);
+  let creditEligible = decision === "confirmed" || decision === "underpaid"
+    || (decision === "manual_review" && evaluation.reason === "received_more_than_expected");
+  if (creditEligible) {
+    try { decimalToUnits(evaluation.receivedAmount!, 6); }
+    catch { creditEligible = false; decision = "manual_review"; evaluation.reason = "credit_precision_requires_review"; }
+  }
   if (decision === "retryable") return persistRetryableResult(row, evaluation.reason, evaluation);
   let custodyEvidence: CustodyEvidence | null = null;
   let custodyDecision: CustodyDecision | null = null;
-  if (decision === "confirmed" && row.custody_reconciliation_required) {
+  if (creditEligible && row.custody_reconciliation_required) {
     try {
       custodyEvidence = await custodyReader({
         provider: row.provider,
@@ -173,7 +191,7 @@ export async function verifyAndSettlePaymentAttempt(
         transactionHash: row.transaction_hash,
         receiverAddress: row.address_reference,
         currency: "USDT",
-        expectedAmount: row.expected_amount,
+        expectedAmount: evaluation.receivedAmount!,
         tokenDecimals: row.decimals,
       });
     } catch (error) {
@@ -186,18 +204,18 @@ export async function verifyAndSettlePaymentAttempt(
       transactionHash: row.transaction_hash,
       receiverAddress: row.address_reference,
       currency: "USDT",
-      expectedAmount: row.expected_amount,
+      expectedAmount: evaluation.receivedAmount!,
       tokenDecimals: row.decimals,
     }, custodyEvidence);
     await recordCustodyEvidence(row.attempt_id, custodyEvidence, custodyDecision);
     if (custodyDecision.decision === "retryable") return persistRetryableResult(row, custodyDecision.reason, evaluation);
-    if (custodyDecision.decision === "manual_review") decision = "manual_review";
+    if (custodyDecision.decision === "manual_review") { decision = "manual_review"; creditEligible = false; }
   }
-  const decisionReason = custodyDecision?.reason ?? evaluation.reason;
+  let decisionReason = custodyDecision?.reason ?? evaluation.reason;
 
   const tx = await paymentsDb.begin();
   try {
-    await tx.rawExec("SELECT pg_advisory_xact_lock(hashtext($1))", `payment-settle:${row.payment_intent_id}`);
+    await tx.rawExec("SELECT pg_advisory_xact_lock(hashtext($1))", `payment-settle:${row.obligation_id}`);
     const locked = await tx.rawQueryRow<{ status: PaymentStatus; obligation_status: string }>(
       `SELECT i.status, o.status AS obligation_status
          FROM payment_intents i JOIN payment_obligations o ON o.id = i.order_id
@@ -208,6 +226,16 @@ export async function verifyAndSettlePaymentAttempt(
     if (locked.status === "settled" && locked.obligation_status === "paid") {
       await tx.commit();
       return { ...retryableResult(row, "already_settled"), status: "settled", confirmations: evaluation.confirmations };
+    }
+    const replayCredit = await tx.rawQueryRow<{ id: string }>(
+      "SELECT id FROM payment_credits WHERE obligation_id=$1 AND provider=$2 AND provider_reference=$3 AND status='confirmed'",
+      row.obligation_id, `chain:${row.network}`, row.transaction_hash.toLowerCase().replace(/^0x/, ""));
+    if (replayCredit) {
+      await tx.commit();
+      return { ...retryableResult(row, "credit_already_recorded"), status: locked.status };
+    }
+    if (!["open", "partially_paid"].includes(locked.obligation_status)) {
+      throw APIError.failedPrecondition("The obligation is not open for automatic settlement");
     }
     if (!["submitted", "verifying", "pending_confirmations"].includes(locked.status)) {
       throw APIError.failedPrecondition(`Payment intent cannot be verified while ${locked.status}`);
@@ -222,6 +250,29 @@ export async function verifyAndSettlePaymentAttempt(
       JSON.stringify({ attemptId: row.attempt_id }));
     }
 
+    if (creditEligible) {
+      const reference = row.transaction_hash.toLowerCase().replace(/^0x/, "");
+      const provider = `chain:${row.network}`;
+      await tx.rawExec(`INSERT INTO payment_credits
+        (obligation_id,provider,provider_reference,asset,amount,status,evidence,observed_at,finalized_at)
+        VALUES ($1,$2,$3,'USDT',$4::numeric,'confirmed',$5::jsonb,now(),now())
+        ON CONFLICT (provider,provider_reference,asset) DO NOTHING`,
+      row.obligation_id, provider, reference, evaluation.receivedAmount,
+      JSON.stringify({ attemptId: row.attempt_id, confirmations: evaluation.confirmations, custodyRequired: row.custody_reconciliation_required }));
+      const credit = await tx.rawQueryRow<{ obligation_id: string; amount: string; status: string }>(
+        "SELECT obligation_id,amount::text AS amount,status FROM payment_credits WHERE provider=$1 AND provider_reference=$2 AND asset='USDT'", provider, reference);
+      if (!credit || credit.obligation_id !== row.obligation_id || credit.status !== "confirmed"
+        || decimalToUnits(credit.amount,6) !== decimalToUnits(evaluation.receivedAmount!,6)) {
+        throw APIError.alreadyExists("Credit was already claimed with different evidence");
+      }
+      const credits = await tx.rawQueryAll<{ amount: string }>(
+        "SELECT amount::text AS amount FROM payment_credits WHERE obligation_id=$1 AND status='confirmed'", row.obligation_id);
+      const funding = classifyObligationFunding(row.expected_amount, credits.map((credit) => credit.amount));
+      decision = funding.status === "paid" ? "confirmed" : funding.status === "review_required" ? "manual_review" : "underpaid";
+      if (decision !== "confirmed") decisionReason = decision === "underpaid" ? "cumulative_credit_below_obligation" : "cumulative_credit_exceeds_obligation";
+      await tx.rawExec("UPDATE payment_obligations SET status=$2,updated_at=now() WHERE id=$1 AND status IN ('open','partially_paid')",
+        row.obligation_id, decision === "manual_review" ? "review_required" : "partially_paid");
+    }
     const finalIntentStatus: PaymentStatus = decision === "confirmed" ? "settled" : decision;
     await tx.rawExec(`UPDATE payment_attempts SET verification_status = $2,
       chain_sender_wallet = $3, chain_receiver_wallet = $4, chain_amount = $5::numeric,
@@ -238,7 +289,9 @@ export async function verifyAndSettlePaymentAttempt(
       await tx.rawExec(`UPDATE payment_intents SET status = 'settled', confirmed_at = COALESCE(confirmed_at, now()),
         settled_at = COALESCE(settled_at, now()), updated_at = now() WHERE id = $1`, row.payment_intent_id);
       await tx.rawExec(`UPDATE payment_obligations SET status = 'paid', settled_at = COALESCE(settled_at, now()),
-        updated_at = now() WHERE id = $1 AND status = 'open'`, row.obligation_id);
+        updated_at = now() WHERE id = $1 AND status IN ('open','partially_paid')`, row.obligation_id);
+      await tx.rawExec(`INSERT INTO payment_settlements (obligation_id,currency,amount,status)
+        VALUES ($1,'USDT',$2::numeric,'settled') ON CONFLICT (obligation_id) DO NOTHING`, row.obligation_id, row.expected_amount);
       await tx.rawExec(`INSERT INTO payment_state_history
         (payment_intent_id, prior_status, new_status, actor_type, actor_reference, evidence) VALUES
         ($1,'verifying','confirmed','system','chain.verify',$2::jsonb),

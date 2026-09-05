@@ -36,7 +36,7 @@ function mockPortalResponse(options: {
       totalUsdt: "50.000000",
       totalZar: "900.00",
       unitPriceZar: "450.00",
-      paymentDeadline: "2026-09-04T12:00:00.000Z",
+      paymentDeadline: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
       cancellation: { eligible: false, reason: "card_checkout_started" },
     } : null,
     currentReservation: isAwaitingOrLater ? {
@@ -56,7 +56,7 @@ function mockPortalResponse(options: {
       totalUsdt: "50.000000",
       unitPriceZar: "450.00",
       totalZar: "900.00",
-      paymentDeadline: "2026-09-04T12:00:00.000Z",
+      paymentDeadline: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
       termsVersion: "presale-reservation-v1",
       status: isIssued ? "incorporated" : (isConfirmed ? "confirmed" : "awaiting_payment"),
       incorporationStatus: isIssued ? "incorporated" : "pending",
@@ -95,7 +95,7 @@ function mockPortalResponse(options: {
         totalUsdt: "50.000000",
         unitPriceZar: "450.00",
         totalZar: "900.00",
-        paymentDeadline: "2026-09-04T12:00:00.000Z",
+        paymentDeadline: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
         termsVersion: "presale-reservation-v1",
         status: isIssued ? "incorporated" : (isConfirmed ? "confirmed" : "awaiting_payment"),
         incorporationStatus: isIssued ? "incorporated" : "pending",
@@ -231,4 +231,25 @@ test.describe("Phase 4: Browser Refresh & Recovery Matrix", () => {
     await context1.close();
     await context2.close();
   });
+});
+
+
+test('expired reservation blocks checkout after reload', async ({page}) => {
+ const data=mockPortalResponse({journeyState:'awaiting_payment',kycVerified:true});
+ data.currentReservation!.paymentDeadline=new Date(Date.now()-60000).toISOString();
+ await page.route('**/api/presale/portal',route=>route.fulfill({json:data}));
+ await page.goto('/shares/account');
+ await expect(page.getByRole('button',{name:'Continue to secure WebPay checkout'})).toBeDisabled();
+ await expect(page.getByText('Do not send more funds',{exact:false})).toBeVisible();
+});
+
+test('login network failure remains retryable without unhandled rejection',async ({page})=>{
+ const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.route('**/api/presale/portal',route=>route.fulfill({status:401,json:{}}));
+ await page.route('**/api/presale/auth/login',route=>route.abort('failed'));
+ await page.goto('/shares/account');
+ await page.locator('[name=email]').fill('network@example.test');await page.locator('[name=password]').fill('TestPassword!2026');
+ const button=page.getByRole('button',{name:'Sign in to KaSiShares'});await button.click();
+ await expect(page.getByText('Connection interrupted. Please try signing in again.')).toBeVisible();
+ await expect(button).toBeEnabled();expect(errors).toEqual([]);
 });

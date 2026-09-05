@@ -163,6 +163,15 @@
 }
 
 /* Branded action button: one clear colour face, matching the approved campaign control. */
+.presale-shell [data-slot="button"] {
+  max-width: 100%;
+  min-width: 0;
+  height: auto !important;
+  min-height: 48px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 [data-kasi-action="true"] {
   --kasi-action-start: #ff9d13;
   --kasi-action-end: #ff5a00;

@@ -1,9 +1,9 @@
 // Author: Klaasvaakie ( |╲ )
 import { describe, expect, it } from "vitest";
 import { identityDb, presaleDb, sharesDb } from "../../resources";
-import { encryptInvestorApplication, fulfilSettledPresalePayment, rejectPresalePayment } from "./api";
+import { encryptInvestorApplication, fulfilSettledPresalePayment, rejectPresalePayment, reconcileConfirmedPresaleOrders, expirePresaleOrders } from "./api";
 
-async function seedOrders() {
+async function seedOrders(phase = 1) {
   const campaignId = crypto.randomUUID();
   const invitationId = crypto.randomUUID();
   const profileId = crypto.randomUUID();
@@ -32,9 +32,9 @@ async function seedOrders() {
     `KSI-${crypto.randomUUID()}`,
   );
   await presaleDb.rawExec(`INSERT INTO presale_campaigns
-    (id,slug,name,issuer_name,status,total_shares,reserved_shares,sold_shares,price_usdt,price_usd,network,receiving_address,min_confirmations,bonus_buy_one_get_one)
-    VALUES ($1,$2,'Legacy-tier test','KaSiShares','active',100,4,0,25,25,'bsc','0x2222222222222222222222222222222222222222',3,true)`,
-  campaignId, `legacy-${crypto.randomUUID()}`);
+    (id,slug,name,issuer_name,status,total_shares,reserved_shares,sold_shares,price_usdt,price_usd,network,receiving_address,min_confirmations,bonus_buy_one_get_one,share_phase_number)
+    VALUES ($1,$2,'Legacy-tier test','KaSiShares','active',100,4,0,25,25,'bsc','0x2222222222222222222222222222222222222222',3,true,$3)`,
+  campaignId, `legacy-${crypto.randomUUID()}`, phase);
   await presaleDb.rawExec(`INSERT INTO presale_invitations
     (id,campaign_id,token_hash,max_shares,used_shares,status) VALUES ($1,$2,$3,2,2,'exhausted')`,
   invitationId, campaignId, crypto.randomUUID());
@@ -56,8 +56,21 @@ async function seedOrders() {
 }
 
 describe("presale settlement consumption", () => {
+  it("expires unpaid allocations using their frozen bonus after a campaign edit, once",async()=>{
+    const seeded=await seedOrders();
+    await presaleDb.rawExec("UPDATE presale_orders SET status='awaiting_payment',payment_deadline=now()-interval '1 minute' WHERE campaign_id=$1",seeded.campaignId);
+    await presaleDb.rawExec("UPDATE presale_campaigns SET bonus_buy_one_get_one=false WHERE id=$1",seeded.campaignId);
+    await expirePresaleOrders();await expirePresaleOrders();
+    expect(await presaleDb.rawQueryRow("SELECT reserved_shares,sold_shares FROM presale_campaigns WHERE id=$1",seeded.campaignId)).toEqual({reserved_shares:0,sold_shares:0});
+    const rows=await presaleDb.rawQueryAll<{status:string}>("SELECT status FROM presale_orders WHERE campaign_id=$1",seeded.campaignId);
+    expect(rows.every(row=>row.status==='expired')).toBe(true);
+  });
+
   it("moves inventory once after settlement and releases a rejected reservation once", async () => {
     const seeded = await seedOrders();
+    // Both fulfilment and release must use the original allocation, even if
+    // an administrator edits the campaign after reservation.
+    await presaleDb.rawExec("UPDATE presale_campaigns SET bonus_buy_one_get_one=false,share_phase_number=9999 WHERE id=$1", seeded.campaignId);
     const transactionHash = "a".repeat(64);
     await fulfilSettledPresalePayment(seeded.fulfilledReference, seeded.fulfilledIntentId, transactionHash, 3);
     await fulfilSettledPresalePayment(seeded.fulfilledReference, seeded.fulfilledIntentId, transactionHash, 3);
@@ -84,5 +97,31 @@ describe("presale settlement consumption", () => {
     expect(issuance).toEqual({ operation_id: `presale:${seeded.fulfilledReference}`, status: "completed" });
     expect(delivery).toEqual({ status: "processed", attempt_count: 1 });
     expect(completion).toEqual({ count: "1" });
+  });
+
+  it("recovers failed issuance delivery after capacity becomes available without a second purchase", async () => {
+    const phase = 80000 + Math.floor(Math.random() * 10000);
+    const seeded = await seedOrders(phase);
+    await fulfilSettledPresalePayment(seeded.fulfilledReference, seeded.fulfilledIntentId, "b".repeat(64), 3);
+    const failedDelivery = await presaleDb.rawQueryRow<{ status: string; last_error_code: string | null }>(
+      "SELECT status,last_error_code FROM presale_outbox WHERE aggregate_id=$1", seeded.fulfilledReference);
+    expect(failedDelivery?.status).toBe("pending");
+    expect(failedDelivery?.last_error_code).toBeTruthy();
+    await sharesDb.rawExec("INSERT INTO share_phases (phase_number,quantity_available,total_quantity,price_per_share,currency,status) VALUES ($1,100,100,25,'USD','active')", phase);
+    await presaleDb.rawExec("UPDATE presale_outbox SET available_at=now() WHERE aggregate_id=$1", seeded.fulfilledReference);
+    await reconcileConfirmedPresaleOrders();
+    await reconcileConfirmedPresaleOrders();
+    const purchases = await sharesDb.rawQueryRow<{ count: number; shares: number }>(
+      "SELECT count(*)::int AS count,SUM(quantity+bonus_quantity)::int AS shares FROM share_purchases WHERE presale_order_reference=$1", seeded.fulfilledReference);
+    expect(purchases).toEqual({ count: 1, shares: 2 });
+    const complete = await presaleDb.rawQueryRow<{ status: string }>("SELECT status FROM presale_outbox WHERE aggregate_id=$1", seeded.fulfilledReference);
+    expect(complete?.status).toBe("processed");
+  });
+
+  it("rejects mutation of the reservation snapshot", async () => {
+    const seeded = await seedOrders();
+    await expect(presaleDb.rawExec("UPDATE presale_orders SET bonus_buy_one_get_one_snapshot=false WHERE order_reference=$1", seeded.fulfilledReference)).rejects.toThrow();
+    const row = await presaleDb.rawQueryRow<{ bonus: boolean }>("SELECT bonus_buy_one_get_one_snapshot AS bonus FROM presale_orders WHERE order_reference=$1", seeded.fulfilledReference);
+    expect(row?.bonus).toBe(true);
   });
 });

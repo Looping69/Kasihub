@@ -204,3 +204,23 @@ describe("KaSiShares applicant BFF routes", () => {
     expect(mocks.encoreRequest).not.toHaveBeenCalled();
   });
 });
+
+  test.each([
+    [403, "Your access to this campaign is no longer active."],
+    [409, "Finish the current share purchase"],
+    [412, "Finish the current share purchase"],
+    [500, "Another share purchase could not be started. Please try again."],
+  ])("additional purchase preserves a safe %s failure without granting a purchase URL", async (status, message) => {
+    const { EncoreRequestError } = await import("@/lib/encore-client");
+    mocks.encoreRequest.mockRejectedValue(new EncoreRequestError("Finish the current share purchase", status, null));
+    const response = await additionalPurchase();
+    expect(response.status).toBe(status);
+    expect(await response.json()).toEqual({ error: message });
+  });
+
+  test("additional purchase hides an unexpected transport failure", async () => {
+    mocks.encoreRequest.mockRejectedValue(new Error("private upstream connection detail"));
+    const response = await additionalPurchase();
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: "Another share purchase could not be started. Please try again." });
+  });

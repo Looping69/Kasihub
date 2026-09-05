@@ -72,6 +72,8 @@ export type PresaleReservationContract = {
   tokenContract?: string;
   receivingAddress?: string;
   requiredConfirmations?: number;
+  receivedUsdt?: string;
+  outstandingUsdt?: string;
   paymentDeadline: string;
   termsVersion: string;
   status: string;
@@ -155,7 +157,7 @@ function parseReservation(value: unknown): PresaleReservationContract | null | u
   const requiredNumbers = [input.phaseNumber, input.paidShares, input.bonusShares, input.totalAllocatedShares];
   if (!requiredStrings.every(string) || !requiredNumbers.every((number) => typeof number === "number" && Number.isFinite(number))) return undefined;
   if (input.paymentMethod !== "remitano_usdt" && input.paymentMethod !== "webpay_card") return undefined;
-  if (![input.unitPriceZar, input.totalZar, input.network, input.tokenContract, input.receivingAddress].every(optionalString)) return undefined;
+  if (![input.unitPriceZar, input.totalZar, input.network, input.tokenContract, input.receivingAddress, input.receivedUsdt, input.outstandingUsdt].every(optionalString)) return undefined;
   if (!optionalNumber(input.requiredConfirmations)) return undefined;
   if (typeof cancellation.eligible !== "boolean" || !string(cancellation.reason) || !CANCELLATION_REASON_SET.has(cancellation.reason)) return undefined;
   return input as PresaleReservationContract;

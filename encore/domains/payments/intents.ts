@@ -153,6 +153,11 @@ export const createPaymentIntent = api<
     if (obligation.payer_profile_id !== payload.profileId) {
       throw APIError.permissionDenied("Payment obligation does not belong to this profile");
     }
+    if (obligation.status === "partially_paid") {
+      const existing = await findLiveIntent(payload.obligationId);
+      if (existing) return assertCompatibleExistingIntent(existing, payload.network);
+      throw APIError.failedPrecondition("Partially paid obligations require review before replacing their payment route");
+    }
     if (obligation.status !== "open") {
       throw APIError.failedPrecondition(`Payment obligation is ${obligation.status}`);
     }

@@ -23,6 +23,10 @@ const setup = (await requestJson(`${encoreBase}/testing/presale/e2e-runs`, {
 }, "create E2E run")).body;
 assert(setup?.schemaVersion === "presale-e2e-run.v1", "E2E setup contract is invalid");
 
+// Authenticate through the real applicant path, creating a sealed resume credential.
+await requestJson(encoreBase+'/presale/members', {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({
+ inviteToken:setup.inviteToken,email:setup.email,password:setup.testPassword,legalName:'End-to-end Investor',phone:'+27820000000',applicantType:'individual',nationality:'South African',countryOfResidence:'South Africa',streetAddress:'1 Test Evidence Street',suburb:'Braamfontein',city:'Johannesburg',postalCode:'2001'
+})},'register resumable applicant');
 const bearerHeaders = {
   authorization: `Bearer ${setup.sessionToken}`,
   "content-type": "application/json",
@@ -69,6 +73,11 @@ const orderPayload = {
     informationDeclarationAccepted: true,
   },
 };
+await requestJson(encoreBase+'/presale/applicant/progress',{method:'POST',headers:bearerHeaders,body:JSON.stringify({phaseCompleted:4,draft:{...orderPayload.investorApplication,buyerName:orderPayload.buyerName}})},'save encrypted application');
+const freshLogin=(await requestJson(encoreBase+'/presale/auth/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({email:setup.email,password:setup.testPassword})},'fresh applicant login')).body;
+const resumed=(await requestJson(encoreBase+'/presale/applicant/portal',{headers:{authorization:'Bearer '+freshLogin.token}},'restore saved application in fresh session')).body;
+assert(resumed.application?.draft?.occupation==='Software engineer' && resumed.application?.phaseCompleted===4,'Saved draft did not survive fresh login');
+assert(resumed.continuation?.resumeUrl?.includes('invite='),'Authoritative resume credential was not restored');
 const orderResponse = (await requestJson(`${encoreBase}/presale/orders`, {
   method: "POST",
   headers: { ...bearerHeaders, "idempotency-key": `presale-e2e-${setup.runId}` },
@@ -109,6 +118,14 @@ const directVerification = (await requestJson(
 )).body;
 assert(directVerification?.verified === true, "Certificate integrity verification failed");
 
+assert(portal.additionalPurchase?.eligible===true,'Issued shareholder cannot start additional purchase');
+const additional=(await requestJson(encoreBase+'/presale/applicant/additional-purchase',{method:'POST',headers:bearerHeaders,body:'{}'},'authorize another purchase')).body;
+assert(additional.purchaseUrl?.includes('invite='),'Additional purchase URL missing');
+const second=(await requestJson(encoreBase+'/presale/orders',{method:'POST',headers:{...bearerHeaders,'idempotency-key':'second-'+setup.runId},body:JSON.stringify({...orderPayload,quantity:1})},'create additional reservation')).body;
+assert(second.order.orderReference!==orderReference,'Additional purchase reused prior order');
+await requestJson(encoreBase+'/presale/orders/'+second.order.orderReference+'/cancel',{method:'POST',headers:bearerHeaders,body:JSON.stringify({acknowledgeNoPaymentSent:true})},'cancel unpaid additional reservation');
+const finalPortal=(await requestJson(encoreBase+'/presale/applicant/portal',{headers:bearerHeaders},'read after cancellation')).body;
+assert(finalPortal.shareholder.totalIssuedShares===4,'Cancellation changed issued shares');
 let frontend = { checked: false };
 if (!backendOnly) {
   const sessionResponse = await requestJson(`${appBase}/api/testing/presale/session`, {
@@ -155,5 +172,7 @@ process.stdout.write(`${JSON.stringify({
   outboxProcessed: true,
   portalIssued: true,
   certificateVerified: true,
+  genuineSaveResume: true,
+  additionalPurchaseAndCancellation: true,
   frontend,
 }, null, 2)}\n`);
