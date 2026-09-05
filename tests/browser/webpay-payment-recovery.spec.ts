@@ -3,13 +3,18 @@ import { expect, test } from "@playwright/test";
 
 const ORDER_REFERENCE = "KSP-WEBPAY-TEST-01";
 
+test.beforeEach(async ({ page }) => {
+  // Payment fixtures should not register devices or depend on a support provider.
+  // SDK lifecycle and outage behavior are covered in shares-cobrowse.spec.ts.
+  await page.route("https://js.cobrowse.io/CobrowseIO.js", (route) => route.fulfill({
+    contentType: "application/javascript", body: "window.CobrowseIO = { async start() {}, async stop() {} };",
+  }));
+});
+
 for (const width of [390, 1440]) {
   for (const eligible of [true, false]) {
     test(`buy more shares stays visible when eligible=${eligible} at ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 });
-      await page.route("https://js.cobrowse.io/CobrowseIO.js", (route) => route.fulfill({
-        contentType: "application/javascript", body: "window.CobrowseIO = { async start() {}, async stop() {} };",
-      }));
       await page.route("**/api/theme", (route) => route.fulfill({ json: {} }));
       await page.route("**/api/presale/portal", (route) => route.fulfill({
         json: { ...webPayPortalPayload("issued"), additionalPurchase: { eligible } },
