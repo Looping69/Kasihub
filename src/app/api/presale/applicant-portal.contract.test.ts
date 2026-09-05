@@ -274,7 +274,7 @@ describe("isolated KaSiShares applicant portal", () => {
     const account = source("src/app/shares/account/shares-account-client.tsx");
     const route = source("src/app/api/presale/additional-purchase/route.ts");
     expect(account).toContain('portal.continuation?.reason !== "signup_complete"');
-    expect(account).toContain("Purchase more shares");
+    expect(account).toContain("Buy more shares");
     expect(account).toContain("additionalPurchase?.eligible");
     expect(api).toContain('path: "/presale/applicant/additional-purchase"');
     expect(api).toContain("c.status='active'");
