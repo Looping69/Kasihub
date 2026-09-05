@@ -101,6 +101,29 @@ describe("product-neutral payment verification and settlement", () => {
     expect(counts).toEqual({ credits: 1, settlements: 1 });
   });
 
+  it("returns current settlement status when another verifier commits after the initial read", async () => {
+    const seeded = await seedSubmittedPayment();
+    const chain = vi.fn(async () => evidence(seeded.hash));
+    const read = paymentsDb.rawQueryRow.bind(paymentsDb);
+    // Hold the first caller's snapshot until a competing verifier has committed.
+    const intercepted = vi.spyOn(paymentsDb, "rawQueryRow").mockImplementationOnce(async (...args) => {
+      const snapshot = await read(...args);
+      expect((await verifyAndSettlePaymentAttempt(seeded.attemptId, chain)).status).toBe("settled");
+      return snapshot;
+    });
+    try {
+      const replay = await verifyAndSettlePaymentAttempt(seeded.attemptId, chain);
+      expect(replay.status).toBe("settled");
+      expect(chain).toHaveBeenCalledTimes(1);
+      const counts = await paymentsDb.rawQueryRow<{ credits: number; settlements: number }>(
+        `SELECT (SELECT count(*)::int FROM payment_credits WHERE obligation_id=$1) AS credits,
+         (SELECT count(*)::int FROM payment_settlements WHERE obligation_id=$1) AS settlements`, seeded.obligationId);
+      expect(counts).toEqual({ credits: 1, settlements: 1 });
+    } finally {
+      intercepted.mockRestore();
+    }
+  });
+
   it("accumulates verified partial credits, deduplicates concurrent replay, and settles once", async () => {
     const seeded = await seedSubmittedPayment(true);
     const partialReader = async () => evidence(seeded.hash, RECEIVER, 102n, 20_000_000n);

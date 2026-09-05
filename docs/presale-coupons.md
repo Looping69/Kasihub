@@ -29,10 +29,11 @@ Do not roll the application back to code that cannot read complimentary records 
 ## Verification (2026-09-05)
 
 - Linux Encore compiler, service graph and database migration startup passed in a separate temporary local container workspace.
-- Complete Encore test suite: 292 tests passed, including real database concurrency, one-time issuance, rejection rollback, recipient/expiry/revocation/limit checks, and recovery after missing inventory. Integration tests stub session/admin/KYC boundaries and use synthetic local identities; they do not prove a deployed authentication journey.
-- Frontend tests: 268 passed, including complimentary PDF generation and sealed ledger mismatch rejection.
+- Complete Encore test suite: 293 tests passed, including real database concurrency, one-time issuance, rejection rollback, recipient/expiry/revocation/limit checks, and recovery after missing inventory. Integration tests stub session/admin/KYC boundaries and use synthetic local identities; they do not prove a deployed authentication journey.
+- Frontend tests: 294 passed, including complimentary PDF generation and sealed ledger mismatch rejection.
 - Eight browser tests passed, covering coupon preview invalidation, complimentary holdings after reload, and existing paid reservation recovery. Browser API responses are controlled fixtures.
-- Frontend TypeScript, ESLint and production build passed.
+- Frontend TypeScript, ESLint and production build passed. Frontend branch coverage is 73.13%.
+- Encore Cloud release tests exposed an existing payment-verifier replay race: a newly committed credit was paired with a stale intent status. A deterministic real-database regression reproduced the failure; reading credit and intent status in one statement fixes it without changing settlement writes.
 - A separate strict backend TypeScript invocation finds two existing errors in `fulfilWebPayPresalePayment`: `payment_deadline` is read but omitted from its query/type. Confirmed against HEAD before these changes; intentionally not changed in this coupon patch. The ordinary root TypeScript configuration excludes Encore, so it is not evidence of strict backend typing.
 
 Production migrations, coupon activation, real payments and production share issuance were not performed.

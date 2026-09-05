@@ -143,10 +143,14 @@ export async function verifyAndSettlePaymentAttempt(
   if (row.intent_status === "rejected" && row.verification_status === "rejected") {
     return { ...retryableResult(row, "already_rejected"), status: "rejected" };
   }
-  const credited = await paymentsDb.rawQueryRow<{ id: string }>(
-    "SELECT id FROM payment_credits WHERE obligation_id=$1 AND provider=$2 AND provider_reference=$3 AND status='confirmed'",
-    row.obligation_id, `chain:${row.network}`, row.transaction_hash.toLowerCase().replace(/^0x/, ""));
-  if (credited) return { ...retryableResult(row, "credit_already_recorded"), status: row.intent_status };
+  // Credit and status must share a snapshot: another verifier may have settled
+  // after the initial read, leaving row.intent_status stale.
+  const credited = await paymentsDb.rawQueryRow<{ status: PaymentStatus }>(
+    `SELECT i.status FROM payment_credits c
+       JOIN payment_intents i ON i.order_id=c.obligation_id AND i.id=$4
+      WHERE c.obligation_id=$1 AND c.provider=$2 AND c.provider_reference=$3 AND c.status='confirmed'`,
+    row.obligation_id, `chain:${row.network}`, row.transaction_hash.toLowerCase().replace(/^0x/, ""), row.payment_intent_id);
+  if (credited) return { ...retryableResult(row, "credit_already_recorded"), status: credited.status };
   if (!["submitted", "verifying", "pending_confirmations"].includes(row.intent_status)) {
     throw APIError.failedPrecondition(`Payment intent cannot be verified while ${row.intent_status}`);
   }
