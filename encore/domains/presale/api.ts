@@ -31,7 +31,7 @@ import { issuedSharesForPresale, quotedUsdtAmount, resolveCryptoTestSettlement }
 import { INVESTOR_APPLICATION_SCHEMA_VERSION, phaseOneApplicantSchema, type PhaseOneApplicant } from "./application";
 import { deriveApplicantContinuation, type ApplicantContinuationReason } from "./applicant-continuation";
 import { databaseBinaryToBuffer, type DatabaseBinary } from "./database-binary";
-import { resolveWebPayUnitPrice, WEBPAY_UNIT_PRICE_ZAR, verifyWebPayChecksum, verifyWebPayProcessChecksum, webPayChecksum, webPayMerchantFields, webPayOrderNumber, webPayTotalZar, type PresalePaymentRail } from "./webpay";
+import { resolveWebPayUnitPrice, WEBPAY_UNIT_PRICE_ZAR, verifyWebPayChecksum, verifyWebPayProcessChecksum, webPayBuyerReferenceFields, webPayChecksum, webPayMerchantFields, webPayOrderNumber, webPayTotalZar, type PresalePaymentRail } from "./webpay";
 import { buildShareholderPortfolio, type PresaleCertificate, type PresalePaidOrder } from "./shareholder-portfolio";
 import { applicantLoginSchema, internationalCellphoneSchema, missingRequiredFundingFields, physicalAddressLine, strongPasswordSchema } from "./applicant-validation";
 import { issueShares } from "../shares/issuance";
@@ -2473,6 +2473,7 @@ export const createPresaleWebPayCheckout = api<
       siteName: "KASIHUB ECO",
     }),
     m_tx_order_nr: orderNumber,
+    ...webPayBuyerReferenceFields(order.buyer_name),
     m_tx_id: transactionId,
     m_tx_currency: "ZAR",
     m_tx_amount: order.total_zar,

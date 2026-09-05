@@ -1,7 +1,34 @@
 import { describe, expect, test } from "vitest";
-import { resolveWebPayUnitPrice, verifyWebPayChecksum, verifyWebPayProcessChecksum, webPayChecksum, webPayMerchantFields, webPayOrderNumber, webPayProcessChecksum, webPayTotalZar } from "./webpay";
+import { resolveWebPayUnitPrice, verifyWebPayChecksum, verifyWebPayProcessChecksum, webPayBuyerReferenceFields, webPayChecksum, webPayMerchantFields, webPayOrderNumber, webPayProcessChecksum, webPayTotalZar } from "./webpay";
 
 describe("WebPay presale contract", () => {
+  test("adds the buyer name as a separate provider reference without payment identity fields", () => {
+    expect(webPayBuyerReferenceFields("  Anna-Marie   van der Merwe  "))
+      .toEqual({ m_site_reference: "Anna-Marie van der Merwe" });
+    expect(webPayBuyerReferenceFields("Zoë O’Connor")).toEqual({ m_site_reference: "Zoë O’Connor" });
+  });
+
+  test("bounds long references without splitting Unicode characters", () => {
+    const fields = webPayBuyerReferenceFields("A".repeat(35) + "\u{10400} Surname");
+    expect(fields).toEqual({ m_site_reference: "A".repeat(35) });
+    expect(webPayBuyerReferenceFields("A".repeat(100)).m_site_reference).toHaveLength(36);
+  });
+
+  test("normalizes control characters and omits empty optional references", () => {
+    expect(webPayBuyerReferenceFields("Anna\n\tSmith\u0000")).toEqual({ m_site_reference: "Anna Smith" });
+    expect(webPayBuyerReferenceFields("\n \u0000\u200b")).toEqual({});
+  });
+
+  test("same-name buyers and retries retain unique order and transaction identifiers", () => {
+    const firstOrder = webPayOrderNumber("KSH", "KSP-ORDER-1");
+    const secondOrder = webPayOrderNumber("KSH", "KSP-ORDER-2");
+    const display = webPayBuyerReferenceFields("Anna Smith");
+    expect({ m_tx_order_nr: firstOrder, m_tx_id: "attempt-1", ...display })
+      .toEqual({ m_tx_order_nr: firstOrder, m_tx_id: "attempt-1", m_site_reference: "Anna Smith" });
+    expect({ m_tx_order_nr: firstOrder, m_tx_id: "attempt-2", ...display }.m_tx_order_nr).toBe(firstOrder);
+    expect(secondOrder).not.toBe(firstOrder);
+  });
+
   test("posts the merchant site identifier required by hosted checkout", () => {
     expect(webPayMerchantFields({
       merchantUuid: "merchant-uuid",

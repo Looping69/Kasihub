@@ -36,6 +36,22 @@ export function webPayMerchantFields(input: {
   };
 }
 
+/** Optional display reference only; never replace the unique routed order ID.
+ * InstaPay limits m_site_reference to 36 characters. The existing b_name and
+ * b_surname fields continue to carry the buyer details separately.
+ */
+export function webPayBuyerReferenceFields(buyerName: string): Record<string, string> {
+  const name = buyerName.normalize("NFC").replace(/[\p{Cc}\p{Cf}]/gu, " ").replace(/\s+/g, " ").trim();
+  let reference = "";
+  for (const character of name) {
+    if (reference.length + character.length > 36) break;
+    reference += character;
+  }
+  reference = reference.trim();
+  // Optional fields must be omitted rather than sent blank.
+  return reference ? { m_site_reference: reference } : {};
+}
+
 function decimalToCents(value: string): number {
   if (!/^\d+(\.\d{1,2})?$/.test(value)) throw new Error("invalid_zar_amount");
   const [whole, fraction = ""] = value.split(".");
