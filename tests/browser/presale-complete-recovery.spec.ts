@@ -3,6 +3,39 @@ import { expect, test } from "@playwright/test";
 
 const ORDER_REF = "KSP-RECOVERY-SPEC-01";
 
+test("complimentary holdings survive reload and are not labelled paid shares", async ({ page }) => {
+  const original = mockPortalResponse({ journeyState: "issued", kycVerified: true });
+  const grant = { ...original,
+    order: { ...original.order, paymentRail: "complimentary_coupon", totalUsdt: "0", totalZar: undefined },
+    currentReservation: { ...original.currentReservation, paymentMethod: "complimentary_coupon", paidShares: 0, bonusShares: 0, complimentaryShares: 4, totalUsd: "0", totalUsdt: "0" },
+    shareholder: { totalIssuedShares: 4, holdings: original.shareholder!.holdings.map(holding => ({ ...holding, paidShares: 0, bonusShares: 0, complimentaryShares: 4 })) },
+  };
+  await page.route("**/api/presale/portal", route => route.fulfill({ json: grant }));
+  await page.goto("/shares/account");
+  await expect(page.getByText("Complimentary shares", { exact: true })).toBeVisible();
+  await expect(page.getByText("Paid shares", { exact: true })).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByText("Complimentary shares", { exact: true })).toBeVisible();
+});
+
+test("coupon checkout previews the server quantity and invalidates edited codes", async ({ page }) => {
+  const original = mockPortalResponse({ journeyState: "eligible_to_reserve", kycVerified: true, phaseCompleted: 4 });
+  const portal = { ...original, applicant: { ...original.applicant, phone: "+27820000000" },
+    application: { ...original.application, nextStep: 5, applicantType: "individual", draft: {} },
+    journey: { ...original.journey, allowedActions: ["create_reservation"], applicationEditable: true },
+  };
+  await page.route("**/api/presale/portal", route => route.fulfill({ json: portal }));
+  await page.route("**/api/presale/offer?*", route => route.fulfill({ json: { offer: { slug: "test", name: "Coupon campaign", issuerName: "Test issuer", shareClass: "Class B", priceUsd: "25", priceUsdt: "25", usdtPerUsd: "1", sharesRemaining: 100, invitationSharesRemaining: 100, termsVersion: "test", network: "bsc", couponsEnabled: true, paymentMethods: [] } } }));
+  await page.route("**/api/presale/coupons/preview", route => route.fulfill({ json: { quantity: 7, amountDue: "0" } }));
+  await page.goto(`/presale?invite=${"a".repeat(64)}`);
+  await page.getByText("Redeem free shares coupon", { exact: true }).click();
+  await page.getByLabel("Coupon code", { exact: true }).fill("KSG-TEST");
+  await page.getByRole("button", { name: "Check coupon", exact: true }).click();
+  await expect(page.getByText("7 complimentary shares · Amount due: 0. No bonus shares are added.")).toBeVisible();
+  await page.getByLabel("Coupon code", { exact: true }).fill("KSG-CHANGED");
+  await expect(page.getByText("7 complimentary shares · Amount due: 0. No bonus shares are added.")).toHaveCount(0);
+});
+
 function mockPortalResponse(options: {
   journeyState: "application_in_progress" | "kyc_pending" | "eligible_to_reserve" | "awaiting_payment" | "confirmed" | "issued";
   phaseCompleted?: number;

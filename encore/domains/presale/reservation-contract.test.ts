@@ -3,6 +3,12 @@ import { describe, expect, test } from "vitest";
 import { buildPresaleReservationContract, deriveReservationCancellationPolicy } from "./reservation-contract";
 
 describe("authoritative reservation contract", () => {
+  test("shows the exact complimentary quantity without campaign bonus stacking", () => {
+    const result = buildPresaleReservationContract({ orderReference: "grant",phaseNumber: 1,campaignName: "test",issuerName: "test",shareClass: "B",
+      paidShares: 5,bonusBuyOneGetOne: true,paymentMethod: "complimentary_coupon",unitPriceUsd: "0",totalUsd: "0",unitPriceUsdt: "0",totalUsdt: "0",
+      paymentDeadline: "2030-01-01",termsVersion: "v1",status: "confirmed",incorporationStatus: "pending",cancellation: { eligible: false,reason: "reservation_not_awaiting_payment" } });
+    expect(result).toMatchObject({ paidShares: 0,bonusShares: 0,complimentaryShares: 5,totalAllocatedShares: 5 });
+  });
   test("keeps paid, bonus and total allocation visible with decimal strings", () => {
     const cancellation = deriveReservationCancellationPolicy({ status: "awaiting_payment" });
     expect(buildPresaleReservationContract({

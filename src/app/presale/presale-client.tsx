@@ -29,7 +29,7 @@ import {
   type ApplicantAuthorityHydration,
 } from "@/lib/applicant-authority-hydration";
 
-type PaymentRail = "remitano_usdt" | "webpay_card";
+type PaymentRail = "remitano_usdt" | "webpay_card" | "complimentary_coupon";
 type AuthoritativePaymentMethod = {
   id: PaymentRail;
   label: string;
@@ -46,6 +46,7 @@ type Offer = PresaleDevPreviewOffer & {
   cryptoPaymentUnitPriceUsdt?: string;
   phaseLabel?: string;
   bonusPolicy?: string;
+  couponsEnabled?: boolean;
   paymentMethods?: AuthoritativePaymentMethod[];
 };
 
@@ -70,7 +71,7 @@ type ResumePortal = {
     orderReference: string;
     status: string;
     incorporationStatus: string;
-    paymentRail: "remitano_usdt" | "webpay_card";
+    paymentRail: "remitano_usdt" | "webpay_card" | "complimentary_coupon";
     quantity: number;
     totalUsdt: string;
     paymentNetwork?: string;
@@ -151,6 +152,9 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
   const [copied, setCopied] = useState(false);
   const [applicationPhase, setApplicationPhase] = useState(1);
   const [quantity, setQuantity] = useState("1");
+  const [couponCode, setCouponCode] = useState("");
+  const [couponPreview, setCouponPreview] = useState<{ code: string; quantity: number } | null>(null);
+  const [checkingCoupon, setCheckingCoupon] = useState(false);
   const [paymentRail, setPaymentRail] = useState<PaymentRail | "">("");
   const [applicantType, setApplicantType] = useState<"individual" | "company" | "trust">("individual");
   const [termsRead, setTermsRead] = useState(false);
@@ -344,6 +348,18 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
   const reservation = authorityView.showReservation ? applicantAuthority?.currentReservation ?? null : null;
   const canCreateReservation = authorityHydration === "loaded" && authorityView.canCreateReservation;
 
+  async function checkCoupon() {
+    setCheckingCoupon(true); setError(""); setCouponPreview(null);
+    try {
+      const response = await fetch("/api/presale/coupons/preview", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ inviteToken, code: couponCode }) });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Coupon unavailable");
+      setCouponPreview({ code: couponCode, quantity: result.quantity });
+      setQuantity(String(result.quantity));
+    } catch (error) { setError(error instanceof Error ? error.message : "Unable to check coupon"); }
+    finally { setCheckingCoupon(false); }
+  }
+
   async function createOrder(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (devPreview) return;
@@ -356,6 +372,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
       setError("The server has not authorised reservation creation. Refresh your identity status or open your KaSiShares account.");
       return;
     }
+    if (paymentRail === "complimentary_coupon" && (!couponPreview || couponPreview.code !== couponCode)) { setError("Check your coupon before redeeming it."); return; }
     const form = event.currentTarget;
     const invalidControl = firstInvalidApplicationControl(form);
     if (invalidControl) {
@@ -401,7 +418,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
     }
     setSubmitting(true);
     setError("");
-    const quantity = Number(data.get("quantity"));
+    const quantity = paymentRail === "complimentary_coupon" ? couponPreview!.quantity : Number(data.get("quantity"));
     try {
       const response = await fetch("/api/presale/orders", {
         method: "POST",
@@ -413,6 +430,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
           buyerPhone: cellphone,
           quantity,
           paymentRail,
+          ...(paymentRail === "complimentary_coupon" ? { couponCode: couponPreview!.code } : {}),
           termsAccepted: data.get("termsAccepted") === "on",
           investorApplication: {
             applicantType: data.get("applicantType"),
@@ -744,7 +762,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
               </div>
               <div data-application-phase="2" hidden={applicationPhase !== 2} className="space-y-5">
               <SectionTitle>Investment</SectionTitle>
-              <Field label={`Paid ${offer.shareClass} at $${formatUsdt(offer.priceUsd)} each *`}><Input name="quantity" type="number" required min={1} max={maximumPaidShares} value={quantity} onChange={(event) => setQuantity(event.target.value)} className="border-white/15 bg-black/20" /></Field>
+              <Field label={paymentRail === "complimentary_coupon" ? "Complimentary shares (set by coupon)" : `Paid ${offer.shareClass} at $${formatUsdt(offer.priceUsd)} each *`}><Input name="quantity" type="number" readOnly={paymentRail === "complimentary_coupon"} required min={1} max={paymentRail === "complimentary_coupon" ? Math.min(offer.sharesRemaining, offer.invitationSharesRemaining) : maximumPaidShares} value={quantity} onChange={(event) => setQuantity(event.target.value)} className="border-white/15 bg-black/20" /></Field>
               <p className="text-xs text-emerald-200">This invitation allows up to {maximumPaidShares.toLocaleString()} paid shares. Each paid share receives one bonus share free.</p>
               <div className="rounded-xl border border-amber-400/20 bg-amber-400/10 p-4 text-sm text-amber-100"><p className="font-semibold text-white">Estimated investment</p><p className="mt-1">Your current total is {formatUsdt(totalPreview ?? "0")} USDT. The final amount and payment window are confirmed when your reservation is created.</p></div>
               </div>
@@ -789,7 +807,15 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
                     <span className="flex items-start gap-3"><input name="paymentRail" type="radio" value={method.id} checked={paymentRail === method.id} onChange={() => setPaymentRail(method.id)} className="mt-1" required /><span><strong className="block text-white">{method.label}</strong><span className="mt-1 block text-xs leading-5 text-slate-300">{method.currency === "USDT" ? `Pay using the locked ${offer.network} route shown only after reservation.` : "Card details are entered only on the secure hosted checkout."}</span><span className="mt-2 block font-bold text-amber-100">Estimated total: {method.currency === "ZAR" ? "R" : ""}{estimate} {method.currency === "USDT" ? "USDT" : ""}</span></span></span>
                   </label>;
                 })}
-                {!devPreview && !(offer.paymentMethods ?? []).some((method) => method.enabled) ? <p role="alert" className="rounded-lg border border-rose-300/30 bg-rose-400/10 p-3 text-sm text-rose-100">No payment method is currently available. Reservation creation is locked; no funds should be sent.</p> : null}
+                {offer.couponsEnabled && !devPreview ? <div className="rounded-xl border border-emerald-300/30 bg-emerald-400/5 p-4">
+                  <label className="flex gap-3"><input type="radio" name="paymentRail" checked={paymentRail === "complimentary_coupon"} onChange={() => setPaymentRail("complimentary_coupon")} /><strong>Redeem free shares coupon</strong></label>
+                  {paymentRail === "complimentary_coupon" ? <div className="mt-3 space-y-3">
+                    <label className="block text-sm">Coupon code<Input value={couponCode} onChange={event => { setCouponCode(event.target.value); setCouponPreview(null); }} autoComplete="off" maxLength={100} /></label>
+                    <Button type="button" disabled={checkingCoupon || !couponCode.trim()} onClick={checkCoupon}>{checkingCoupon ? "Checking…" : "Check coupon"}</Button>
+                    {couponPreview && couponPreview.code === couponCode ? <p role="status">{couponPreview.quantity.toLocaleString()} complimentary shares · Amount due: 0. No bonus shares are added.</p> : null}
+                  </div> : null}
+                </div> : null}
+                {!devPreview && !offer.couponsEnabled && !(offer.paymentMethods ?? []).some((method) => method.enabled) ? <p role="alert" className="rounded-lg border border-rose-300/30 bg-rose-400/10 p-3 text-sm text-rose-100">No payment method is currently available. Reservation creation is locked; no funds should be sent.</p> : null}
               </fieldset>
               <a href={TERMS_PDF_PATH} target="_blank" rel="noreferrer" className="inline-flex text-sm font-semibold text-amber-200 underline underline-offset-4 hover:text-amber-100">Open the authoritative terms PDF</a>
               <div tabIndex={0} onScroll={(event) => { const node = event.currentTarget; if (node.scrollTop + node.clientHeight >= node.scrollHeight - 8) setTermsRead(true); }} className="h-[32rem] overflow-y-auto rounded-xl border border-white/15 bg-slate-100 p-2" aria-label="Investor terms document">
@@ -807,7 +833,7 @@ export function PresaleClient({ inviteToken, devPreview = false }: { inviteToken
                     <ChevronLeft className="mr-1 h-4 w-4" />Back
                   </Button>
                 )}
-                {applicationPhase < 5 ? <Button type="button" className="flex-1 bg-amber-400 font-bold text-slate-950 hover:bg-amber-300" disabled={submitting || (applicationPhase === 4 && verificationStarted && !kycVerification?.verified)} onClick={advanceApplication}>{submitting && applicationPhase === 1 ? "Creating member profile…" : submitting && applicationPhase === 4 ? "Opening verification…" : applicationPhase === 4 && verificationStarted && !kycVerification?.verified ? "Awaiting verification" : applicationPhase === 4 && kycVerification?.status === "PENDING" ? "Resume identity verification" : applicationPhase === 4 ? "Verify ID" : "Continue"}<ChevronRight className="ml-1 h-4 w-4" /></Button> : devPreview ? <Button type="button" aria-label="Read-only preview — no reservation" className="flex-1 bg-slate-500 font-bold text-white" disabled>Preview only</Button> : <Button formNoValidate className="flex-1 bg-amber-400 font-bold text-slate-950 hover:bg-amber-300" disabled={submitting || !termsRead || !canCreateReservation}>Create reservation</Button>}
+                {applicationPhase < 5 ? <Button type="button" className="flex-1 bg-amber-400 font-bold text-slate-950 hover:bg-amber-300" disabled={submitting || (applicationPhase === 4 && verificationStarted && !kycVerification?.verified)} onClick={advanceApplication}>{submitting && applicationPhase === 1 ? "Creating member profile…" : submitting && applicationPhase === 4 ? "Opening verification…" : applicationPhase === 4 && verificationStarted && !kycVerification?.verified ? "Awaiting verification" : applicationPhase === 4 && kycVerification?.status === "PENDING" ? "Resume identity verification" : applicationPhase === 4 ? "Verify ID" : "Continue"}<ChevronRight className="ml-1 h-4 w-4" /></Button> : devPreview ? <Button type="button" aria-label="Read-only preview — no reservation" className="flex-1 bg-slate-500 font-bold text-white" disabled>Preview only</Button> : <Button formNoValidate className="flex-1 bg-amber-400 font-bold text-slate-950 hover:bg-amber-300" disabled={submitting || !termsRead || !canCreateReservation}>{paymentRail === "complimentary_coupon" ? "Redeem and claim shares" : "Create reservation"}</Button>}
               </div>
             </form></CardContent>
           </Card>
@@ -862,14 +888,14 @@ function ReservationStateCard({ authority, order, accessToken, error, submitting
       <p role="status" className={`rounded-xl border p-4 text-sm leading-6 ${presentation.attention ? "border-rose-300/30 bg-rose-400/10 text-rose-100" : "border-white/10 bg-white/5 text-slate-200"}`}>{presentation.detail}</p>
       {reservationEmailDelayed && showPaymentInstructions ? <div role="status" className="rounded-xl border border-amber-400/30 bg-amber-400/10 p-4 text-sm leading-6 text-amber-100"><strong className="block text-white">Reservation confirmed — email delayed</strong>Your confirmation email is queued for automatic retry. You can continue securely with the payment instructions below; your reservation and order reference are already saved.</div> : null}
       <dl className="grid gap-3 rounded-xl border border-white/10 bg-black/15 p-4 sm:grid-cols-2">
-        <div><dt className="text-xs uppercase tracking-wider text-slate-400">Paid allocation</dt><dd className="mt-1 font-bold">{reservation.paidShares.toLocaleString()} paid + {reservation.bonusShares.toLocaleString()} bonus</dd></div>
+        <div><dt className="text-xs uppercase tracking-wider text-slate-400">Share allocation</dt><dd className="mt-1 font-bold">{reservation.paymentMethod === "complimentary_coupon" ? `${reservation.complimentaryShares?.toLocaleString()} complimentary` : `${reservation.paidShares.toLocaleString()} paid + ${reservation.bonusShares.toLocaleString()} bonus`}</dd></div>
         <div><dt className="text-xs uppercase tracking-wider text-slate-400">Total shares</dt><dd className="mt-1 font-bold">{reservation.totalAllocatedShares.toLocaleString()}</dd></div>
         <div><dt className="text-xs uppercase tracking-wider text-slate-400">Issuer</dt><dd className="mt-1 font-bold">{reservation.issuerName}</dd></div>
         <div><dt className="text-xs uppercase tracking-wider text-slate-400">Share class</dt><dd className="mt-1 font-bold">{reservation.shareClass}</dd></div>
       </dl>
       {!showPaymentInstructions ? <div className="rounded-xl border border-white/10 bg-black/15 p-4">
-        <p className="text-xs uppercase tracking-wider text-slate-300">{paymentComplete ? "Payment received" : "Reservation amount"}</p>
-        <p className="mt-1 text-3xl font-black text-white">{reservation.paymentMethod === "webpay_card" ? `R${reservation.totalZar}` : `${reservation.totalUsdt} USDT`}</p>
+        <p className="text-xs uppercase tracking-wider text-slate-300">{reservation.paymentMethod === "complimentary_coupon" ? "Coupon grant · No money received" : paymentComplete ? "Payment received" : "Reservation amount"}</p>
+        <p className="mt-1 text-3xl font-black text-white">{reservation.paymentMethod === "complimentary_coupon" ? "Amount due: 0" : reservation.paymentMethod === "webpay_card" ? `R${reservation.totalZar}` : `${reservation.totalUsdt} USDT`}</p>
         {paymentComplete ? <p className="mt-2 text-sm text-emerald-200">No further payment is due for this allocation.</p> : awaitingPayment ? <p role="status" className="mt-2 text-sm text-amber-100">Payment window closed. Do not send more funds. Open your account to refresh the reservation status.</p> : null}
       </div> : reservation.paymentMethod === "webpay_card" ? <div className="rounded-xl border border-sky-400/30 bg-sky-400/10 p-4">
         <p className="text-xs uppercase tracking-wider text-sky-200">WebPay card obligation</p><p className="mt-1 text-3xl font-black text-white">R{reservation.totalZar}</p>

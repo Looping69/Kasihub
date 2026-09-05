@@ -19,6 +19,7 @@ type LedgerCertificate = CertificateIntegrityFields & {
   distinctiveTo?: number;
   paidShares?: number;
   bonusShares?: number;
+  complimentaryShares?: number;
   issuePricePerShare?: number;
   issuePriceCurrency?: string;
 };
@@ -42,7 +43,8 @@ export function sealedCertificatePdfData(certificate: LedgerCertificate): ShareC
     || !equals("distinctiveFrom", certificate.distinctiveFrom)
     || !equals("distinctiveTo", certificate.distinctiveTo)
     || !equals("paidShares", certificate.paidShares)
-    || !equals("bonusShares", certificate.bonusShares)) {
+    || !equals("bonusShares", certificate.bonusShares)
+    || (payload.complimentaryShares ?? 0) !== (certificate.complimentaryShares ?? 0)) {
     throw new Error("certificate_ledger_snapshot_mismatch");
   }
   if (payload.holderName !== certificate.holderNameSnapshot
@@ -64,6 +66,7 @@ export function sealedCertificatePdfData(certificate: LedgerCertificate): ShareC
     status: certificate.status,
     paidShares: certificate.paidShares,
     bonusShares: certificate.bonusShares,
+    complimentaryShares: certificate.complimentaryShares,
     distinctiveFrom: certificate.distinctiveFrom,
     distinctiveTo: certificate.distinctiveTo,
     issuePricePerShare: typeof payload.issuePricePerShare === "string" ? Number(payload.issuePricePerShare) : certificate.issuePricePerShare,

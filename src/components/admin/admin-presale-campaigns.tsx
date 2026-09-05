@@ -1,6 +1,7 @@
 // Author: Klaasvaakie ( |╲ )
 "use client";
 
+import { AdminShareCoupons } from "./admin-share-coupons";
 import { useEffect, useState } from "react";
 import {
   Copy,
@@ -227,6 +228,7 @@ export function AdminPresaleCampaigns() {
     );
   return (
     <>
+      <AdminShareCoupons campaigns={campaigns} />
       <Card className="p-5">
         <div className="flex flex-wrap gap-2 mb-5">
           <Button

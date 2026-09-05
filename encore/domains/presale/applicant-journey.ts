@@ -112,7 +112,7 @@ export interface ApplicantJourneySource {
   order: null | {
     status: string;
     incorporationStatus: string;
-    paymentRail: "remitano_usdt" | "webpay_card";
+    paymentRail: "remitano_usdt" | "webpay_card" | "complimentary_coupon";
     paymentVerificationStatus?: string | null;
     hasTransactionHash: boolean;
     cancellationEligible: boolean;
@@ -196,7 +196,7 @@ export function deriveApplicantJourney(source: ApplicantJourneySource): Applican
   if (order?.status === "incorporated") return decision("awaiting_incorporation", "certificate_issuance_pending");
   if (order?.status === "confirmed") {
     return order.incorporationStatus === "pending"
-      ? decision("confirmed", "payment_confirmed")
+      ? decision("confirmed", order.paymentRail === "complimentary_coupon" ? "coupon_grant_authorized" : "payment_confirmed")
       : decision("awaiting_incorporation", "incorporation_in_progress");
   }
 
@@ -208,6 +208,7 @@ export function deriveApplicantJourney(source: ApplicantJourneySource): Applican
   if (verificationStatus === "pending_confirmations") return decision("pending_confirmations", "payment_waiting_for_confirmations");
   if (order?.status === "payment_detected") return decision("pending_confirmations", "payment_detected");
   if (order?.status === "payment_submitted" || order?.hasTransactionHash) return decision("payment_submitted", "payment_hash_submitted");
+  if (order?.paymentRail === "complimentary_coupon") return decision("manual_review", "coupon_grant_inconsistent");
   if (order?.status === "awaiting_payment") {
     const paymentActions: ApplicantJourneyAction[] = order.paymentRail === "webpay_card"
       ? ["start_card_checkout"]

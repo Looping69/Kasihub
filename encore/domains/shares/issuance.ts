@@ -13,6 +13,8 @@ export type IssueSharesCommand = {
   phaseNumber: number;
   paidShares: number;
   bonusShares: number;
+  complimentaryShares?: number;
+  couponReference?: string;
   acquisitionAmount: string;
   issuePricePerPaidShare: string;
   currency: "USD";
@@ -37,24 +39,28 @@ function commandHash(command: IssueSharesCommand): string {
 }
 
 function validateCommand(command: IssueSharesCommand): void {
-  const totalShares = command.paidShares + command.bonusShares;
+  const grant = (command.complimentaryShares ?? 0) > 0;
+  const totalShares = command.paidShares + command.bonusShares + (command.complimentaryShares ?? 0);
   if (!command.operationId.trim() || !command.sourceReference.trim() || !command.profileId.trim()) {
     throw APIError.invalidArgument("Share issuance identity is incomplete");
   }
   if (!Number.isInteger(command.phaseNumber) || command.phaseNumber <= 0
-    || !Number.isInteger(command.paidShares) || command.paidShares <= 0
+    || !Number.isInteger(command.paidShares) || (grant ? command.paidShares !== 0 : command.paidShares <= 0)
     || !Number.isInteger(command.bonusShares) || command.bonusShares < 0
     || totalShares <= 0) {
     throw APIError.invalidArgument("Share issuance allocation is invalid");
   }
+  if (!Number.isInteger(command.complimentaryShares ?? 0) || (command.complimentaryShares ?? 0) < 0
+    || (grant && (!command.couponReference?.trim() || command.bonusShares !== 0))
+    || (!grant && command.couponReference !== undefined)) throw APIError.invalidArgument("Invalid complimentary authorization");
   if (!command.holder.name.trim() || !command.holder.address.trim() || !command.holder.profileNumber.trim()) {
     throw APIError.failedPrecondition("The certificate holder snapshot is incomplete");
   }
-  if (!/^\d+(?:\.\d{1,6})?$/.test(command.acquisitionAmount) || Number(command.acquisitionAmount) <= 0) {
+  if (!/^\d+(?:\.\d{1,6})?$/.test(command.acquisitionAmount) || (grant ? Number(command.acquisitionAmount) !== 0 : Number(command.acquisitionAmount) <= 0)) {
     throw APIError.invalidArgument("Share issuance acquisition amount is invalid");
   }
   if (!/^\d+(?:\.\d{1,6})?$/.test(command.issuePricePerPaidShare)
-    || Number(command.issuePricePerPaidShare) <= 0) {
+    || (grant ? Number(command.issuePricePerPaidShare) !== 0 : Number(command.issuePricePerPaidShare) <= 0)) {
     throw APIError.invalidArgument("Share issuance paid share price is invalid");
   }
 }
@@ -67,7 +73,7 @@ function validateCommand(command: IssueSharesCommand): void {
 export async function issueShares(command: IssueSharesCommand): Promise<IssueSharesResult> {
   validateCommand(command);
   const payloadHash = commandHash(command);
-  const totalShares = command.paidShares + command.bonusShares;
+  const totalShares = command.paidShares + command.bonusShares + (command.complimentaryShares ?? 0);
   const tx = await sharesDb.begin();
   try {
     await tx.rawExec("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", `${command.source}:${command.sourceReference}`);
@@ -159,6 +165,7 @@ export async function issueShares(command: IssueSharesCommand): Promise<IssueSha
         totalShares,
         paidShares: command.paidShares,
         bonusShares: command.bonusShares,
+        ...(command.complimentaryShares ? { complimentaryShares: command.complimentaryShares, couponReference: command.couponReference } : {}),
         phaseNumber: command.phaseNumber,
         distinctiveFrom: lot.distinctive_from,
         distinctiveTo: lot.distinctive_to,
@@ -170,16 +177,17 @@ export async function issueShares(command: IssueSharesCommand): Promise<IssueSha
         (id,profile_id,certificate_number,total_shares,status,issued_at,presale_order_reference,source,
          phase_number,distinctive_from,distinctive_to,paid_shares,bonus_shares,verification_id,snapshot_version,
          holder_name_snapshot,holder_address_snapshot,profile_number_snapshot,issue_price_per_share_snapshot,
-         issue_price_currency_snapshot,certificate_payload,certificate_payload_sha256)
-        VALUES ($1,$2,$3,$4,'issued',$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18::numeric,$19,$20,$21)`,
+         issue_price_currency_snapshot,certificate_payload,certificate_payload_sha256,complimentary_shares)
+        VALUES ($1,$2,$3,$4,'issued',$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18::numeric,$19,$20,$21,$22)`,
       certificateId, command.profileId, certificateNumber, totalShares, issuedAt, command.sourceReference, command.source,
       command.phaseNumber, lot.distinctive_from, lot.distinctive_to, command.paidShares, command.bonusShares,
       verificationId, seal.data.version, command.holder.name.trim(), command.holder.address.trim(),
-      command.holder.profileNumber.trim(), issuePricePerShare, command.currency, seal.payload, seal.sha256);
+      command.holder.profileNumber.trim(), issuePricePerShare, command.currency, seal.payload, seal.sha256, command.complimentaryShares ?? 0);
       await tx.rawExec(`INSERT INTO share_purchases
-        (id,profile_id,phase_id,quantity,bonus_quantity,total_amount,status,certificate_id,presale_order_reference,source)
-        VALUES ($1,$2,$3,$4,$5,$6::numeric,'paid',$7,$8,$9)`, purchaseId, command.profileId, phase.id,
-      command.paidShares, command.bonusShares, command.acquisitionAmount, certificateId, command.sourceReference, command.source);
+        (id,profile_id,phase_id,quantity,bonus_quantity,total_amount,status,certificate_id,presale_order_reference,source,complimentary_quantity)
+        VALUES ($1,$2,$3,$4,$5,$6::numeric,$10,$7,$8,$9,$11)`, purchaseId, command.profileId, phase.id,
+      command.paidShares, command.bonusShares, command.acquisitionAmount, certificateId, command.sourceReference, command.source,
+      command.complimentaryShares ? "granted" : "paid", command.complimentaryShares ?? 0);
       issued = true;
     }
 

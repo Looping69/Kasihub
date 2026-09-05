@@ -58,7 +58,7 @@ const sharePurchaseRequest = z.object({
 export const myShares = api<
   { profileId: string },
   { certificates: { certificateNumber: string; totalShares: number; status: string; issuedAt: string; revokedAt: string | null;
-    phaseNumber?: number; distinctiveFrom?: number; distinctiveTo?: number; paidShares?: number; bonusShares?: number;
+    phaseNumber?: number; distinctiveFrom?: number; distinctiveTo?: number; paidShares?: number; bonusShares?: number; complimentaryShares?: number;
     purchaseTotalAmount?: number; source?: string;
     issuePricePerShare?: number; issuePriceCurrency?: string; verificationId?: string;
     holderNameSnapshot?: string; holderAddressSnapshot?: string; profileNumberSnapshot?: string;
@@ -76,6 +76,7 @@ export const myShares = api<
       phase_number: number | null;
       distinctive_from: number | null;
       distinctive_to: number | null;
+      complimentary_shares: number;
       paid_shares: number | null;
       bonus_shares: number | null;
       issue_price_per_share: string | null;
@@ -90,7 +91,7 @@ export const myShares = api<
       certificate_payload_sha256: string | null;
     }>(`SELECT certificate_number, certificate.total_shares, certificate.status, certificate.issued_at, certificate.revoked_at,
               COALESCE(certificate.phase_number, phase.phase_number) AS phase_number,
-              distinctive_from, distinctive_to, paid_shares, bonus_shares,
+              distinctive_from, distinctive_to, paid_shares, bonus_shares, complimentary_shares,
               COALESCE(certificate.issue_price_per_share_snapshot,
                 CASE WHEN sp.quantity > 0 THEN sp.total_amount / sp.quantity ELSE NULL END)::text AS issue_price_per_share,
               COALESCE(certificate.issue_price_currency_snapshot, phase.currency) AS issue_price_currency,
@@ -114,6 +115,7 @@ export const myShares = api<
         phaseNumber: row.phase_number ?? undefined,
         distinctiveFrom: row.distinctive_from ?? undefined,
         distinctiveTo: row.distinctive_to ?? undefined,
+        complimentaryShares: row.complimentary_shares ?? 0,
         paidShares: row.paid_shares ?? undefined,
         bonusShares: row.bonus_shares ?? undefined,
         purchaseTotalAmount: row.purchase_total_amount === null ? undefined : Number(row.purchase_total_amount),
@@ -139,6 +141,7 @@ type ShareholderPortfolioV2 = {
     issuedShares: number;
     paidShares: number;
     bonusShares: number;
+    complimentaryShares: number;
     acquisitionCost: { amount: string; currency: "USD" };
   };
   holdings: Array<{
@@ -150,6 +153,7 @@ type ShareholderPortfolioV2 = {
     phaseNumber: number | null;
     paidShares: number;
     bonusShares: number;
+    complimentaryShares: number;
     totalShares: number;
     distinctiveFrom: number | null;
     distinctiveTo: number | null;
@@ -169,13 +173,13 @@ export const myShareholderPortfolio = api<void, ShareholderPortfolioV2>(
       sharesDb.rawQueryAll<{
         presale_order_reference: string | null; certificate_number: string; status: string; issued_at: string;
         revoked_at: string | null; phase_number: number | null; paid_shares: number | null; bonus_shares: number | null;
-        total_shares: number; distinctive_from: number | null; distinctive_to: number | null; total_amount: string | null;
+        complimentary_shares: number; total_shares: number; distinctive_from: number | null; distinctive_to: number | null; total_amount: string | null;
         currency: string | null; issue_price_per_paid_share: string | null; verification_id: string | null;
       }>(`SELECT certificate.presale_order_reference,certificate.certificate_number,certificate.status,
                 certificate.issued_at,certificate.revoked_at,COALESCE(certificate.phase_number,phase.phase_number) AS phase_number,
                 COALESCE(certificate.paid_shares,purchase.quantity,certificate.total_shares) AS paid_shares,
                 COALESCE(certificate.bonus_shares,purchase.bonus_quantity,0) AS bonus_shares,
-                certificate.total_shares,certificate.distinctive_from,certificate.distinctive_to,
+                certificate.complimentary_shares,certificate.total_shares,certificate.distinctive_from,certificate.distinctive_to,
                 COALESCE(purchase.total_amount,0)::text AS total_amount,COALESCE(phase.currency,'USD') AS currency,
                 CASE WHEN COALESCE(certificate.paid_shares,purchase.quantity,0)>0
                   THEN (COALESCE(purchase.total_amount,0)/COALESCE(certificate.paid_shares,purchase.quantity))::text
@@ -188,8 +192,8 @@ export const myShareholderPortfolio = api<void, ShareholderPortfolioV2>(
           WHERE certificate.profile_id=$1
           ORDER BY certificate.issued_at DESC,certificate.certificate_number`, session.profile.id),
       sharesDb.rawQueryRow<{
-        issued_shares: string; paid_shares: string; bonus_shares: string; acquisition_cost: string;
-      }>(`SELECT COALESCE(SUM(certificate.total_shares) FILTER (WHERE certificate.status='issued'),0)::text AS issued_shares,
+        complimentary_shares: string; issued_shares: string; paid_shares: string; bonus_shares: string; acquisition_cost: string;
+      }>(`SELECT COALESCE(SUM(certificate.complimentary_shares) FILTER (WHERE certificate.status='issued'),0)::text AS complimentary_shares, COALESCE(SUM(certificate.total_shares) FILTER (WHERE certificate.status='issued'),0)::text AS issued_shares,
                 COALESCE(SUM(COALESCE(certificate.paid_shares,purchase.quantity,certificate.total_shares))
                   FILTER (WHERE certificate.status='issued'),0)::text AS paid_shares,
                 COALESCE(SUM(COALESCE(certificate.bonus_shares,purchase.bonus_quantity,0))
@@ -211,6 +215,7 @@ export const myShareholderPortfolio = api<void, ShareholderPortfolioV2>(
         issuedShares: Number(summary?.issued_shares ?? "0"),
         paidShares: Number(summary?.paid_shares ?? "0"),
         bonusShares: Number(summary?.bonus_shares ?? "0"),
+        complimentaryShares: Number(summary?.complimentary_shares ?? "0"),
         acquisitionCost: { amount: summary?.acquisition_cost ?? "0", currency: "USD" },
       },
       holdings: rows.map((row) => ({
@@ -220,6 +225,7 @@ export const myShareholderPortfolio = api<void, ShareholderPortfolioV2>(
         issuedAt: row.issued_at,
         revokedAt: row.revoked_at,
         phaseNumber: row.phase_number,
+        complimentaryShares: row.complimentary_shares ?? 0,
         paidShares: row.paid_shares ?? row.total_shares,
         bonusShares: row.bonus_shares ?? 0,
         totalShares: row.total_shares,
@@ -625,7 +631,7 @@ export const adminShareCertificates = api<
   {
     shares: {
       id: string; profileId: string; profileNumber: string; holderName: string; email: string; country: string;
-      phase: number; pricePerShare: number; quantity: number; purchasedQuantity: number; bonusQuantity: number;
+      phase: number; pricePerShare: number; quantity: number; purchasedQuantity: number; bonusQuantity: number; complimentaryQuantity: number;
       totalAmount: number; currency: string; certificateNo: string; status: string; createdAt: string;
       revokedAt: string | null; source: string; orderReference: string | null; campaignName: string | null;
     }[];
@@ -637,14 +643,14 @@ export const adminShareCertificates = api<
     await requireAdminAccess();
     const rows = await sharesDb.rawQueryAll<{
       id: string; profile_id: string; phase_number: number; price_per_share: string; total_shares: number;
-      purchased_quantity: number; bonus_quantity: number; total_amount: string; currency: string;
+      purchased_quantity: number; bonus_quantity: number; complimentary_quantity: number; total_amount: string; currency: string;
       certificate_number: string; status: string; issued_at: string; revoked_at: string | null;
       source: string; presale_order_reference: string | null;
     }>(
       `SELECT c.id, c.profile_id, COALESCE(p.phase_number, 1) AS phase_number,
-              COALESCE(p.price_per_share, 0)::text AS price_per_share, c.total_shares,
+              CASE WHEN c.complimentary_shares > 0 THEN '0' ELSE COALESCE(p.price_per_share, 0)::text END AS price_per_share, c.total_shares,
               COALESCE(sp.quantity, c.total_shares) AS purchased_quantity,
-              COALESCE(sp.bonus_quantity, 0) AS bonus_quantity,
+              COALESCE(sp.bonus_quantity, 0) AS bonus_quantity,c.complimentary_shares AS complimentary_quantity,
               COALESCE(sp.total_amount, 0)::text AS total_amount, COALESCE(p.currency, 'USD') AS currency,
               c.certificate_number, c.status, c.issued_at, c.revoked_at, c.source, c.presale_order_reference
        FROM share_certificates c
@@ -689,7 +695,7 @@ export const adminShareCertificates = api<
         id: row.id, profileId: row.profile_id, profileNumber: holder?.profile_number ?? row.profile_id,
         holderName, email: holder?.email ?? "", country: holder?.country ?? "",
         phase: row.phase_number, pricePerShare: Number(row.price_per_share), quantity: row.total_shares,
-        purchasedQuantity: row.purchased_quantity, bonusQuantity: row.bonus_quantity,
+        purchasedQuantity: row.purchased_quantity, bonusQuantity: row.bonus_quantity, complimentaryQuantity: row.complimentary_quantity,
         totalAmount: Number(row.total_amount), currency: row.currency, certificateNo: row.certificate_number,
         status: row.status.toUpperCase(), createdAt: row.issued_at, revokedAt: row.revoked_at,
         source: row.source, orderReference: row.presale_order_reference,

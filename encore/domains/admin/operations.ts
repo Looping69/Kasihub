@@ -192,15 +192,15 @@ async function executeReconciliation(scope: string) {
     const inventoryMismatches = await sharesDb.rawQueryAll<{
       id: string; phase_number: number; total_quantity: number; quantity_available: number; allocated_quantity: string;
     }>(`SELECT phase.id, phase.phase_number, phase.total_quantity, phase.quantity_available,
-          (COALESCE(SUM(CASE WHEN purchase.status IN ('active','reserved','paid')
-            THEN purchase.quantity + purchase.bonus_quantity ELSE 0 END), 0)
+          (COALESCE(SUM(CASE WHEN purchase.status IN ('active','reserved','paid','granted')
+            THEN purchase.quantity + purchase.bonus_quantity + purchase.complimentary_quantity ELSE 0 END), 0)
           + COALESCE((SELECT SUM(adjustment.quantity) FROM share_inventory_adjustments adjustment
               WHERE adjustment.phase_id = phase.id), 0))::text AS allocated_quantity
         FROM share_phases phase
         LEFT JOIN share_purchases purchase ON purchase.phase_id = phase.id
         GROUP BY phase.id, phase.phase_number, phase.total_quantity, phase.quantity_available
         HAVING phase.quantity_available <> phase.total_quantity - COALESCE(SUM(CASE
-          WHEN purchase.status IN ('active','reserved','paid') THEN purchase.quantity + purchase.bonus_quantity ELSE 0 END), 0)
+          WHEN purchase.status IN ('active','reserved','paid','granted') THEN purchase.quantity + purchase.bonus_quantity + purchase.complimentary_quantity ELSE 0 END), 0)
           - COALESCE((SELECT SUM(adjustment.quantity) FROM share_inventory_adjustments adjustment
               WHERE adjustment.phase_id = phase.id), 0)
         LIMIT 500`);
@@ -215,12 +215,12 @@ async function executeReconciliation(scope: string) {
     const certificateMismatches = await sharesDb.rawQueryAll<{
       purchase_id: string; certificate_id: string; expected_shares: number; actual_shares: number;
     }>(`SELECT purchase.id AS purchase_id, certificate.id AS certificate_id,
-          purchase.quantity + purchase.bonus_quantity AS expected_shares,
+          purchase.quantity + purchase.bonus_quantity + purchase.complimentary_quantity AS expected_shares,
           certificate.total_shares AS actual_shares
         FROM share_purchases purchase
         JOIN share_certificates certificate ON certificate.id = purchase.certificate_id
-        WHERE purchase.status IN ('active', 'paid')
-          AND certificate.total_shares <> purchase.quantity + purchase.bonus_quantity
+        WHERE purchase.status IN ('active', 'paid', 'granted')
+          AND certificate.total_shares <> purchase.quantity + purchase.bonus_quantity + purchase.complimentary_quantity
         LIMIT 500`);
     checked += certificateMismatches.length;
     for (const row of certificateMismatches) {
