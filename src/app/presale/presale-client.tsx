@@ -837,11 +837,20 @@ function ReservationStateCard({ authority, order, accessToken, error, submitting
   onStartWebPay: () => Promise<void>;
 }) {
   const reservation = authority.currentReservation;
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
   if (!reservation) return null;
+  const paymentWindowOpen = new Date(reservation.paymentDeadline).getTime() > now;
+  const awaitingPayment = authority.journey.state === "awaiting_payment";
+  const paymentComplete = ["confirmed", "awaiting_incorporation", "issued"].includes(authority.journey.state);
+  const showPaymentInstructions = awaitingPayment && paymentWindowOpen;
   const presentation = applicantJourneyPresentation(authority.journey);
   const paymentNetwork = reservation.network?.toLowerCase() as SupportedPaymentNetwork;
   const canSubmitHash = Boolean(order && accessToken && allowsApplicantAction(authority, "submit_payment_hash"));
-  const canStartCard = Boolean(order && accessToken && allowsApplicantAction(authority, "start_card_checkout"));
+  const canStartCard = Boolean(showPaymentInstructions && order && accessToken && allowsApplicantAction(authority, "start_card_checkout"));
   const needsAccountAction = allowsApplicantAction(authority, "recheck_payment")
     || allowsApplicantAction(authority, "cancel_reservation")
     || ((allowsApplicantAction(authority, "submit_payment_hash") || allowsApplicantAction(authority, "start_card_checkout")) && (!order || !accessToken));
@@ -851,24 +860,28 @@ function ReservationStateCard({ authority, order, accessToken, error, submitting
     <CardHeader><div className="flex items-start justify-between gap-4"><div><p className="text-xs font-bold uppercase tracking-[.18em] text-amber-300">{reservation.phaseLabel} · {reservation.campaignName}</p><h2 className="mt-2 font-semibold leading-none">{presentation.label}</h2><CardDescription className="mt-2 text-slate-400">{reservation.orderReference}</CardDescription></div><Icon className={`h-8 w-8 ${presentation.complete ? "text-emerald-400" : presentation.attention ? "text-rose-300" : "text-amber-400"}`} /></div></CardHeader>
     <CardContent className="space-y-5">
       <p role="status" className={`rounded-xl border p-4 text-sm leading-6 ${presentation.attention ? "border-rose-300/30 bg-rose-400/10 text-rose-100" : "border-white/10 bg-white/5 text-slate-200"}`}>{presentation.detail}</p>
-      {reservationEmailDelayed ? <div role="status" className="rounded-xl border border-amber-400/30 bg-amber-400/10 p-4 text-sm leading-6 text-amber-100"><strong className="block text-white">Reservation confirmed — email delayed</strong>Your confirmation email is queued for automatic retry. You can continue securely with the payment instructions below; your reservation and order reference are already saved.</div> : null}
+      {reservationEmailDelayed && showPaymentInstructions ? <div role="status" className="rounded-xl border border-amber-400/30 bg-amber-400/10 p-4 text-sm leading-6 text-amber-100"><strong className="block text-white">Reservation confirmed — email delayed</strong>Your confirmation email is queued for automatic retry. You can continue securely with the payment instructions below; your reservation and order reference are already saved.</div> : null}
       <dl className="grid gap-3 rounded-xl border border-white/10 bg-black/15 p-4 sm:grid-cols-2">
         <div><dt className="text-xs uppercase tracking-wider text-slate-400">Paid allocation</dt><dd className="mt-1 font-bold">{reservation.paidShares.toLocaleString()} paid + {reservation.bonusShares.toLocaleString()} bonus</dd></div>
         <div><dt className="text-xs uppercase tracking-wider text-slate-400">Total shares</dt><dd className="mt-1 font-bold">{reservation.totalAllocatedShares.toLocaleString()}</dd></div>
         <div><dt className="text-xs uppercase tracking-wider text-slate-400">Issuer</dt><dd className="mt-1 font-bold">{reservation.issuerName}</dd></div>
         <div><dt className="text-xs uppercase tracking-wider text-slate-400">Share class</dt><dd className="mt-1 font-bold">{reservation.shareClass}</dd></div>
       </dl>
-      {reservation.paymentMethod === "webpay_card" ? <div className="rounded-xl border border-sky-400/30 bg-sky-400/10 p-4">
+      {!showPaymentInstructions ? <div className="rounded-xl border border-white/10 bg-black/15 p-4">
+        <p className="text-xs uppercase tracking-wider text-slate-300">{paymentComplete ? "Payment received" : "Reservation amount"}</p>
+        <p className="mt-1 text-3xl font-black text-white">{reservation.paymentMethod === "webpay_card" ? `R${reservation.totalZar}` : `${reservation.totalUsdt} USDT`}</p>
+        {paymentComplete ? <p className="mt-2 text-sm text-emerald-200">No further payment is due for this allocation.</p> : awaitingPayment ? <p role="status" className="mt-2 text-sm text-amber-100">Payment window closed. Do not send more funds. Open your account to refresh the reservation status.</p> : null}
+      </div> : reservation.paymentMethod === "webpay_card" ? <div className="rounded-xl border border-sky-400/30 bg-sky-400/10 p-4">
         <p className="text-xs uppercase tracking-wider text-sky-200">WebPay card obligation</p><p className="mt-1 text-3xl font-black text-white">R{reservation.totalZar}</p>
         <p className="mt-1 text-sm text-sky-100/80">R{reservation.unitPriceZar} per paid share · bonus shares are free</p>
-        <p className="mt-3 border-t border-sky-200/20 pt-3 text-sm text-sky-50">Pay before <time dateTime={reservation.paymentDeadline} className="font-semibold">{new Date(reservation.paymentDeadline).toLocaleString()}</time>.</p>
+        <p className="mt-3 border-t border-sky-200/20 pt-3 text-sm text-sky-50">Pay before <time dateTime={reservation.paymentDeadline} className="font-semibold">{new Date(reservation.paymentDeadline).toLocaleString("en-ZA", { timeZone: "Africa/Johannesburg" })} SAST (UTC+2)</time>.</p>
       </div> : <>
         <div className="grid gap-5">
           <div className="space-y-4">
             <div className="rounded-xl border border-amber-400/20 bg-amber-400/10 p-4">
               <p className="text-xs uppercase tracking-wider text-amber-200">USDT payment obligation</p><p className="mt-1 text-3xl font-black text-white">{reservation.totalUsdt} USDT</p>
               <p className="mt-1 text-sm text-amber-100/80">using {reservation.network} only</p>
-              <p className="mt-3 border-t border-amber-200/20 pt-3 text-sm text-amber-50">Pay before <time dateTime={reservation.paymentDeadline} className="font-semibold">{new Date(reservation.paymentDeadline).toLocaleString()}</time>. Do not send funds after this deadline.</p>
+              <p className="mt-3 border-t border-amber-200/20 pt-3 text-sm text-amber-50">Pay before <time dateTime={reservation.paymentDeadline} className="font-semibold">{new Date(reservation.paymentDeadline).toLocaleString("en-ZA", { timeZone: "Africa/Johannesburg" })} SAST (UTC+2)</time>. Do not send funds after this deadline.</p>
             </div>
             {reservation.receivingAddress ? <div><p className="mb-2 text-xs uppercase tracking-wider text-slate-400">Verified receiving address</p><div className="flex gap-2"><code className="min-w-0 flex-1 break-all rounded-lg bg-black/30 p-3 text-xs text-slate-200">{reservation.receivingAddress}</code><Button type="button" variant="outline" size="icon" onClick={() => void onCopyAddress()} aria-label="Copy receiving address"><Copy className="h-4 w-4" /></Button></div>{copied ? <p className="mt-1 text-xs text-emerald-300">Address copied</p> : null}</div> : null}
             {reservation.tokenContract ? <div><p className="mb-1 text-xs uppercase tracking-wider text-slate-400">Verified USDT contract</p><code className="break-all text-xs text-slate-300">{reservation.tokenContract}</code></div> : null}
@@ -885,9 +898,9 @@ function ReservationStateCard({ authority, order, accessToken, error, submitting
       {reservation.paymentMethod === "remitano_usdt" ? <CryptoVerificationProgress journeyState={authority.journey.state} transactionHash={order?.transactionHash} confirmations={order?.confirmations} requiredConfirmations={reservation.requiredConfirmations} /> : null}
       {canSubmitHash ? <form className="space-y-4 rounded-xl border border-sky-300/25 bg-sky-400/10 p-5" onSubmit={(event) => void onSubmitProof(event)}><div><p className="text-xs font-bold uppercase tracking-[.16em] text-sky-200">After your wallet broadcasts</p><h3 className="mt-1 text-lg font-black text-white">Submit the transaction hash</h3><p className="mt-2 text-sm leading-6 text-sky-100/80">We save the hash, check the chain automatically, and keep polling until the configured confirmation depth is met.</p></div><Field label="Transaction hash"><Input value={txHash} onChange={(event) => onTxHashChange(event.target.value)} required minLength={64} maxLength={66} pattern={submittedTransactionHashPattern(paymentNetwork)} title={submittedTransactionHashMessage(paymentNetwork)} placeholder="Paste the blockchain transaction hash" spellCheck={false} autoComplete="off" className="border-white/15 bg-black/20 font-mono" /></Field><Button className="w-full" disabled={submitting}>{submitting ? "Saving hash…" : "Start verification"}</Button></form> : null}
       {order?.transactionHash ? <div className="rounded-xl border border-white/10 bg-black/15 p-4 text-xs text-slate-400"><p className="font-semibold text-slate-200">Submitted transaction</p><p className="mt-2">Confirmations: {order.confirmations}/{reservation.requiredConfirmations ?? 0}</p><code className="mt-2 block break-all text-slate-300">{order.transactionHash}</code></div> : null}
-      {needsAccountAction ? <Button asChild variant="outline" className="w-full border-white/20 bg-transparent text-white hover:bg-white/10"><Link href="/shares/account">Open applicant account</Link></Button> : null}
+      {authority.journey.state === "issued" ? <Button asChild className="h-auto min-h-12 w-full whitespace-normal bg-emerald-300 font-bold text-slate-950 hover:bg-emerald-200"><Link href="/shares/account">View my shares and certificate</Link></Button> : needsAccountAction || !showPaymentInstructions ? <Button asChild variant="outline" className="h-auto min-h-12 w-full whitespace-normal border-white/20 bg-transparent text-white hover:bg-white/10"><Link href="/shares/account">Open applicant account</Link></Button> : null}
       {error ? <p role="alert" className="text-sm text-red-300">{error}</p> : null}
-      <p className="text-xs leading-5 text-slate-500">Never send assets on another network. A transaction hash is not accepted as settled until the configured blockchain verifier confirms the receiver, token contract, amount, and confirmation depth.</p>
+      {showPaymentInstructions && reservation.paymentMethod === "remitano_usdt" ? <p className="text-xs leading-5 text-slate-500">Never send assets on another network. A transaction hash is not accepted as settled until the configured blockchain verifier confirms the receiver, token contract, amount, and confirmation depth.</p> : null}
     </CardContent>
   </Card>;
 }

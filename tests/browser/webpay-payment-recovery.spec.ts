@@ -3,6 +3,74 @@ import { expect, test } from "@playwright/test";
 
 const ORDER_REFERENCE = "KSP-WEBPAY-TEST-01";
 
+// The presale landing page must not turn a completed allocation back into a bill.
+for (const width of [390, 1440]) {
+  for (const rail of ["webpay_card", "remitano_usdt"] as const) {
+    for (const state of ["issued", "confirmed", "closed", "open"] as const) {
+      test(`presale reservation ${rail} ${state} at ${width}px`, async ({ page }) => {
+        await page.clock.install();
+        await page.setViewportSize({ width, height: 900 });
+        const errors: string[] = [];
+        page.on("pageerror", (error) => errors.push(error.message));
+        page.on("console", (message) => {
+          if (message.type() === "error" || message.type() === "warning") errors.push(message.text());
+        });
+        const portal = webPayPortalPayload(state === "closed" || state === "open" ? "awaiting_payment" : state);
+        Object.assign(portal.applicant, { phone: "+27820000000", country: "South Africa", physicalAddress: "Test address" });
+        Object.assign(portal.currentReservation, {
+          paymentMethod: rail, network: "bsc", receivingAddress: `0x${"22".repeat(20)}`,
+          tokenContract: `0x${"11".repeat(20)}`, requiredConfirmations: 12,
+          paymentDeadline: new Date(Date.now() + (state === "open" ? 3600000 : -86400000)).toISOString(),
+        });
+        if (state === "open" || state === "closed") portal.journey.allowedActions = ["view_reservation", rail === "webpay_card" ? "start_card_checkout" : "submit_payment_hash"];
+        await page.route("**/api/theme", (route) => route.fulfill({ json: {} }));
+        await page.route("**/api/presale/portal", (route) => route.fulfill({ json: portal }));
+        await page.route("**/api/presale/offer?*", (route) => route.fulfill({ json: { offer: {
+          name: "Allocation test", issuerName: "Solidus Holdings (Pty) Ltd", shareClass: "Class B",
+          priceUsdt: "25", priceUsd: "25", usdtPerUsd: "1", network: "bsc", sharesRemaining: 100,
+          invitationSharesRemaining: 10, minConfirmations: 12, paymentWindowMinutes: 30, termsVersion: "test",
+        } } }));
+        await page.goto("/presale?invite=local-display-fixture");
+        await expect(page.getByText(ORDER_REFERENCE, { exact: true })).toBeVisible();
+        if (state === "open") {
+          await expect(page.getByText(/Pay before/)).toBeVisible();
+          await expect(page.getByText(/SAST \(UTC\+2\)/)).toBeVisible();
+          await page.clock.fastForward(3_601_000);
+          await expect(page.getByText(/Payment window closed/)).toBeVisible();
+          await expect(page.getByText(/Pay before/)).toHaveCount(0);
+        } else {
+          await expect(page.getByText(/Pay before/)).toHaveCount(0);
+          await expect(page.getByText("Verified receiving address", { exact: true })).toHaveCount(0);
+          await expect(page.getByText(/Never send assets/)).toHaveCount(0);
+          await expect(page.getByRole("button", { name: "Continue to secure WebPay checkout" })).toHaveCount(0);
+          await expect(page.getByText(state === "closed" ? /Payment window closed/ : "No further payment is due for this allocation.")).toBeVisible();
+        }
+        if (rail === "webpay_card") await expect(page.getByText(/Never send assets/)).toHaveCount(0);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+        if (state === "issued") {
+          const account = page.getByRole("link", { name: "View my shares and certificate" });
+          await account.scrollIntoViewIfNeeded();
+          expect(await account.evaluate((element) => {
+            const rect = element.getBoundingClientRect();
+            for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+              const style = getComputedStyle(parent);
+              const bounds = parent.getBoundingClientRect();
+              if (/(hidden|clip|auto|scroll)/.test(style.overflowX) && (rect.left < bounds.left - 1 || rect.right > bounds.right + 1)) return false;
+              if (/(hidden|clip|auto|scroll)/.test(style.overflowY) && (rect.top < bounds.top - 1 || rect.bottom > bounds.bottom + 1)) return false;
+            }
+            return true;
+          })).toBe(true);
+          if (process.env.PRESALE_QA_SCREENSHOTS) await page.screenshot({ path: `${process.env.PRESALE_QA_SCREENSHOTS}/issued-${rail}-${width}.png`, fullPage: true });
+          await account.click();
+          await expect(page).toHaveURL(/\/shares\/account$/);
+          await expect(page.getByRole("heading", { name: "Welcome back" })).toBeVisible();
+        }
+        expect(errors).toEqual([]);
+      });
+    }
+  }
+}
+
 function webPayPortalPayload(state: "awaiting_payment" | "confirmed" | "issued", error?: string) {
   const isSettled = state === "confirmed" || state === "issued";
   return {
