@@ -512,6 +512,7 @@ test("invited buyer can reserve shares without exposing the order access token i
   const receivingAddress = `0x${"22".repeat(20)}`;
   const tokenContract = `0x${"11".repeat(20)}`;
   const transactionHash = `0x${"ab".repeat(32)}`;
+  const paymentDeadline = new Date(Date.now() + 30 * 60 * 1000).toISOString();
   let refreshUrl = "";
   let refreshAccessToken = "";
   let memberCreated = false;
@@ -591,7 +592,7 @@ test("invited buyer can reserve shares without exposing the order access token i
           totalAllocatedShares: 4, paymentMethod: "remitano_usdt", unitPriceUsd: "25.00", totalUsd: "50.00",
           unitPriceUsdt: "1.000000", totalUsdt: "2.000000", network: "BSC",
           tokenContract, receivingAddress, requiredConfirmations: 3,
-          paymentDeadline: "2026-08-31T12:00:00.000Z", termsVersion: "presale-reservation-v1",
+          paymentDeadline, termsVersion: "presale-reservation-v1",
           status, incorporationStatus: "pending",
           cancellation: paymentSubmitted
             ? { eligible: false, reason: "crypto_hash_submitted" }
@@ -651,7 +652,7 @@ test("invited buyer can reserve shares without exposing the order access token i
         tokenContract,
         receivingAddress,
         minConfirmations: 3,
-        paymentDeadline: "2026-08-11T00:00:00.000Z",
+        paymentDeadline,
         confirmations: 0,
         incorporationStatus: "pending",
       } }),
@@ -697,7 +698,7 @@ test("invited buyer can reserve shares without exposing the order access token i
         tokenContract,
         receivingAddress,
         minConfirmations: 3,
-        paymentDeadline: "2026-08-11T00:00:00.000Z",
+        paymentDeadline,
         transactionHash,
         confirmations: 0,
         incorporationStatus: "pending",
