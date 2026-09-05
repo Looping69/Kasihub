@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { paymentsDb } from "../../resources";
 import { TOKEN_TRANSFER_TOPIC } from "./chains/transfer";
 import type { ChainTransactionEvidence } from "./chains/types";
-import { CustodyProviderUnavailable, type CustodyEvidence } from "./custody";
+import { CustodyProviderUnavailable, readRemitanoCustodyEvidence, type CustodyEvidence } from "./custody";
 import { verifyAndSettlePaymentAttempt } from "./verification";
 
 import { submitPaymentAttempt } from "./attempts";
@@ -74,6 +74,33 @@ async function seedSubmittedPayment(custodyReconciliationRequired = false) {
 }
 
 describe("product-neutral payment verification and settlement", () => {
+  it("recovers a Remitano endpoint outage through verified deposit details and settles replay only once", async () => {
+    const seeded = await seedSubmittedPayment(true);
+    const chain = async () => evidence(seeded.hash);
+    const failed = await verifyAndSettlePaymentAttempt(seeded.attemptId, chain, async () => {
+      throw new CustodyProviderUnavailable("remitano", "custody_provider_http_400_invalid_endpoint");
+    });
+    expect(failed.status).toBe("retryable");
+    const before = await paymentsDb.rawQueryRow<{ credits: number }>(
+      "SELECT count(*)::int AS credits FROM payment_credits WHERE obligation_id=$1", seeded.obligationId);
+    expect(before?.credits).toBe(0);
+    const get = async (target: string): Promise<unknown> => {
+      if (target.includes("by_currency_and_tx_hash")) throw new CustodyProviderUnavailable("remitano", "custody_provider_http_400_invalid_endpoint");
+      if (target.includes("latest_coin_deposits")) return [{ type: "deposit", id: 123, coin_address: RECEIVER, coin_currency: "usdt" }];
+      if (target === "/api/v1/coin_deposits/123") return { id: 123, tx_hash: `0x${seeded.hash}`, coin_address: RECEIVER,
+        coin_currency: "usdt", coin_amount: 25, status: "verified", verified_at_timestamp: 1788375440 };
+      throw new Error("Unexpected provider request");
+    };
+    const recover = () => verifyAndSettlePaymentAttempt(seeded.attemptId, chain,
+      (expectation) => readRemitanoCustodyEvidence(expectation, get));
+    expect((await recover()).status).toBe("settled");
+    expect((await recover()).reason).toBe("already_settled");
+    const counts = await paymentsDb.rawQueryRow<{ credits: number; settlements: number }>(
+      `SELECT (SELECT count(*)::int FROM payment_credits WHERE obligation_id=$1) AS credits,
+       (SELECT count(*)::int FROM payment_settlements WHERE obligation_id=$1) AS settlements`, seeded.obligationId);
+    expect(counts).toEqual({ credits: 1, settlements: 1 });
+  });
+
   it("accumulates verified partial credits, deduplicates concurrent replay, and settles once", async () => {
     const seeded = await seedSubmittedPayment(true);
     const partialReader = async () => evidence(seeded.hash, RECEIVER, 102n, 20_000_000n);

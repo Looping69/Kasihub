@@ -2,10 +2,9 @@
 import { secret } from "encore.dev/config";
 import { createHash, createHmac } from "node:crypto";
 import { normalizeChainAddress } from "./chains/address";
-import { decimalToUnits } from "./chains/amount";
 import { normalizeTransactionHash } from "./chains/hash";
-import type { SupportedPaymentNetwork } from "./chains/types";
 import { remitanoDepositRequestTarget } from "./remitano";
+import type { CustodyEvidence, CustodyExpectation } from "./custody-policy";
 
 export {
   type CustodyEvidence,
@@ -38,8 +37,11 @@ function stringField(row: RemitanoDeposit, ...names: string[]): string {
   return "";
 }
 
-function remitanoOutcome(status: string): CustodyEvidence["outcome"] {
+function remitanoOutcome(status: string, row: RemitanoDeposit): CustodyEvidence["outcome"] {
   const normalized = status.trim().toLowerCase();
+  // Remitano's credited deposit detail uses "verified" plus a completion time.
+  const verifiedAt = Number(row.verified_at_timestamp);
+  if (normalized === "verified" && Number.isFinite(verifiedAt) && verifiedAt > 0) return "confirmed";
   if (["completed", "confirmed", "success", "successful", "credited"].includes(normalized)) return "confirmed";
   if (["cancelled", "canceled", "reversed", "refunded", "failed", "rejected"].includes(normalized)) return "reversed";
   return "pending";
@@ -54,6 +56,7 @@ async function remitanoGet(requestTarget: string): Promise<unknown> {
   let response: Response;
   try {
     response = await fetch(`${REMITANO_API_ORIGIN}${requestTarget}`, {
+      signal: AbortSignal.timeout(15_000),
       headers: {
         Accept: "application/json",
         "Content-Type": "application/json",
@@ -83,10 +86,51 @@ async function remitanoGet(requestTarget: string): Promise<unknown> {
   }
 }
 
-export async function readRemitanoCustodyEvidence(expectation: CustodyExpectation): Promise<CustodyEvidence> {
-  const payload = await remitanoGet(remitanoDepositRequestTarget(expectation));
+export async function readRemitanoCustodyEvidence(
+  expectation: CustodyExpectation,
+  get: (target: string) => Promise<unknown> = remitanoGet,
+): Promise<CustodyEvidence> {
+  let payload: unknown;
+  try {
+    payload = await get(remitanoDepositRequestTarget(expectation));
+  } catch (error) {
+    if (!(error instanceof CustodyProviderUnavailable)
+        || error.message !== "custody_provider_http_400_invalid_endpoint") throw error;
+    // The published v1 hash route currently rejects valid authenticated calls.
+    // v2 history supplies IDs only; fetch authoritative details and match the
+    // full hash below. Never treat a history amount/address as payment proof.
+    const query = new URLSearchParams({ coin_currency: expectation.currency.toLowerCase(), limit: "100" });
+    const history = await get(`/api/v2/coin_histories/latest_coin_deposits_and_withdrawals?${query}`);
+    if (!Array.isArray(history)) throw new CustodyProviderUnavailable("remitano", "custody_provider_response_invalid_history");
+    const details: unknown[] = [];
+    for (const item of history) {
+      if (!item || typeof item !== "object") continue;
+      const entry = item as RemitanoDeposit;
+      if (entry.type !== "deposit" || stringField(entry, "coin_currency").toUpperCase() !== expectation.currency.toUpperCase()) continue;
+      const address = stringField(entry, "coin_address");
+      try {
+        if (normalizeChainAddress(expectation.network, address) !== normalizeChainAddress(expectation.network, expectation.receiverAddress)) continue;
+      } catch { continue; }
+      const id = stringField(entry, "id");
+      if (!/^[1-9][0-9]*$/.test(id)) throw new CustodyProviderUnavailable("remitano", "custody_provider_response_invalid_deposit_id");
+      const detail = await get(`/api/v1/coin_deposits/${id}`);
+      details.push(detail);
+      if (detail && typeof detail === "object") {
+        try {
+          if (normalizeTransactionHash(stringField(detail as RemitanoDeposit, "tx_hash", "transaction_hash")) === normalizeTransactionHash(expectation.transactionHash)) break;
+        } catch { /* Another deposit or malformed detail cannot establish custody. */ }
+      }
+    }
+    // This API has no pagination. Report exhaustion explicitly so older deposits
+    // cannot silently disappear behind a busy account's latest 100 records.
+    if (history.length >= 100 && !details.some((detail) => {
+      try { return normalizeTransactionHash(stringField(detail as RemitanoDeposit, "tx_hash", "transaction_hash")) === normalizeTransactionHash(expectation.transactionHash); } catch { return false; }
+    })) throw new CustodyProviderUnavailable("remitano", "custody_provider_history_window_exhausted");
+    payload = details;
+  }
   const rows = Array.isArray(payload) ? payload : payload && typeof payload === "object"
-    ? ((payload as Record<string, unknown>).coin_deposits as unknown[] | undefined) ?? [] : [];
+    ? (payload as Record<string, unknown>).coin_deposits : undefined;
+  if (!Array.isArray(rows)) throw new CustodyProviderUnavailable("remitano", "custody_provider_response_invalid_deposits");
   const expectedHash = normalizeTransactionHash(expectation.transactionHash);
   const row = rows.find((item) => {
     if (!item || typeof item !== "object") return false;
@@ -115,7 +159,7 @@ export async function readRemitanoCustodyEvidence(expectation: CustodyExpectatio
     receiverAddress,
     currency,
     amount,
-    outcome: remitanoOutcome(status),
+    outcome: remitanoOutcome(status, row),
     observedAt: new Date().toISOString(),
   };
 }
