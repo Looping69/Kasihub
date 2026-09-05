@@ -14,6 +14,8 @@ export type PresaleCertificatePayload = {
   totalShares: number;
   paidShares: number;
   bonusShares: number;
+  complimentaryShares?: number;
+  couponReference?: string;
   phaseNumber: number;
   distinctiveFrom: number;
   distinctiveTo: number;
@@ -30,10 +32,14 @@ export function sealPresaleCertificate(input: Omit<PresaleCertificatePayload, "v
     input.profileNumber, input.orderReference, input.issuePricePerShare, input.issuedAt];
   if (required.some((value) => !value.trim())) throw new Error("incomplete_certificate_snapshot");
   if (!Number.isInteger(input.totalShares) || input.totalShares <= 0
-    || !Number.isInteger(input.paidShares) || input.paidShares <= 0
+    || !Number.isInteger(input.paidShares) || ((input.complimentaryShares ?? 0) > 0 ? input.paidShares !== 0 : input.paidShares <= 0)
     || !Number.isInteger(input.bonusShares) || input.bonusShares < 0
-    || input.paidShares + input.bonusShares !== input.totalShares) {
+    || input.paidShares + input.bonusShares + (input.complimentaryShares ?? 0) !== input.totalShares) {
     throw new Error("invalid_certificate_allocation");
+  }
+  if (!Number.isInteger(input.complimentaryShares ?? 0) || (input.complimentaryShares ?? 0) < 0
+    || ((input.complimentaryShares ?? 0) > 0 && (input.bonusShares !== 0 || !input.couponReference?.trim() || Number(input.issuePricePerShare) !== 0))) {
+    throw new Error("invalid_complimentary_certificate");
   }
   if (!Number.isInteger(input.distinctiveFrom) || !Number.isInteger(input.distinctiveTo)
     || input.distinctiveFrom <= 0 || input.distinctiveTo - input.distinctiveFrom + 1 !== input.totalShares) {
@@ -56,6 +62,7 @@ export function sealPresaleCertificate(input: Omit<PresaleCertificatePayload, "v
     totalShares: input.totalShares,
     paidShares: input.paidShares,
     bonusShares: input.bonusShares,
+    ...(input.complimentaryShares ? { complimentaryShares: input.complimentaryShares, couponReference: input.couponReference } : {}),
     phaseNumber: input.phaseNumber,
     distinctiveFrom: input.distinctiveFrom,
     distinctiveTo: input.distinctiveTo,

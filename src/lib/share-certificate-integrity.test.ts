@@ -18,6 +18,12 @@ const certificate = {
 };
 
 describe("certificate PDF snapshot boundary", () => {
+  test("preserves the sealed complimentary allocation and rejects ledger mismatch", () => {
+    const grantPayload = JSON.stringify({ ...JSON.parse(payload), paidShares: 0, bonusShares: 0, complimentaryShares: 20, couponReference: "coupon", issuePricePerShare: "0" });
+    const grant = { ...certificate, paidShares: 0, bonusShares: 0, complimentaryShares: 20, integrityPayload: grantPayload, integrityHash: createHash("sha256").update(grantPayload).digest("hex") };
+    expect(sealedCertificatePdfData(grant)).toMatchObject({ paidShares: 0, bonusShares: 0, complimentaryShares: 20, issuePricePerShare: 0 });
+    expect(() => sealedCertificatePdfData({ ...grant, complimentaryShares: 19 })).toThrow("certificate_ledger_snapshot_mismatch");
+  });
   test("uses the immutable sealed holder details", () => {
     expect(sealedCertificatePdfData(certificate)).toMatchObject({
       holderName: "Original Holder", holderAddress: "Original Address", profileNumber: "KSI-1",

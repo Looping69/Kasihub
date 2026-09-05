@@ -5,7 +5,7 @@ export function issuedSharesForPresale(paidShares: number, bonusBuyOneGet: boole
 }
 
 export function resolveCryptoTestSettlement(input: {
-  paymentRail: "remitano_usdt" | "webpay_card";
+  paymentRail: "remitano_usdt" | "webpay_card" | "complimentary_coupon";
   campaignTestUnitPriceUsdt: string | null;
   campaignTestOrdersRemaining: number;
 }): { settlementUnitUsdtOverride: string | null; campaignTestPriceApplied: boolean } {

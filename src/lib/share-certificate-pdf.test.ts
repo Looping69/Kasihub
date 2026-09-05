@@ -3,6 +3,12 @@ import { PDFDocument } from "pdf-lib";
 import { generateShareCertificatePdf } from "./share-certificate-pdf";
 
 describe("Solidus shareholder certificate", () => {
+  test("generates a complimentary certificate with zero paid shares", async () => {
+    const bytes = await generateShareCertificatePdf({ certificateNumber: "GRANT-TEST-001", holderName: "Coupon Recipient", profileNumber: "TEST",
+      totalShares: 5, paidShares: 0, bonusShares: 0, complimentaryShares: 5, issuePricePerShare: 0, issuePriceCurrency: "USD",
+      issuedAt: "2026-09-05T00:00:00Z", status: "issued" });
+    expect((await PDFDocument.load(bytes)).getPageCount()).toBe(1);
+  });
   test("generates an A4 landscape certificate from authoritative register data", async () => {
     const bytes = await generateShareCertificatePdf({
       certificateNumber: "CERT-TEST-001",

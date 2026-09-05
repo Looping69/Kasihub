@@ -10,10 +10,10 @@ type Portal = {
   applicant: { profileNumber: string; legalName: string; physicalAddress: string };
   shareholder: {
     holdings: Array<{
-      orderReference: string; campaignName: string; paidShares: number; bonusShares: number;
+      orderReference: string; campaignName: string; paidShares: number; bonusShares: number; complimentaryShares?: number;
       issuePricePerShare?: number; issuePriceCurrency?: string;
       certificate?: CertificateIntegrityFields & { certificateNumber: string; totalShares: number; status: string; issuedAt: string;
-        distinctiveFrom?: number; distinctiveTo?: number; paidShares?: number; bonusShares?: number;
+        distinctiveFrom?: number; distinctiveTo?: number; paidShares?: number; bonusShares?: number; complimentaryShares?: number;
         issuePricePerShareSnapshot?: number; issuePriceCurrencySnapshot?: string };
     }>;
   };

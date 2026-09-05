@@ -15,6 +15,7 @@ export type ShareCertificatePdfData = {
   campaignName?: string;
   paidShares?: number;
   bonusShares?: number;
+  complimentaryShares?: number;
   distinctiveFrom?: number;
   distinctiveTo?: number;
   issuePricePerShare?: number;
@@ -71,11 +72,12 @@ export async function generateShareCertificatePdf(data: ShareCertificatePdfData)
   if (!data.holderName.trim()) throw new Error("holder_name_required");
   if (!Number.isInteger(data.totalShares) || data.totalShares <= 0) throw new Error("invalid_share_quantity");
   if (data.paidShares !== undefined || data.bonusShares !== undefined) {
-    if (!Number.isInteger(data.paidShares) || data.paidShares! <= 0 || !Number.isInteger(data.bonusShares) || data.bonusShares! < 0) {
+    if (!Number.isInteger(data.paidShares) || ((data.complimentaryShares ?? 0) > 0 ? data.paidShares !== 0 : data.paidShares! <= 0) || !Number.isInteger(data.bonusShares) || data.bonusShares! < 0) {
       throw new Error("invalid_share_allocation");
     }
-    if (data.paidShares! + data.bonusShares! !== data.totalShares) throw new Error("share_allocation_mismatch");
+    if (data.paidShares! + data.bonusShares! + (data.complimentaryShares ?? 0) !== data.totalShares) throw new Error("share_allocation_mismatch");
   }
+  if (!Number.isInteger(data.complimentaryShares ?? 0) || (data.complimentaryShares ?? 0) < 0 || ((data.complimentaryShares ?? 0) > 0 && (data.bonusShares !== 0 || data.issuePricePerShare !== 0))) throw new Error("invalid_complimentary_allocation");
   if ((data.distinctiveFrom === undefined) !== (data.distinctiveTo === undefined)) throw new Error("incomplete_distinctive_range");
   if (data.distinctiveFrom !== undefined && data.distinctiveTo !== undefined) {
     if (!Number.isInteger(data.distinctiveFrom) || !Number.isInteger(data.distinctiveTo)
@@ -143,7 +145,7 @@ export async function generateShareCertificatePdf(data: ShareCertificatePdfData)
   // table. The strip below the table is reserved for these certificate facts.
   page.drawRectangle({ x: 78, y: 88, width: 568, height: 43, color: WHITE });
   if (data.paidShares !== undefined && data.bonusShares !== undefined) {
-    page.drawText(`ALLOCATION: ${data.paidShares.toLocaleString("en-ZA")} PAID + ${data.bonusShares.toLocaleString("en-ZA")} BONUS`, {
+    page.drawText(data.complimentaryShares ? `ALLOCATION: ${data.complimentaryShares.toLocaleString("en-ZA")} COMPLIMENTARY` : `ALLOCATION: ${data.paidShares.toLocaleString("en-ZA")} PAID + ${data.bonusShares.toLocaleString("en-ZA")} BONUS`, {
       x: 84, y: 119, size: 6.5, font: bold, color: NAVY,
     });
   }

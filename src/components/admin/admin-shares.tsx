@@ -27,7 +27,7 @@ interface Phase {
 }
 interface ShareRecord {
   id: string; phase: number; pricePerShare: number; quantity: number;
-  purchasedQuantity: number; bonusQuantity: number; totalAmount: number; currency: string;
+  purchasedQuantity: number; bonusQuantity: number; complimentaryQuantity?: number; totalAmount: number; currency: string;
   certificateNo: string; status: string; createdAt: string; revokedAt: string | null;
   profileId: string; profileNumber: string; holderName: string; email: string; country: string;
   source: string; orderReference: string | null; campaignName: string | null;
@@ -164,11 +164,11 @@ export function AdminShares() {
   });
 
   function exportRegister() {
-    const columns = ["Holder", "Email", "Profile number", "Country", "Campaign", "Source", "Order reference", "Certificate", "Shares", "Purchased", "Bonus", "Issued at", "Status"];
+    const columns = ["Holder", "Email", "Profile number", "Country", "Campaign", "Source", "Order reference", "Certificate", "Shares", "Purchased", "Bonus", "Complimentary", "Issued at", "Status"];
     const csvCell = (value: string | number | null) => `"${String(value ?? "").replaceAll('"', '""')}"`;
     const rows = visibleRegister.map((share) => [
       share.holderName, share.email, share.profileNumber, share.country, share.campaignName, share.source,
-      share.orderReference, share.certificateNo, share.quantity, share.purchasedQuantity, share.bonusQuantity,
+      share.orderReference, share.certificateNo, share.quantity, share.purchasedQuantity, share.bonusQuantity, share.complimentaryQuantity ?? 0,
       new Date(share.createdAt).toISOString(), share.status,
     ]);
     const blob = new Blob([[columns, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n")], { type: "text/csv;charset=utf-8" });
@@ -324,7 +324,7 @@ export function AdminShares() {
                     <td className="px-3 py-2"><p className="font-semibold text-xs">{s.holderName}</p><p className="text-[10px] text-muted-foreground">{s.email}</p><p className="text-[10px] text-muted-foreground font-mono">{s.profileNumber}</p></td>
                     <td className="px-3 py-2"><p className="text-xs font-medium">{s.campaignName ?? (s.source === "presale" ? "Presale" : "Direct share ledger")}</p><p className="text-[10px] text-muted-foreground font-mono">{s.orderReference ?? s.source}</p></td>
                     <td className="px-3 py-2 font-mono text-xs">{s.certificateNo}</td>
-                    <td className="px-3 py-2 text-right"><p className="font-semibold">{s.quantity.toLocaleString()}</p>{s.bonusQuantity > 0 && <p className="text-[10px] text-amber-700">includes {s.bonusQuantity} bonus</p>}</td>
+                    <td className="px-3 py-2 text-right"><p className="font-semibold">{s.quantity.toLocaleString()}</p>{s.complimentaryQuantity ? <p className="text-[10px] text-emerald-700">{s.complimentaryQuantity} complimentary - no money received</p> : null}{s.bonusQuantity > 0 && <p className="text-[10px] text-amber-700">includes {s.bonusQuantity} bonus</p>}</td>
                     <td className="px-3 py-2 text-xs">{new Date(s.createdAt).toLocaleDateString("en-ZA")}</td>
                     <td className="px-3 py-2"><Badge variant="outline" className={s.status === "ISSUED" ? "bg-emerald-50 text-emerald-700 border-emerald-200 text-[9px]" : "bg-rose-50 text-rose-700 border-rose-200 text-[9px]"}>{s.status}</Badge></td>
                   </tr>

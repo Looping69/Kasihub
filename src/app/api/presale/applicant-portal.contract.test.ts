@@ -36,7 +36,7 @@ describe("isolated KaSiShares applicant portal", () => {
     expect(migration).toContain("uq_presale_reservation_email_delivery");
     expect(api).toContain("presale-reservation-created/${input.orderId}");
     expect(api).toContain('await tx.commit();\n      const intent = order.payment_rail === "remitano_usdt" ? await ensurePresalePaymentIntent(order, campaign) : undefined;');
-    expect(api).toContain('const emailStatus = await safelyEnsurePresaleReservationCreatedEmail(order, campaign, intent?.network ?? "webpay");');
+    expect(api).toContain('const emailStatus = order.payment_rail === "complimentary_coupon" ? "existing" as const : await safelyEnsurePresaleReservationCreatedEmail(order, campaign, intent?.network ?? "webpay");');
     expect(api).toContain('return { order: orderResponse(order, campaign, null, 0, intent), accessToken, emailStatus };');
   });
 
@@ -201,7 +201,7 @@ describe("isolated KaSiShares applicant portal", () => {
   test("requires an explicitly selected backend-enabled payment rail", () => {
     const api = source("encore/domains/presale/api.ts");
     const methods = source("encore/domains/presale/payment-method-authority.ts");
-    expect(api).toContain('paymentRail: z.enum(["remitano_usdt", "webpay_card"]),');
+    expect(api).toContain('paymentRail: z.enum(["remitano_usdt", "webpay_card", "complimentary_coupon"]),');
     expect(api).not.toContain('paymentRail: z.enum(["remitano_usdt", "webpay_card"]).default');
     expect(api).toContain("paymentRailAvailability(authoritativePaymentMethods");
     expect(methods).toContain("The controlled USDT receiving route is unavailable");

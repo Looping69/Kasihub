@@ -60,8 +60,9 @@ export type PresaleReservationContract = {
   shareClass: string;
   paidShares: number;
   bonusShares: number;
+  complimentaryShares?: number;
   totalAllocatedShares: number;
-  paymentMethod: "remitano_usdt" | "webpay_card";
+  paymentMethod: "remitano_usdt" | "webpay_card" | "complimentary_coupon";
   unitPriceUsd: string;
   totalUsd: string;
   unitPriceUsdt: string;
@@ -156,7 +157,7 @@ function parseReservation(value: unknown): PresaleReservationContract | null | u
   ];
   const requiredNumbers = [input.phaseNumber, input.paidShares, input.bonusShares, input.totalAllocatedShares];
   if (!requiredStrings.every(string) || !requiredNumbers.every((number) => typeof number === "number" && Number.isFinite(number))) return undefined;
-  if (input.paymentMethod !== "remitano_usdt" && input.paymentMethod !== "webpay_card") return undefined;
+  if (input.paymentMethod !== "remitano_usdt" && input.paymentMethod !== "webpay_card" && input.paymentMethod !== "complimentary_coupon") return undefined;
   if (![input.unitPriceZar, input.totalZar, input.network, input.tokenContract, input.receivingAddress, input.receivedUsdt, input.outstandingUsdt].every(optionalString)) return undefined;
   if (!optionalNumber(input.requiredConfirmations)) return undefined;
   if (typeof cancellation.eligible !== "boolean" || !string(cancellation.reason) || !CANCELLATION_REASON_SET.has(cancellation.reason)) return undefined;
@@ -195,5 +196,6 @@ export function applicantJourneyPresentation(journey: ApplicantJourneyDecision):
     cancelled: { label: "Reservation cancelled", detail: "The unpaid allocation was released. Continue only through the server-provided application route.", complete: false, attention: false },
     expired: { label: "Reservation expired", detail: "The payment window closed and the reserved allocation was released.", complete: false, attention: false },
   };
+  if (journey.reason === "coupon_grant_authorized") return { ...presentation.confirmed, label: "Free shares authorized", detail: "Your coupon was redeemed. Share issuance is pending; no payment is due." };
   return presentation[journey.state];
 }

@@ -1,7 +1,7 @@
 // Author: Klaasvaakie ( |╲ )
 import { issuedSharesForPresale } from "./settlement";
 
-export type PresalePaymentRail = "remitano_usdt" | "webpay_card";
+export type PresalePaymentRail = "remitano_usdt" | "webpay_card" | "complimentary_coupon";
 
 export type ReservationCancellationReason =
   | "unpaid_no_payment_activity"
@@ -34,6 +34,7 @@ export interface PresaleReservationContract {
   shareClass: string;
   paidShares: number;
   bonusShares: number;
+  complimentaryShares?: number;
   totalAllocatedShares: number;
   paymentMethod: PresalePaymentRail;
   unitPriceUsd: string;
@@ -82,7 +83,8 @@ export function buildPresaleReservationContract(input: {
   incorporationStatus: string;
   cancellation: ReservationCancellationPolicy;
 }): PresaleReservationContract {
-  const totalAllocatedShares = issuedSharesForPresale(input.paidShares, input.bonusBuyOneGetOne);
+  const grant = input.paymentMethod === "complimentary_coupon";
+  const totalAllocatedShares = issuedSharesForPresale(input.paidShares, grant ? false : input.bonusBuyOneGetOne);
   return {
     orderReference: input.orderReference,
     phaseNumber: input.phaseNumber,
@@ -90,7 +92,8 @@ export function buildPresaleReservationContract(input: {
     campaignName: input.campaignName,
     issuerName: input.issuerName,
     shareClass: input.shareClass,
-    paidShares: input.paidShares,
+    paidShares: grant ? 0 : input.paidShares,
+    ...(grant ? { complimentaryShares: input.paidShares } : {}),
     bonusShares: totalAllocatedShares - input.paidShares,
     totalAllocatedShares,
     paymentMethod: input.paymentMethod,

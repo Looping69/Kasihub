@@ -5,12 +5,14 @@ export type PresalePaidOrder = {
   order_reference: string; campaign_name: string; quantity: number; bonus_buy_one_get_one: boolean;
   status: string; incorporation_status: string;
   total_usd?: string;
+  payment_rail?: string;
 };
 
 export type PresaleCertificate = {
   certificate_number: string; total_shares: number; status: string; issued_at: string;
   revoked_at: string | null; presale_order_reference: string;
   phase_number: number | null; distinctive_from: number | null; distinctive_to: number | null;
+  complimentary_shares?: number;
   paid_shares: number | null; bonus_shares: number | null;
   verification_id?: string | null; holder_name_snapshot?: string | null; holder_address_snapshot?: string | null;
   profile_number_snapshot?: string | null; issue_price_per_share_snapshot?: string | null;
@@ -28,7 +30,8 @@ export function buildShareholderPortfolio(paidOrders: PresalePaidOrder[], certif
     return {
       orderReference: paidOrder.order_reference,
       campaignName: paidOrder.campaign_name,
-      paidShares: paidOrder.quantity,
+      paidShares: paidOrder.payment_rail === "complimentary_coupon" ? 0 : paidOrder.quantity,
+      complimentaryShares: paidOrder.payment_rail === "complimentary_coupon" ? paidOrder.quantity : 0,
       bonusShares: allocatedShares - paidOrder.quantity,
       allocatedShares,
       issuePricePerShare: paidOrder.total_usd === undefined ? undefined : Number(paidOrder.total_usd) / paidOrder.quantity,
@@ -44,6 +47,7 @@ export function buildShareholderPortfolio(paidOrders: PresalePaidOrder[], certif
         phaseNumber: certificate.phase_number ?? undefined,
         distinctiveFrom: certificate.distinctive_from ?? undefined,
         distinctiveTo: certificate.distinctive_to ?? undefined,
+        complimentaryShares: certificate.complimentary_shares ?? 0,
         paidShares: certificate.paid_shares ?? undefined,
         bonusShares: certificate.bonus_shares ?? undefined,
         verificationId: certificate.verification_id ?? undefined,

@@ -2,7 +2,7 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 
 export const WEBPAY_UNIT_PRICE_ZAR = "450.00";
-export type PresalePaymentRail = "remitano_usdt" | "webpay_card";
+export type PresalePaymentRail = "remitano_usdt" | "webpay_card" | "complimentary_coupon";
 
 export function resolveWebPayUnitPrice(input: {
   paymentRail: PresalePaymentRail;

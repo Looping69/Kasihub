@@ -43,7 +43,7 @@ type Portal = {
   shareholder?: {
     totalIssuedShares: number;
     holdings: Array<{
-      orderReference: string; campaignName: string; paidShares: number; bonusShares: number; allocatedShares: number;
+      orderReference: string; campaignName: string; paidShares: number; bonusShares: number; complimentaryShares?: number; allocatedShares: number;
       status: "awaiting_issuance" | "issued" | "revoked" | "issuance_error"; incorporationStatus: string;
       certificate?: { certificateNumber: string; totalShares: number; status: string; issuedAt: string; revokedAt?: string };
     }>;
@@ -657,7 +657,7 @@ function ShareholderPortfolio({ shareholder, additionalPurchase, onPurchaseMore,
           <HoldingStatus status={holding.status} />
         </div>
         <div className="mt-5 grid gap-3 sm:grid-cols-3">
-          <AllocationMetric label="Paid shares" value={holding.paidShares} icon={Layers3} />
+          <AllocationMetric label={holding.complimentaryShares ? "Complimentary shares" : "Paid shares"} value={holding.complimentaryShares || holding.paidShares} icon={Layers3} />
           <AllocationMetric label="Bonus shares" value={holding.bonusShares} icon={Layers3} />
           <AllocationMetric label="Campaign allocation" value={holding.allocatedShares} icon={FileCheck2} />
         </div>

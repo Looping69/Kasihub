@@ -8,6 +8,7 @@ import { Subscription, Topic } from "encore.dev/pubsub";
 import { createCipheriv, createDecipheriv, createHash as createNodeHash, randomBytes } from "node:crypto";
 import { z } from "zod";
 import { identityDb, kycDb, membershipDb, paymentsDb, presaleDb, sharesDb } from "../../resources";
+import { couponEligible, couponHash, type ShareCoupon } from "./coupon-policy";
 import { hashSessionToken, requestHeader, requirePresaleSession } from "../auth/access";
 import { requireAdminAccess } from "../auth/access";
 import { hashPassword, verifyPassword } from "../auth/password";
@@ -325,7 +326,8 @@ const orderInput = z.object({
   buyerEmail: z.string().email().max(254),
   buyerPhone: internationalCellphoneSchema.optional(),
   quantity: z.number().int().positive().max(1_000_000),
-  paymentRail: z.enum(["remitano_usdt", "webpay_card"]),
+  paymentRail: z.enum(["remitano_usdt", "webpay_card", "complimentary_coupon"]),
+  couponCode: z.string().trim().max(100).optional(),
   termsAccepted: z.literal(true),
   investorApplication: z.object({
     applicantType: z.enum(["individual", "company", "trust"]),
@@ -527,6 +529,7 @@ interface PresaleOfferResponse {
   endsAt?: string;
   phaseLabel: string;
   bonusPolicy: string;
+  couponsEnabled?: boolean;
   paymentMethods: AuthoritativePaymentMethod[];
 }
 
@@ -575,6 +578,7 @@ interface PresaleOrderResponse {
 }
 
 interface CreatePresaleOrderRequest {
+  couponCode?: string;
   inviteToken: string;
   buyerName: string;
   buyerEmail: string;
@@ -956,11 +960,12 @@ export async function fulfilWebPayPresalePayment(orderReference: string, provide
 export async function incorporateConfirmedPresaleOrder(orderReference: string): Promise<{ incorporated: boolean; purchaseId: string }> {
   const order = await presaleDb.rawQueryRow<{
     id: string; order_reference: string; external_profile_id: string | null; quantity: number; total_usd: string;
+    payment_rail: PresalePaymentRail; coupon_id: string | null;
     buyer_name: string; unit_price_usd: string; investor_application_ciphertext: DatabaseBinary | null;
     investor_application_nonce: DatabaseBinary | null; investor_application_auth_tag: DatabaseBinary | null;
     status: string; incorporation_status: string; bonus_buy_one_get_one: boolean; share_phase_number: number;
     target_purchase_id: string | null;
-  }>(`SELECT o.id,o.order_reference,o.external_profile_id,o.quantity,o.total_usd::text AS total_usd,
+  }>(`SELECT o.id,o.order_reference,o.external_profile_id,o.quantity,o.total_usd::text AS total_usd,o.payment_rail,o.coupon_id,
              o.buyer_name,o.unit_price_usd::text AS unit_price_usd,o.investor_application_ciphertext,
              o.investor_application_nonce,o.investor_application_auth_tag,
              o.status,o.incorporation_status,o.target_purchase_id,o.bonus_buy_one_get_one_snapshot AS bonus_buy_one_get_one,o.share_phase_number_snapshot AS share_phase_number
@@ -975,6 +980,12 @@ export async function incorporateConfirmedPresaleOrder(orderReference: string): 
   }
   if (!order.external_profile_id) throw APIError.failedPrecondition(`Order ${order.order_reference} has no authenticated member profile`);
 
+  if (order.payment_rail === "complimentary_coupon") {
+    const authorization = await presaleDb.rawQueryRow<{ id: string }>(`SELECT id FROM presale_share_coupons
+      WHERE id=$1 AND status='redeemed' AND redeemed_order_id=$2 AND redeemed_by=$3 AND quantity=$4`,
+      order.coupon_id,order.id,order.external_profile_id,order.quantity);
+    if (!authorization) throw APIError.failedPrecondition("Complimentary issuance has no matching coupon authorization");
+  }
   const holder = await certificateHolderSnapshot(order);
   const issuedQuantity = issuedSharesForPresale(order.quantity, order.bonus_buy_one_get_one);
   await ensurePresaleIssuanceRequest(order.id, order.order_reference);
@@ -984,8 +995,9 @@ export async function incorporateConfirmedPresaleOrder(orderReference: string): 
     sourceReference: order.order_reference,
     profileId: order.external_profile_id,
     phaseNumber: order.share_phase_number,
-    paidShares: order.quantity,
+    paidShares: order.payment_rail === "complimentary_coupon" ? 0 : order.quantity,
     bonusShares: issuedQuantity - order.quantity,
+    ...(order.payment_rail === "complimentary_coupon" ? { complimentaryShares: order.quantity, couponReference: order.coupon_id! } : {}),
     acquisitionAmount: order.total_usd,
     issuePricePerPaidShare: order.unit_price_usd,
     currency: "USD",
@@ -1182,11 +1194,11 @@ interface PresalePortalResponse {
   shareholder: {
     totalIssuedShares: number;
     holdings: Array<{
-      orderReference: string; campaignName: string; paidShares: number; bonusShares: number; allocatedShares: number;
+      orderReference: string; campaignName: string; paidShares: number; bonusShares: number; complimentaryShares?: number; allocatedShares: number;
       issuePricePerShare?: number; issuePriceCurrency?: string;
       status: "awaiting_issuance" | "issued" | "revoked" | "issuance_error"; incorporationStatus: string;
       certificate?: { certificateNumber: string; totalShares: number; status: string; issuedAt: string; revokedAt?: string;
-        phaseNumber?: number; distinctiveFrom?: number; distinctiveTo?: number; paidShares?: number; bonusShares?: number;
+        phaseNumber?: number; distinctiveFrom?: number; distinctiveTo?: number; paidShares?: number; bonusShares?: number; complimentaryShares?: number;
         verificationId?: string; holderNameSnapshot?: string; holderAddressSnapshot?: string; profileNumberSnapshot?: string;
         issuePricePerShareSnapshot?: number; issuePriceCurrencySnapshot?: string; integrityPayload?: string; integrityHash?: string };
     }>;
@@ -1516,7 +1528,7 @@ export const presaleApplicantPortal = api<void, PresalePortalResponse>(
       : null;
     const paidOrders = await presaleDb.rawQueryAll<PresalePaidOrder>(
       `SELECT o.order_reference, o.campaign_name_snapshot AS campaign_name, o.quantity, o.total_usd::text AS total_usd, o.bonus_buy_one_get_one_snapshot AS bonus_buy_one_get_one,
-              o.status, o.incorporation_status
+              o.status, o.incorporation_status, o.payment_rail
        FROM presale_orders o JOIN presale_campaigns c ON c.id = o.campaign_id
        WHERE o.external_profile_id = $1 AND o.status IN ('confirmed', 'incorporated')
        ORDER BY o.confirmed_at DESC NULLS LAST, o.created_at DESC`,
@@ -1524,7 +1536,7 @@ export const presaleApplicantPortal = api<void, PresalePortalResponse>(
     );
     const certificates = await sharesDb.rawQueryAll<PresaleCertificate>(
       `SELECT certificate_number, total_shares, status, issued_at, revoked_at, presale_order_reference,
-              phase_number, distinctive_from, distinctive_to, paid_shares, bonus_shares, verification_id,
+              phase_number, distinctive_from, distinctive_to, paid_shares, bonus_shares, complimentary_shares, verification_id,
               holder_name_snapshot,holder_address_snapshot,profile_number_snapshot,issue_price_per_share_snapshot::text,
               issue_price_currency_snapshot,certificate_payload,certificate_payload_sha256
        FROM share_certificates
@@ -2076,13 +2088,14 @@ export const getPresaleOffer = api<
     hashSecret(req.inviteToken), WEBPAY_UNIT_PRICE_ZAR,
   );
   if (!row) throw APIError.permissionDenied("This invitation is invalid, expired, or the presale is not active");
-  return { offer: offerResponse(
+  const couponPolicy = await presaleDb.rawQueryRow<{ enabled: boolean }>("SELECT enabled FROM presale_coupon_policies WHERE campaign_id=$1",row.id);
+  return { offer: { ...offerResponse(
     row,
     row.max_shares - row.used_shares,
     row.invitation_email,
     row.webpay_unit_price_zar,
     row.crypto_payment_unit_price_usdt,
-  ) };
+  ), couponsEnabled: couponPolicy?.enabled ?? false } };
 });
 
 function offerResponse(
@@ -2151,6 +2164,7 @@ export const createPresaleOrder = api<CreatePresaleOrderRequest, { order: Presal
       buyerPhone: payload.buyerPhone ?? "",
       quantity: payload.quantity,
       paymentRail: payload.paymentRail,
+      ...(payload.paymentRail === "complimentary_coupon" ? { couponHash: couponHash(payload.couponCode ?? "") } : {}),
       termsVersion: PRESALE_TERMS_VERSION,
       investorApplicationVersion: INVESTOR_APPLICATION_VERSION,
       investorApplication: payload.investorApplication,
@@ -2171,7 +2185,9 @@ export const createPresaleOrder = api<CreatePresaleOrderRequest, { order: Presal
                 usdt_per_usd::text AS usdt_per_usd, quote_reference, status, payment_deadline, confirmed_at, incorporation_status,
                 payment_obligation_id,payment_intent_id,payment_network,payment_receiving_address,payment_token_contract,
                 payment_min_confirmations,payment_settled_at,created_at,request_hash
-         FROM presale_orders WHERE invitation_id = $1 AND idempotency_key_hash = $2`, invitation.id, idempotencyHash);
+         FROM presale_orders WHERE invitation_id = $1 AND (idempotency_key_hash = $2
+           OR (external_profile_id=$3 AND coupon_id IN (SELECT id FROM presale_share_coupons WHERE code_hash=$4)))`,
+        invitation.id, idempotencyHash, session.profile.id, payload.paymentRail === "complimentary_coupon" ? couponHash(payload.couponCode ?? "") : "");
       if (replay) {
         if (replay.request_hash !== requestHash) throw APIError.alreadyExists("Idempotency-Key was already used for a different order");
         await tx.rawExec("UPDATE presale_orders SET access_token_hash = $2, updated_at = now() WHERE id = $1", replay.id, hashSecret(accessToken));
@@ -2182,7 +2198,7 @@ export const createPresaleOrder = api<CreatePresaleOrderRequest, { order: Presal
         if (!campaign) throw new Error("presale_campaign_not_found");
         await tx.commit();
         const intent = replay.payment_rail === "remitano_usdt" ? await ensurePresalePaymentIntent(replay, campaign) : undefined;
-        const emailStatus = await safelyEnsurePresaleReservationCreatedEmail(replay, campaign, intent?.network ?? "webpay");
+        const emailStatus = replay.payment_rail === "complimentary_coupon" ? "existing" as const : await safelyEnsurePresaleReservationCreatedEmail(replay, campaign, intent?.network ?? "webpay");
         return { order: orderResponse(replay, campaign, null, 0, intent), accessToken, emailStatus };
       }
       const existing = await tx.rawQueryRow<OrderRow>(
@@ -2227,7 +2243,22 @@ export const createPresaleOrder = api<CreatePresaleOrderRequest, { order: Presal
                  crypto_test_unit_price_usdt::text AS crypto_test_unit_price_usdt,crypto_test_orders_remaining
           FROM presale_campaigns WHERE id = $1 FOR UPDATE`, invitation.campaign_id);
       if (!campaignBefore) throw APIError.notFound("Presale campaign not found");
-      const issuedQuantity = issuedSharesForPresale(payload.quantity, campaignBefore.bonus_buy_one_get_one);
+      let coupon: ShareCoupon | null = null;
+      if (payload.paymentRail === "complimentary_coupon") {
+        const policy = await tx.rawQueryRow<{ enabled: boolean; share_limit: number; granted_shares: number }>(
+          "SELECT enabled,share_limit,granted_shares FROM presale_coupon_policies WHERE campaign_id=$1 FOR UPDATE", invitation.campaign_id);
+        coupon = await tx.rawQueryRow<ShareCoupon>("SELECT id,campaign_id,recipient_email,quantity,status,expires_at,redeemed_order_id FROM presale_share_coupons WHERE code_hash=$1 FOR UPDATE", couponHash(payload.couponCode ?? ""));
+        if (!policy?.enabled || !couponEligible(coupon, invitation.campaign_id, email)
+          || coupon!.quantity !== payload.quantity || policy.granted_shares + payload.quantity > policy.share_limit) {
+          throw APIError.failedPrecondition("Coupon unavailable for this application or quantity");
+        }
+        const pending = await tx.rawQueryRow<{ id: string }>(`SELECT id FROM presale_orders
+          WHERE external_profile_id=$1 AND status NOT IN ('cancelled','expired','incorporated') LIMIT 1`,session.profile.id);
+        if (pending) throw APIError.failedPrecondition("Complete or cancel the existing reservation before claiming free shares");
+      } else if (payload.couponCode) {
+        throw APIError.invalidArgument("Coupons require the complimentary shares option");
+      }
+      const issuedQuantity = coupon ? payload.quantity : issuedSharesForPresale(payload.quantity, campaignBefore.bonus_buy_one_get_one);
       const { unitPriceZar: webPayUnitPriceZar, campaignTestPriceApplied } = resolveWebPayUnitPrice({
         paymentRail: payload.paymentRail,
         invitationOverride: invitation.webpay_unit_price_zar_override,
@@ -2252,7 +2283,7 @@ export const createPresaleOrder = api<CreatePresaleOrderRequest, { order: Presal
         webPayConfigured: webPayConfigured(),
         invitationWebPayOverride: Boolean(invitation.webpay_unit_price_zar_override),
       }), payload.paymentRail);
-      if (!availability.allowed) throw APIError.failedPrecondition(availability.reason);
+      if (!coupon && availability.allowed === false) throw APIError.failedPrecondition(availability.reason);
       const campaign = await tx.rawQueryRow<CampaignRow>(
         `UPDATE presale_campaigns SET reserved_shares = reserved_shares + $2,
            webpay_test_orders_remaining = webpay_test_orders_remaining - $3,
@@ -2268,13 +2299,13 @@ export const createPresaleOrder = api<CreatePresaleOrderRequest, { order: Presal
         status = CASE WHEN used_shares + $2 = max_shares THEN 'exhausted' ELSE status END WHERE id = $1`, invitation.id, payload.quantity);
       const orderId = crypto.randomUUID();
       const orderReference = `KSP-${crypto.randomUUID().slice(0, 8).toUpperCase()}-${Date.now().toString(36).toUpperCase()}`;
-      const quote = quotedUsdtAmount(
+      const quote = coupon ? { unitUsdt: "0", totalUsdt: "0", totalUsd: "0" } : quotedUsdtAmount(
         campaign.price_usd,
         campaign.usdt_per_usd,
         payload.quantity,
         settlementUnitUsdtOverride,
       );
-      const quoteReference = `campaign:${campaign.id}:rate:${campaign.usdt_per_usd}${cryptoTestPriceApplied ? ":crypto-test" : ""}`;
+      const quoteReference = coupon ? `coupon:${coupon.id}` : `campaign:${campaign.id}:rate:${campaign.usdt_per_usd}${cryptoTestPriceApplied ? ":crypto-test" : ""}`;
       const encryptedApplication = encryptInvestorApplication(payload.investorApplication);
       const applicationSummary = {
         applicantType: payload.investorApplication.applicantType,
@@ -2286,9 +2317,9 @@ export const createPresaleOrder = api<CreatePresaleOrderRequest, { order: Presal
            (id, order_reference, campaign_id, invitation_id, buyer_name, buyer_email, buyer_phone, external_profile_id, quantity,
             unit_price_usdt, total_usdt, unit_price_usd, total_usd, usdt_per_usd, quote_reference, idempotency_key_hash, request_hash, access_token_hash, terms_version,
             terms_accepted_at, investor_application, investor_application_ciphertext, investor_application_nonce,
-            investor_application_auth_tag, investor_application_version, investor_application_accepted_at, payment_deadline)
+            investor_application_auth_tag, investor_application_version, investor_application_accepted_at, payment_deadline, payment_rail, coupon_id)
           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::numeric,$11::numeric,$12::numeric,$13::numeric,$14::numeric,$15,$16,$17,$18,$19,now(),
-                  $20::jsonb,$21,$22,$23,$24,now(),now() + ($25::int * interval '1 minute'))
+                  $20::jsonb,$21,$22,$23,$24,now(),now() + ($25::int * interval '1 minute'),$26,$27)
           RETURNING id, order_reference, campaign_id, buyer_name, buyer_email, external_profile_id, quantity,
                     payment_rail, unit_price_zar::text AS unit_price_zar, total_zar::text AS total_zar,
                     unit_price_usdt::text AS unit_price_usdt, total_usdt::text AS total_usdt, unit_price_usd::text AS unit_price_usd,
@@ -2297,10 +2328,11 @@ export const createPresaleOrder = api<CreatePresaleOrderRequest, { order: Presal
                     payment_obligation_id,payment_intent_id,payment_network,payment_receiving_address,payment_token_contract,
                     payment_min_confirmations,payment_settled_at,created_at`,
         orderId, orderReference, campaign.id, invitation.id, payload.buyerName.trim(), email, payload.buyerPhone?.trim() ?? null, session.profile.id,
-        payload.quantity, quote.unitUsdt, quote.totalUsdt, campaign.price_usd, quote.totalUsd, campaign.usdt_per_usd, quoteReference,
+        payload.quantity, quote.unitUsdt, quote.totalUsdt, coupon ? "0" : campaign.price_usd, quote.totalUsd, campaign.usdt_per_usd, quoteReference,
         idempotencyHash, requestHash, hashSecret(accessToken), PRESALE_TERMS_VERSION,
         JSON.stringify(applicationSummary), encryptedApplication.ciphertext, encryptedApplication.nonce,
-        encryptedApplication.authTag, INVESTOR_APPLICATION_VERSION, campaign.payment_window_minutes);
+        encryptedApplication.authTag, INVESTOR_APPLICATION_VERSION, campaign.payment_window_minutes,
+        coupon ? "complimentary_coupon" : "remitano_usdt", coupon?.id ?? null);
       if (!order) throw new Error("presale_order_not_created");
       // Preserve the source application link used by repeat-purchase authority.
       // The sealed order payload remains the certificate holder source of truth.
@@ -2325,6 +2357,16 @@ export const createPresaleOrder = api<CreatePresaleOrderRequest, { order: Presal
         campaignTestPriceApplied,
         cryptoTestPriceApplied,
       );
+      if (coupon) {
+        await tx.rawExec("UPDATE presale_coupon_policies SET granted_shares=granted_shares+$2 WHERE campaign_id=$1",campaign.id,payload.quantity);
+        await tx.rawExec("UPDATE presale_share_coupons SET status='redeemed',redeemed_by=$2,redeemed_at=now(),redeemed_order_id=$3 WHERE id=$1",coupon.id,session.profile.id,order.id);
+        await tx.rawExec("UPDATE presale_campaigns SET reserved_shares=reserved_shares-$2,sold_shares=sold_shares+$2 WHERE id=$1",campaign.id,payload.quantity);
+        await tx.rawExec("UPDATE presale_orders SET status='confirmed',confirmed_at=now() WHERE id=$1",order.id);
+        await tx.rawExec("INSERT INTO presale_coupon_audit(campaign_id,coupon_id,actor_id,action,details) VALUES ($1,$2,$3,'redeemed',$4::jsonb)",campaign.id,coupon.id,session.profile.id,JSON.stringify({ orderReference }));
+        await enqueuePresaleIssuanceRequest(tx,order.id,orderReference);
+        order.status = "confirmed";
+        order.confirmed_at = new Date().toISOString();
+      }
       order.payment_rail = payload.paymentRail;
       order.unit_price_zar = payload.paymentRail === "webpay_card" ? webPayUnitPriceZar : null;
       order.total_zar = totalZar;
@@ -2333,7 +2375,7 @@ export const createPresaleOrder = api<CreatePresaleOrderRequest, { order: Presal
       }
       await tx.commit();
       const intent = order.payment_rail === "remitano_usdt" ? await ensurePresalePaymentIntent(order, campaign) : undefined;
-      const emailStatus = await safelyEnsurePresaleReservationCreatedEmail(order, campaign, intent?.network ?? "webpay");
+      const emailStatus = order.payment_rail === "complimentary_coupon" ? "existing" as const : await safelyEnsurePresaleReservationCreatedEmail(order, campaign, intent?.network ?? "webpay");
       return { order: orderResponse(order, campaign, null, 0, intent), accessToken, emailStatus };
     } catch (error) {
       try { await tx.rollback(); } catch { /* transaction may already be closed */ }
@@ -3306,7 +3348,7 @@ export const reconcileConfirmedPresaleOrders = api<void, { incorporated: number;
   { method: "POST", path: "/internal/presale/reconcile-incorporation", expose: false },
   async () => {
     const rows = await presaleDb.rawQueryAll<{ id: string; order_reference: string }>(`SELECT id,order_reference FROM presale_orders
-      WHERE status='confirmed' AND incorporation_status='pending' AND payment_settled_at IS NOT NULL
+      WHERE status='confirmed' AND incorporation_status='pending' AND (payment_settled_at IS NOT NULL OR payment_rail='complimentary_coupon')
       ORDER BY confirmed_at,created_at LIMIT 100`);
     for (const row of rows) await ensurePresaleIssuanceRequest(row.id, row.order_reference);
     return processPresaleIssuanceOutbox();
