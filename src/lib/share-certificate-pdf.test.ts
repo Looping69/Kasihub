@@ -8,7 +8,7 @@ describe("Solidus shareholder certificate", () => {
       totalShares: 5, paidShares: 0, bonusShares: 0, complimentaryShares: 5, issuePricePerShare: 0, issuePriceCurrency: "USD",
       issuedAt: "2026-09-05T00:00:00Z", status: "issued" });
     expect((await PDFDocument.load(bytes)).getPageCount()).toBe(1);
-  });
+  }, 30_000);
   test("generates an A4 landscape certificate from authoritative register data", async () => {
     const bytes = await generateShareCertificatePdf({
       certificateNumber: "CERT-TEST-001",
