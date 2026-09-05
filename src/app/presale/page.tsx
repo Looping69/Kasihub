@@ -2,6 +2,7 @@
 import type { Metadata } from "next";
 import { isLocalPresalePreviewRequested } from "@/lib/presale-dev-preview";
 import { PresaleClient } from "./presale-client";
+import { SharesCobrowse } from "@/components/shares-cobrowse";
 
 export const metadata: Metadata = {
   title: "Private KaSiShares Presale | KaSiHUB",
@@ -15,5 +16,5 @@ export default async function PresalePage({ searchParams }: { searchParams: Prom
   // This is deliberately server-gated. It never exists in a deployed build.
   // Author: Klaasvaakie ( |╲ )
   const readOnlyPreview = isLocalPresalePreviewRequested(devPreview);
-  return <PresaleClient inviteToken={invite} devPreview={readOnlyPreview} />;
+  return <><SharesCobrowse /><PresaleClient inviteToken={invite} devPreview={readOnlyPreview} /></>;
 }

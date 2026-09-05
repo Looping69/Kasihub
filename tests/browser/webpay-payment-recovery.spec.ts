@@ -3,6 +3,60 @@ import { expect, test } from "@playwright/test";
 
 const ORDER_REFERENCE = "KSP-WEBPAY-TEST-01";
 
+test.beforeEach(async ({ page }) => {
+  // Payment fixtures should not register devices or depend on a support provider.
+  // SDK lifecycle and outage behavior are covered in shares-cobrowse.spec.ts.
+  await page.route("https://js.cobrowse.io/CobrowseIO.js", (route) => route.fulfill({
+    contentType: "application/javascript", body: "window.CobrowseIO = { async start() {}, async stop() {} };",
+  }));
+});
+
+for (const width of [390, 1440]) {
+  for (const eligible of [true, false]) {
+    test(`buy more shares stays visible when eligible=${eligible} at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.route("**/api/theme", (route) => route.fulfill({ json: {} }));
+      await page.route("**/api/presale/portal", (route) => route.fulfill({
+        json: { ...webPayPortalPayload("issued"), additionalPurchase: { eligible } },
+      }));
+      let purchases = 0;
+      await page.route("**/api/presale/additional-purchase", (route) => {
+        purchases++;
+        expect(route.request().method()).toBe("POST");
+        return route.fulfill({ json: { purchaseUrl: "/presale?invite=additional-purchase-fixture" } });
+      });
+      await page.route("**/presale?invite=additional-purchase-fixture", (route) => route.fulfill({
+        contentType: "text/html", body: "<h1>Additional purchase</h1>",
+      }));
+      await page.goto("/shares/account");
+      const button = page.getByRole("button", { name: "Buy more shares", exact: true });
+      await button.scrollIntoViewIfNeeded();
+      await expect(button).toBeVisible();
+      expect(await button.evaluate((element) => {
+        const rect = element.getBoundingClientRect();
+        for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+          const style = getComputedStyle(parent);
+          const bounds = parent.getBoundingClientRect();
+          if (/(hidden|clip|auto|scroll)/.test(style.overflowX) && (rect.left < bounds.left - 1 || rect.right > bounds.right + 1)) return false;
+          if (/(hidden|clip|auto|scroll)/.test(style.overflowY) && (rect.top < bounds.top - 1 || rect.bottom > bounds.bottom + 1)) return false;
+        }
+        return true;
+      })).toBe(true);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      if (eligible) {
+        await expect(button).toBeEnabled();
+        await button.click();
+        await expect(page.getByRole("heading", { name: "Additional purchase" })).toBeVisible();
+        expect(purchases).toBe(1);
+      } else {
+        await expect(button).toBeDisabled();
+        await expect(page.getByText("Another purchase is not currently available", { exact: false })).toBeVisible();
+        expect(purchases).toBe(0);
+      }
+    });
+  }
+}
+
 // The presale landing page must not turn a completed allocation back into a bill.
 for (const width of [390, 1440]) {
   for (const rail of ["webpay_card", "remitano_usdt"] as const) {

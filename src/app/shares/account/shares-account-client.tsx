@@ -642,13 +642,14 @@ function ShareholderPortfolio({ shareholder, additionalPurchase, onPurchaseMore,
     <div className="flex flex-wrap items-end justify-between gap-4">
       <div><p className="text-xs font-bold uppercase tracking-[.18em] text-amber-300">Shareholder dashboard</p><h2 className="mt-2 text-2xl font-black">Your KaSiShares</h2><p className="mt-2 text-sm text-slate-300">Campaign allocations and certificates are read directly from the authoritative share register.</p></div>
       <div className="flex flex-wrap items-center justify-end gap-3">
-        {additionalPurchase?.eligible ? <Button type="button" disabled={startingAdditionalPurchase} onClick={() => void onPurchaseMore()} className="h-auto min-h-12 w-full min-w-0 max-w-full whitespace-normal sm:w-auto bg-amber-400 font-bold text-slate-950 hover:bg-amber-300 disabled:opacity-60">
+        <Button type="button" disabled={startingAdditionalPurchase || !additionalPurchase?.eligible} aria-describedby={!additionalPurchase?.eligible ? "additional-purchase-unavailable" : undefined} onClick={() => void onPurchaseMore()} className="h-auto min-h-12 w-full min-w-0 max-w-full whitespace-normal sm:w-auto bg-amber-400 font-bold text-slate-950 hover:bg-amber-300 disabled:opacity-60">
           {startingAdditionalPurchase ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : <ShoppingCart className="mr-2 h-4 w-4" />}
-          {startingAdditionalPurchase ? "Opening purchase…" : "Purchase more shares"}
-        </Button> : null}
+          {startingAdditionalPurchase ? "Opening purchase…" : "Buy more shares"}
+        </Button>
         <div className="rounded-xl border border-emerald-300/20 bg-emerald-400/10 px-5 py-3 text-right"><p className="text-xs uppercase tracking-wider text-emerald-200">Issued shares</p><p className="text-2xl font-black text-white">{shareholder.totalIssuedShares.toLocaleString()}</p></div>
       </div>
     </div>
+    {!additionalPurchase?.eligible ? <p id="additional-purchase-unavailable" className="mt-4 text-sm text-slate-300">Another purchase is not currently available for this account. Check any existing reservation above or contact KaSiHub support.</p> : null}
     <div className="mt-6 grid min-w-0 gap-4">
       {shareholder.holdings.map((holding) => <article key={holding.orderReference} className="min-w-0 break-words rounded-xl border border-white/10 bg-black/15 p-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
