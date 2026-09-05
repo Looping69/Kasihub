@@ -12,6 +12,9 @@ for (const width of [390, 1440]) {
         await page.setViewportSize({ width, height: 900 });
         const errors: string[] = [];
         page.on("pageerror", (error) => errors.push(error.message));
+        page.on("console", (message) => {
+          if (message.type() === "error" || message.type() === "warning") errors.push(message.text());
+        });
         const portal = webPayPortalPayload(state === "closed" || state === "open" ? "awaiting_payment" : state);
         Object.assign(portal.applicant, { phone: "+27820000000", country: "South Africa", physicalAddress: "Test address" });
         Object.assign(portal.currentReservation, {
